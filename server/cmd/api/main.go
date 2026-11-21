@@ -83,7 +83,8 @@ func main() {
 	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy,
 		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
 		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", Token: controlToken,
-		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY")}
+		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
+		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS")}
 	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}
 	serviceCtx, stopService := context.WithCancel(context.Background())
 	defer stopService()

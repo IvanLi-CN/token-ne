@@ -52,6 +52,7 @@ services:
       CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
       CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
       CORE_CACHE_KEY: ${CORE_CACHE_KEY:?set CORE_CACHE_KEY in the deployment environment}
+      CORE_ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:?set an absolute CORE_STATE_HOST_DIR}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in the deployment environment}
@@ -118,6 +119,7 @@ services:
       CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
       CORE_CONFIG_OVERRIDE: /var/lib/token-ne/state/config.override.json
       CORE_CACHE_KEY: ${CORE_CACHE_KEY:?set CORE_CACHE_KEY in the deployment environment}
+      CORE_ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       CORE_STATE_DIR: /var/lib/token-ne/state
       CORE_LISTEN: 0.0.0.0:8080
       CORE_METRICS_LISTEN: 0.0.0.0:9091

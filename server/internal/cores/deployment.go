@@ -94,7 +94,7 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	for n := 0; n < req.Replicas; n++ {
 		instance := uuid.NewString()
 		name := fmt.Sprintf("token-ne-core-%s-%s-%d", slug(req.Version), id[:8], n+1)
-		specs = append(specs, ContainerSpec{Instance: instance, Version: req.Version, Deployment: id, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey})
+		specs = append(specs, ContainerSpec{Instance: instance, Version: req.Version, Deployment: id, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams})
 		weights[instance] = 100 / req.Replicas
 		if n < 100%req.Replicas {
 			weights[instance]++
