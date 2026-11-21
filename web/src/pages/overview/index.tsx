@@ -41,7 +41,7 @@ export default function OverviewPage() {
       <ProximitySurface className="overview-status">
         <span className="placeholder-label">数据状态</span>
         <strong>尚无生产数据</strong>
-        <span>待 overview 与 usage 查询接口接入后显示</span>
+        <span className="overview-note">待 overview 与 usage 查询接口接入后显示</span>
       </ProximitySurface>
       <MorphGroup>
         {indicators.map((item) => (
