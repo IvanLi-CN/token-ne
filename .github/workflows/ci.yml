@@ -39,6 +39,23 @@ jobs:
       - run: go build ./...
         working-directory: server
 
+  e2e-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.4
+          cache-dependency-path: tests/e2e/mock-upstream/go.mod
+      - run: test -z "$(gofmt -l .)"
+        working-directory: tests/e2e/mock-upstream
+      - run: go vet ./...
+        working-directory: tests/e2e/mock-upstream
+      - run: go test ./...
+        working-directory: tests/e2e/mock-upstream
+      - run: go build ./...
+        working-directory: tests/e2e/mock-upstream
+
   web:
     runs-on: ubuntu-latest
     steps:
