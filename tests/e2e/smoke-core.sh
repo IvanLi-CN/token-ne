@@ -113,4 +113,21 @@ curl -sS -D "$TMP/bad.headers" -o "$TMP/bad.body" \
 [[ "$(head -1 "$TMP/bad.headers" | awk '{print $2}')" == "400" ]] || fail "expected 400"
 grep -qi '^x-token-ne-attempts: 1' "$TMP/bad.headers" || fail "400 was retried"
 
+echo "core smoke: retry exhaustion rewrites 503"
+curl -sS -X POST "http://127.0.0.1:${MOCK_PORT}/__mock/reset" \
+  -H 'Content-Type: application/json' -d '{}' >/dev/null
+curl -sS -X POST "http://127.0.0.1:${MOCK_PORT}/__mock/scenarios" \
+  -H 'Content-Type: application/json' \
+  -d '{"scenarios":[{"status":503,"retry_after":"1"},{"status":503,"retry_after":"1"}]}' >/dev/null
+curl -sS -D "$TMP/exhausted.headers" -o "$TMP/exhausted.body" \
+  -X POST "http://127.0.0.1:${CORE_PORT}/v1/chat/completions" \
+  -H 'Authorization: Bearer test-key' -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}'
+[[ "$(head -1 "$TMP/exhausted.headers" | awk '{print $2}')" == "503" ]] || fail "expected rewritten 503"
+grep -qi '^x-token-ne-attempts: 2' "$TMP/exhausted.headers" || fail "expected two attempts"
+grep -qi '^x-token-ne-retryable: true' "$TMP/exhausted.headers" || fail "missing retryable header"
+grep -qi '^x-token-ne-upstream-status: 503' "$TMP/exhausted.headers" || fail "missing original upstream status"
+grep -qi '^retry-after: 1' "$TMP/exhausted.headers" || fail "missing Retry-After"
+jq -e '.error.code == "upstream_unavailable"' "$TMP/exhausted.body" >/dev/null || fail "unexpected rewritten error body"
+
 echo "core smoke: PASS"
