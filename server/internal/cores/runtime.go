@@ -493,7 +493,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				if e = tx.QueryRow(ctx, `select image_ref from core_versions where id=$1`, row.versionID).Scan(&image); e != nil {
 					return e
 				}
-				if _, e = tx.Exec(ctx, `update core_instances set state='pending',weight=0,config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
+				if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e
 				}
 				spec := ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams}
@@ -533,7 +533,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 			return ErrConflict
 		}
 		if shouldRestart(state, c.State) {
-			if _, e = tx.Exec(ctx, `update core_instances set state='pending',weight=0,config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
+			if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 				return e
 			}
 			if e = r.Docker.Start(ctx, c.ID); e != nil {
