@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strconv"
@@ -234,6 +235,7 @@ func (h *HTTP) heartbeat(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if e = h.Runtime.Heartbeat(ctx, id, envelope); e != nil {
+		slog.Warn("core heartbeat failed", "instance", id, "error", e)
 		mapInternal(w, e)
 		return
 	}
@@ -353,6 +355,7 @@ func (h *HTTP) shift(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	id := r.PathValue("deployment_id")
 	if e := h.Runtime.Shift(ctx, id, input.Weights); e != nil {
+		slog.Warn("core shift failed", "deployment", id, "weights", input.Weights, "error", e)
 		mapAdmin(w, e)
 		return
 	}

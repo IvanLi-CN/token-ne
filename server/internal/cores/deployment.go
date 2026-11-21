@@ -113,6 +113,9 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	}
 	created := []string{}
 	for _, spec := range specs {
+		if createErr := r.Docker.EnsureStateDir(ctx, spec.StateHostDir, spec.Instance); createErr != nil {
+			return Deployment{}, r.failDeploy(ctx, id, created, createErr)
+		}
 		container, createErr := r.Docker.Create(ctx, spec)
 		if createErr != nil {
 			return Deployment{}, r.failDeploy(ctx, id, created, createErr)
@@ -322,7 +325,10 @@ func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) 
 	if e != nil {
 		return e
 	}
-	// The public contract accepts version weights; resolve them to instance IDs.
+	expected := p.weights(p.Stage + 1)
+	// The public contract accepts version weights; resolve them only against
+	// instances in this deployment. Another instance may run the same version
+	// (for example the baseline during a first rollout) and must not absorb it.
 	resolved := map[string]int{}
 	for key, weight := range weights {
 		if weight < 0 || weight > 100 {
@@ -330,6 +336,9 @@ func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) 
 		}
 		ids := []string{}
 		for _, i := range instances {
+			if _, ok := expected[i.ID]; !ok {
+				continue
+			}
 			if i.ID == key || i.Version == key {
 				ids = append(ids, i.ID)
 			}
@@ -337,14 +346,13 @@ func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) 
 		if len(ids) == 0 {
 			return ErrUnknown
 		}
-		for n, key := range ids {
-			resolved[key] = weight / len(ids)
+		for n, id := range ids {
+			resolved[id] = weight / len(ids)
 			if n < weight%len(ids) {
-				resolved[key]++
+				resolved[id]++
 			}
 		}
 	}
-	expected := p.weights(p.Stage + 1)
 	if len(resolved) != len(expected) {
 		return ErrInvalid
 	}

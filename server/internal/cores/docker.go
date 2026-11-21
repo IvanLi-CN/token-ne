@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -49,8 +51,9 @@ type ContainerSpec struct {
 }
 
 type Engine struct {
-	HTTP *http.Client
-	Base string
+	HTTP           *http.Client
+	Base           string
+	StateInitImage string
 }
 
 func NewEngine(dockerHost string) (*Engine, error) {
@@ -71,7 +74,49 @@ func NewEngine(dockerHost string) (*Engine, error) {
 		}
 		return (&net.Dialer{}).DialContext(ctx, "tcp", u.Host)
 	}}
-	return &Engine{HTTP: &http.Client{Transport: tr, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, Base: "http://docker/v1.44"}, nil
+	return &Engine{HTTP: &http.Client{Transport: tr, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, Base: "http://docker/v1.44", StateInitImage: "busybox:1.37"}, nil
+}
+
+// EnsureStateDir creates the per-instance host directory with the core UID.
+// Docker creates missing bind-mount directories as root, which the non-root core
+// cannot write. A short-lived helper runs with the parent directory mounted.
+func (e *Engine) EnsureStateDir(ctx context.Context, hostDir, instance string) error {
+	if !filepath.IsAbs(hostDir) || !UUID(instance, false) || e.StateInitImage == "" {
+		return ErrInvalid
+	}
+	name := "token-ne-state-init-" + uuid.NewString()
+	spec := struct {
+		Image      string            `json:"Image"`
+		Cmd        []string          `json:"Cmd"`
+		Labels     map[string]string `json:"Labels"`
+		HostConfig struct {
+			Binds       []string `json:"Binds"`
+			NetworkMode string   `json:"NetworkMode"`
+			AutoRemove  bool     `json:"AutoRemove"`
+		} `json:"HostConfig"`
+	}{Image: e.StateInitImage, Cmd: []string{"sh", "-c",
+		"mkdir -p /state/" + instance + " && chown 10001:10001 /state/" + instance + " && chmod 700 /state/" + instance},
+		Labels: map[string]string{"com.token-ne.role": "state-init"}}
+	spec.HostConfig.Binds = []string{filepath.Clean(hostDir) + ":/state"}
+	spec.HostConfig.NetworkMode = "none"
+	var created Container
+	if err := e.call(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(name), spec, &created); err != nil {
+		return err
+	}
+	defer e.Remove(context.WithoutCancel(ctx), created.ID, true)
+	if err := e.Start(ctx, created.ID); err != nil {
+		return err
+	}
+	var result struct {
+		StatusCode int `json:"StatusCode"`
+	}
+	if err := e.call(ctx, http.MethodPost, "/containers/"+url.PathEscape(created.ID)+"/wait", nil, &result); err != nil {
+		return err
+	}
+	if result.StatusCode != 0 {
+		return fmt.Errorf("state directory helper exited with status %d", result.StatusCode)
+	}
+	return nil
 }
 
 func (e *Engine) call(ctx context.Context, method, path string, body any, dst any, allowed ...int) error {

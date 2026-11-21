@@ -64,6 +64,9 @@ func main() {
 		slog.Error("Docker API configuration failed", "error", err)
 		os.Exit(1)
 	}
+	if image := os.Getenv("CORE_STATE_INIT_IMAGE"); image != "" {
+		docker.StateInitImage = image
+	}
 	caddySettings := caddy.Settings{Socket: os.Getenv("CADDY_ADMIN_URL"), Domain: os.Getenv("PUBLIC_DOMAIN"),
 		TLSMode: os.Getenv("CADDY_TLS_MODE"), APIAddress: "api:8080"}
 	if len(caddySettings.Socket) > 6 && caddySettings.Socket[:7] == "unix://" {

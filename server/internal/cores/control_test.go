@@ -113,6 +113,7 @@ type fakeDocker struct {
 	containers             []Container
 }
 
+func (d *fakeDocker) EnsureStateDir(context.Context, string, string) error { return nil }
 func (d *fakeDocker) Create(context.Context, ContainerSpec) (Container, error) {
 	return Container{ID: "created"}, nil
 }

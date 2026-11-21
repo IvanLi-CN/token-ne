@@ -25,6 +25,7 @@ func (r *Runtime) database() Database {
 }
 
 type Docker interface {
+	EnsureStateDir(context.Context, string, string) error
 	Create(context.Context, ContainerSpec) (Container, error)
 	Start(context.Context, string) error
 	Stop(context.Context, string, time.Duration) error

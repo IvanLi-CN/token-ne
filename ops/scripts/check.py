@@ -25,23 +25,29 @@ def check():
     compose = yaml('ops/compose.yaml')
     services = compose['services']
     expected = {'postgres': {'data'}, 'socket-proxy': {'data'},
-                'api': {'edge', 'core-control', 'data'}, 'caddy': {'edge'},
-                'core': {'edge', 'core-control'}}
+                'api': {'edge', 'core-control', 'data'}, 'caddy-init': set(),
+                'caddy': {'edge'}, 'core': {'edge', 'core-control'}}
     require(set(services) == set(expected), 'unexpected Compose services')
     require(set(compose['networks']) == {'edge', 'core-control', 'data'}, 'network set changed')
     for name, networks in expected.items():
         service = services[name]
-        require(set(service['networks']) == networks, f'{name}: incorrect networks')
-        require(not service.get('network_mode') and not service.get('privileged'), f'{name}: unsafe host access')
+        if name == 'caddy-init':
+            require(not service.get('networks') and service.get('network_mode') == 'none', 'caddy-init must not join a network')
+        else:
+            require(set(service['networks']) == networks, f'{name}: incorrect networks')
+            require(not service.get('network_mode'), f'{name}: unsafe host access')
+        require(not service.get('privileged'), f'{name}: unsafe host access')
         if name not in {'api', 'caddy'}:
             require(not service.get('ports'), f'{name}: host ports forbidden')
     require(services['caddy']['ports'] == ['127.0.0.1:${CADDY_HTTP_PORT:-8080}:80'], 'Caddy must bind loopback HTTP only')
+    require(services['caddy'].get('user') == '65532:65532', 'Caddy must share the API UID')
+    require(services['caddy'].get('cap_add') == ['NET_BIND_SERVICE'], 'Caddy needs only NET_BIND_SERVICE')
     require(services['api']['ports'] == ['127.0.0.1:${METRICS_PORT:-9090}:9090'], 'API may only publish loopback metrics')
     require(services['api']['environment']['CADDY_ADMIN_URL'] == 'unix:///run/caddy/admin.sock', 'API admin must use Unix socket')
     for name, service in services.items():
         mounts = service.get('volumes', [])
         require(not any('docker.sock' in m for m in mounts) or name == 'socket-proxy', 'Docker socket escaped proxy')
-        require(not any('caddy_admin:' in m for m in mounts) or name in {'api', 'caddy'}, 'admin socket escaped API/Caddy')
+        require(not any('caddy_admin:' in m for m in mounts) or name in {'api', 'caddy', 'caddy-init'}, 'admin socket escaped API/Caddy')
     require(not any('CORE_STATE_HOST_DIR' in m for m in services['api']['volumes']), 'API must not mount core state')
 
     caddy = json.loads((ROOT / 'ops/caddy/bootstrap.json').read_text())

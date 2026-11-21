@@ -87,6 +87,7 @@ impl UsageClient {
             .bearer_auth(&self.token)
             .header("x-token-ne-protocol-version", "1")
             .header("x-token-ne-request-id", message_id)
+            .header("x-token-ne-instance-id", &self.instance)
             .header("idempotency-key", batch_id)
             .json(&body)
             .send()
@@ -99,6 +100,7 @@ impl UsageClient {
             }
             422 => {
                 let detail: serde_json::Value = response.json().await.unwrap_or_default();
+                let detail_text = detail.to_string();
                 let index = detail["details"]
                     .as_array()
                     .and_then(|d| d.iter().find_map(|v| v["path"].as_str()))
@@ -118,7 +120,7 @@ impl UsageClient {
                     }
                 } else {
                     self.spool.record_send("retry");
-                    tracing::warn!("usage batch 422 had no isolatable event path");
+                    tracing::warn!(detail = %detail_text, "usage batch 422 had no isolatable event path");
                     Ok(BatchResult::Retained)
                 }
             }
@@ -128,7 +130,9 @@ impl UsageClient {
                 Ok(BatchResult::Retained)
             }
             _ => {
+                let body = response.text().await.unwrap_or_default();
                 self.spool.record_send("retry");
+                tracing::warn!(status, body = %body, "usage batch retry response");
                 Ok(BatchResult::Retained)
             }
         }

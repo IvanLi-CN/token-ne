@@ -383,26 +383,14 @@ func (r *Runtime) PushAll(ctx context.Context) error {
 }
 
 func (r *Runtime) Run(ctx context.Context) {
-	// Startup reconciliation is retried even when Docker is briefly unavailable.
-	func() {
-		delay := time.Second
-		for ctx.Err() == nil {
-			c, cancel := context.WithTimeout(ctx, 30*time.Second)
-			e := r.Reconcile(c)
-			cancel()
-			if e == nil {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(delay):
-			}
-			if delay < 30*time.Second {
-				delay *= 2
-			}
-		}
-	}()
+	// Attempt startup reconciliation once, then let the periodic loop retry and
+	// report failures. A silent startup retry loop would stop deployment and
+	// config advancement forever when Docker is briefly unavailable.
+	c, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if e := r.Reconcile(c); e != nil {
+		slog.Warn("core startup reconciliation failed", "error", e)
+	}
+	cancel()
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -508,7 +496,11 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				if _, e = tx.Exec(ctx, `update core_instances set state='pending',weight=0,config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e
 				}
-				replacement, createErr := r.Docker.Create(ctx, ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams})
+				spec := ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams}
+				if createErr := r.Docker.EnsureStateDir(ctx, spec.StateHostDir, spec.Instance); createErr != nil {
+					return createErr
+				}
+				replacement, createErr := r.Docker.Create(ctx, spec)
 				if createErr != nil {
 					return createErr
 				}

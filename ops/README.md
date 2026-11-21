@@ -15,7 +15,7 @@
 
 网络名固定为 `token_ne_edge`、`token_ne_core_control`、`token_ne_data`，动态核心使用相同网络。不要在同一 Docker daemon 上并行部署使用相同网络名的独立项目。核心不能加入 `data`，不能挂载数据库、Docker socket 或 Caddy 管理目录；API 不挂载核心状态目录。socket-proxy 即使只读挂载 Docker socket，允许的 Docker API 写操作仍有宿主级权限，不能发布其端口。
 
-Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后将 `/v1/*` 转发到基线核心、`/api/*` 与健康路径转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
+Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。API 与 Caddy 都固定为 UID/GID `65532:65532`；`caddy-init` 在启动前把三个 Caddy 卷 chown 给该 UID，避免 Caddy 重建 socket 后权限回退。Caddy 只保留 `NET_BIND_SERVICE` 以绑定容器内 80。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后将 `/v1/*` 转发到基线核心、`/api/*` 与健康路径转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
 
 ## 环境变量
 
@@ -35,7 +35,7 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `CORE_CONFIG_SIGNATURE_MODE` | `off` / `warn`（默认）/ `enforce`；签名不替代内部令牌认证 |
 | `METRICS_TOKEN` | 必需，独立随机抓取令牌；与 Prometheus credentials 文件内容一致 |
 | `CORE_STATE_HOST_DIR` | 必需，宿主绝对目录，权限 `0700`；每个 core 仅挂载自己的实例子目录 |
-| `CORE_IMAGE`、`CORE_VERSION` | 开发默认 `token-ne-core:dev` / `dev`；生产显式设置真实版本与不可变镜像或 digest，本地 build 保留为开发入口 |
+| `CORE_IMAGE`、`CORE_VERSION` | 默认 `token-ne-core:0.1.0` / `0.1.0`；生产显式设置真实版本与不可变镜像或 digest，本地 build 保留为开发入口 |
 | `COMPOSE_PROJECT_NAME` | 示例为 `token-ne`；动态容器的项目标签必须与之相符，固定网络名不会随项目名变化 |
 | `CADDY_HTTP_PORT`、`METRICS_PORT` | 默认 `8080` / `9090`，均仅绑定 loopback |
 | `CADDY_TLS_MODE` | 默认 `off`，生产基线依赖外部 TLS 反向代理 |
