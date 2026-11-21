@@ -1,6 +1,7 @@
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { queryClient } from "../lib/query-client";
+import { AdaptiveStateProvider } from "./adaptive-state";
 import { ThemeProvider } from "./theme";
 
 export function AppProviders({
@@ -12,7 +13,9 @@ export function AppProviders({
 }) {
   return (
     <QueryClientProvider client={client}>
-      <ThemeProvider>{children}</ThemeProvider>
+      <AdaptiveStateProvider>
+        <ThemeProvider>{children}</ThemeProvider>
+      </AdaptiveStateProvider>
     </QueryClientProvider>
   );
 }

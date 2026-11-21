@@ -1,15 +1,22 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
-export function Button({
-  variant = "primary",
-  className = "",
-  type = "button",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
-  return <button type={type} className={`button button-${variant} ${className}`} {...props} />;
-}
-export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`input ${className}`} {...props} />;
-}
+import {
+  type ButtonHTMLAttributes,
+  forwardRef,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
+export const Button = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }
+>(function Button({ variant = "primary", className = "", type = "button", ...props }, ref) {
+  return (
+    <button ref={ref} type={type} className={`button button-${variant} ${className}`} {...props} />
+  );
+});
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className = "", ...props }, ref) {
+    return <input ref={ref} className={`input ${className}`} {...props} />;
+  },
+);
 export function StatusBadge({
   children,
   tone = "neutral",

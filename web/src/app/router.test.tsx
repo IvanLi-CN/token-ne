@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../components/confirm-dialog";
+import { MorphGroup, MorphPanel } from "../components/morph-panel";
 import { Button } from "../components/primitives";
 import { apiRequest, onUnauthorized } from "../lib/api";
 import { safeReturnPath } from "../lib/guards";
@@ -28,6 +29,7 @@ function mount(path: string) {
 }
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -183,6 +185,42 @@ describe("shared boundaries", () => {
       details: [{ path: "model_id", reason: "required" }],
     });
     expect(unauthorized).toHaveBeenCalledOnce();
+  });
+  it("opens a searchable command panel, records explicit pins and resets preferences", async () => {
+    localStorage.clear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    const search = await screen.findByRole("textbox", { name: "搜索页面" });
+    expect(document.activeElement).toBe(search);
+    fireEvent.change(search, { target: { value: "Models" } });
+    const panel = screen.getByRole("region", { name: "命令面板" });
+    expect(panel.querySelector('a[href="/models"]')).toBeTruthy();
+    expect(panel.querySelector('a[href="/upstreams"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "固定 Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "重置固定与最近" }));
+    expect(localStorage.getItem("token-ne.navigation.v1")).toContain('"pinned":[]');
+    expect(screen.getByRole("link", { name: "总览" })).toBeTruthy();
+  });
+  it("expands one morph panel at a time and restores focus on Escape", () => {
+    render(
+      <MorphGroup>
+        <MorphPanel title="用量" summary="等待数据" detail="用量说明" />
+        <MorphPanel title="请求" summary="尚无记录" detail="请求说明" />
+      </MorphGroup>,
+    );
+    const first = screen.getByRole("button", { name: /用量/ });
+    fireEvent.click(first);
+    expect(first.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("用量说明")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /请求/ }));
+    expect(first.getAttribute("aria-expanded")).toBe("false");
+    const second = screen.getByRole("button", { name: /请求/ });
+    expect(second.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(second.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(second);
   });
   it("opens an accessible confirmation and requires explicit action", async () => {
     const confirm = vi.fn();

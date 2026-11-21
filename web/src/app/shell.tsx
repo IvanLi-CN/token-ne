@@ -8,8 +8,10 @@ import {
   useNavigate,
   useNavigation,
 } from "react-router";
+import { CommandPanel } from "../components/command-panel";
 import { Button, Spinner } from "../components/primitives";
 import { type AdminUser, authApi } from "../lib/api";
+import { useAdaptiveState } from "./adaptive-state";
 import { useTheme } from "./theme";
 
 const navigation = [
@@ -23,6 +25,7 @@ const navigation = [
 export function AppShell() {
   const user = useLoaderData() as AdminUser;
   const { theme, toggleTheme } = useTheme();
+  const { visit, pinned, reset } = useAdaptiveState();
   const client = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -34,6 +37,9 @@ export function AppShell() {
       void navigate("/login", { replace: true });
     },
   });
+  useEffect(() => {
+    visit(location.pathname);
+  }, [location.pathname, visit]);
   useEffect(() => {
     const title = navigation.find(([path]) => path === location.pathname)?.[1] ?? "页面未找到";
     document.title = `${title} · token-ne`;
@@ -64,6 +70,7 @@ export function AppShell() {
           ))}
         </nav>
         <div className="command-status">
+          <CommandPanel />
           <span className="operator-indicator" aria-hidden="true" />
           <span className="admin-name">{user.username}</span>
           <Button
@@ -94,7 +101,10 @@ export function AppShell() {
       </main>
       <footer className="system-footer">
         <span>token-ne · 控制面</span>
-        <span>观测实验室</span>
+        <span>已固定 {pinned.length} 个页面</span>
+        <Button variant="secondary" onClick={reset}>
+          重置适配记录
+        </Button>
       </footer>
     </div>
   );
