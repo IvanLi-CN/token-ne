@@ -44,67 +44,63 @@ export function AppShell() {
       <a className="skip-link" href="#main-content">
         跳转到主要内容
       </a>
-      <aside className="sidebar">
-        <div className="brand">
+      <header className="command-bar">
+        <NavLink className="command-brand" to="/" aria-label="token-ne 总览">
           <span className="brand-mark" aria-hidden="true">
             t/n
           </span>
-          <span>
-            token-ne<small>OBSERVATION LAB</small>
-          </span>
-        </div>
-        <p className="nav-label">工作区</p>
-        <nav aria-label="主导航">
+          <span className="brand-name">token-ne</span>
+        </NavLink>
+        <nav className="command-nav" aria-label="主导航">
           {navigation.map(([path, label], index) => (
             <NavLink
               key={path}
               to={path}
               end={path === "/"}
-              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+              className={({ isActive }) => (isActive ? "command-link active" : "command-link")}
             >
               <span className="nav-index" aria-hidden="true">
                 0{index + 1}
               </span>
-              {label}
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
-        <p className="sidebar-footer">
-          网关控制面<span>Phase 1</span>
+        <div className="command-status">
+          <span className="operator-indicator" aria-hidden="true" />
+          <span className="admin-name">{user.username}</span>
+          <Button
+            variant="secondary"
+            onClick={toggleTheme}
+            aria-label={`切换到${theme === "dark" ? "浅色" : "深色"}主题`}
+          >
+            {theme === "dark" ? "浅色" : "深色"}
+          </Button>
+          <Button variant="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>
+            {logout.isPending ? "退出中…" : "退出登录"}
+          </Button>
+        </div>
+      </header>
+      {logout.isError && (
+        <p role="alert" className="logout-error">
+          退出失败，请重试。
         </p>
-      </aside>
-      <div className="workspace">
-        <header className="topbar">
-          <span className="topbar-title">Phase 1 control plane</span>
-          <div className="topbar-actions">
-            <span className="admin-name">{user.username}</span>
-            <Button
-              variant="secondary"
-              onClick={toggleTheme}
-              aria-label={`切换到${theme === "dark" ? "浅色" : "深色"}主题`}
-            >
-              {theme === "dark" ? "浅色" : "深色"}
-            </Button>
-            <Button variant="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>
-              {logout.isPending ? "退出中…" : "退出登录"}
-            </Button>
-          </div>
-        </header>
-        {logout.isError && (
-          <p role="alert" className="logout-error">
-            退出失败，请重试。
-          </p>
-        )}
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="main-content"
-          aria-busy={navigationState.state !== "idle"}
-        >
-          {navigationState.state !== "idle" && <Spinner label="正在切换页面" />}
-          <Outlet />
-        </main>
-      </div>
+      )}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="main-content"
+        aria-busy={navigationState.state !== "idle"}
+      >
+        {navigationState.state !== "idle" && <Spinner label="正在切换页面" />}
+        <Outlet />
+      </main>
+      <footer className="system-footer">
+        <span>token-ne / CONTROL PLANE</span>
+        <span>
+          PHASE 1 <span className="footer-separator">·</span> OBSERVATION LAB
+        </span>
+      </footer>
     </div>
   );
 }

@@ -13,13 +13,17 @@ export function PlaceholderPage({
       <PageHeader
         title={title}
         description={description}
-        actions={<StatusBadge>页面待接入</StatusBadge>}
+        eyebrow={scope}
+        actions={<StatusBadge>待接入</StatusBadge>}
       />
-      <section className="panel" aria-label={`${title}内容`}>
-        <div className="panel-label">{scope}</div>
-        <EmptyState title="此页面尚未接入业务数据">
-          功能正在建设中；接入后将在此显示真实数据与操作。
+      <section className="instrument-placeholder" aria-label={`${title}内容`}>
+        <span className="placeholder-crosshair" aria-hidden="true">
+          +
+        </span>
+        <EmptyState title="尚无业务数据源">
+          功能接入后，此观测面板将在此呈现实时状态与操作。
         </EmptyState>
+        <span className="placeholder-coordinate">SIGNAL / NOT CONNECTED</span>
       </section>
     </>
   );

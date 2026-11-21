@@ -1,5 +1,4 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
-
 export function Button({
   variant = "primary",
   className = "",
@@ -66,24 +65,38 @@ export function ErrorState({
     </div>
   );
 }
+const sectionIndices: Record<string, string> = {
+  总览: "01 / OVERVIEW",
+  请求: "02 / REQUESTS",
+  Models: "03 / MODELS",
+  Upstreams: "04 / UPSTREAMS",
+  "Downstream Keys": "05 / KEYS",
+  Cores: "06 / CORES",
+};
 export function PageHeader({
   title,
   description,
   actions,
+  eyebrow,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  eyebrow?: string;
 }) {
   return (
     <header className="page-header">
-      <div>
-        <h1 tabIndex={-1} id="page-title">
-          {title}
-        </h1>
+      <div className="page-heading">
+        <span className="page-eyebrow">{eyebrow ?? sectionIndices[title] ?? "SYSTEM / ROUTE"}</span>
+        <div className="page-title-row">
+          <h1 tabIndex={-1} id="page-title">
+            {title}
+          </h1>
+          {actions}
+        </div>
         {description && <p>{description}</p>}
       </div>
-      {actions}
+      <div className="header-rule" aria-hidden="true" />
     </header>
   );
 }
