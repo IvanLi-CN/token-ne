@@ -1,0 +1,8 @@
+# 合并到外部 Prometheus 的 scrape_configs；Prometheus 在部署宿主机运行。
+  - job_name: token-ne-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/token-ne-metrics-token
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
