@@ -21,7 +21,7 @@ impl UsageClient {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()?,
-            url: format!("{}/internal/v1/usage/batch", base.trim_end_matches('/')),
+            url: endpoint_url(base),
             token,
             instance,
             spool,
@@ -141,4 +141,21 @@ impl UsageClient {
 enum BatchResult {
     Accepted(Vec<u64>),
     Retained,
+}
+
+fn endpoint_url(base: &str) -> String {
+    base.trim_end_matches('/').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::endpoint_url;
+
+    #[test]
+    fn usage_endpoint_is_used_verbatim() {
+        assert_eq!(
+            endpoint_url("http://api:8080/internal/v1/usage/batch/"),
+            "http://api:8080/internal/v1/usage/batch"
+        );
+    }
 }
