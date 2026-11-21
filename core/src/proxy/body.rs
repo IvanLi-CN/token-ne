@@ -55,17 +55,26 @@ impl RequestBody {
         })
     }
     pub fn rewrite(&self, model: &str, inject_usage: bool) -> Result<Bytes, BodyError> {
-        let mut value = self.value.clone();
-        value["model"] = Value::String(model.into());
+        let mut snapshot = self.clone();
+        snapshot.rewrite_for_attempt(model, inject_usage)
+    }
+
+    /// Update the parsed snapshot in place, then serialize once for this candidate.
+    pub(super) fn rewrite_for_attempt(
+        &mut self,
+        model: &str,
+        inject_usage: bool,
+    ) -> Result<Bytes, BodyError> {
+        self.value["model"] = Value::String(model.into());
         if self.stream && inject_usage {
-            let object = value.as_object_mut().ok_or(BodyError::Invalid)?;
+            let object = self.value.as_object_mut().ok_or(BodyError::Invalid)?;
             let options = object
                 .entry("stream_options")
                 .or_insert_with(|| serde_json::json!({}));
             let options = options.as_object_mut().ok_or(BodyError::Invalid)?;
             options.entry("include_usage").or_insert(Value::Bool(true));
         }
-        serde_json::to_vec(&value)
+        serde_json::to_vec(&self.value)
             .map(Bytes::from)
             .map_err(|_| BodyError::Invalid)
     }
