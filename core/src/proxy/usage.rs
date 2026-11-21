@@ -54,9 +54,9 @@ pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
         http_status: f.status,
         outcome: match f.outcome {
             Outcome::Success => "success",
-            Outcome::LocalError => "error",
-            Outcome::UpstreamError => "error",
-            Outcome::ClientDisconnected => "aborted",
+            Outcome::LocalError => "local_error",
+            Outcome::UpstreamError => "upstream_error",
+            Outcome::ClientDisconnected => "client_disconnected",
             Outcome::Aborted => "aborted",
         }
         .into(),
@@ -76,8 +76,8 @@ pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
             }
             .into()
         }),
-        error_code: None,
-        error_message: None,
+        error_code: f.error_code.as_deref().map(|s| bounded(s, 128)),
+        error_message: f.error_message.as_deref().map(|s| bounded(s, 1024)),
         attempt_count: f.attempts,
         request_bytes: f.request_bytes as u64,
         response_bytes: f.response_bytes,
@@ -96,4 +96,8 @@ pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
         upstream_duration_ms: f.upstream_duration.map(|d| d.as_millis() as u64),
         status_rewritten_from: f.status_rewritten_from,
     }
+}
+
+fn bounded(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
 }

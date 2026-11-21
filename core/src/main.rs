@@ -105,11 +105,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|s| {
             let usage = &s.config.usage;
-            let spool = Arc::new(Spool::open(
+            let spool = Arc::new(Spool::open_with_limits(
                 dir.join("spool"),
                 usage.spool.max_bytes,
                 usage.spool.segment_bytes,
+                usage.spool.max_age_hours,
+                usage.spool.min_free_bytes,
             )?);
+            core.attach_spool(spool.clone());
             UsageClient::new(
                 &usage.endpoint,
                 usage.token.clone(),

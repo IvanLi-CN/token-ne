@@ -49,13 +49,15 @@ impl UsageClient {
             tokio::select! { _=tokio::time::sleep(std::time::Duration::from_secs(2))=>{}, _=shutdown.changed()=>{if *shutdown.borrow(){break;}} }
         }
         let _ = self.send_pending().await;
+        let _ = self.spool.finalize_ack();
     }
-    async fn send_pending(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_pending(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let events = self.spool.pending(100)?;
         if events.is_empty() {
             return Ok(false);
         }
         let seq = events.last().unwrap().0;
+        self.spool.record_replay(events.len() as u64);
         let values = events;
         let outcome = self.post_batch(values).await?;
         match outcome {
@@ -70,7 +72,12 @@ impl UsageClient {
         &self,
         values: Vec<(u64, UsageEvent)>,
     ) -> Result<BatchResult, Box<dyn std::error::Error + Send + Sync>> {
-        let batch_id = Uuid::now_v7().to_string();
+        let batch_seed = values
+            .iter()
+            .map(|(_, e)| e.event_id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let batch_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, batch_seed.as_bytes()).to_string();
         let message_id = Uuid::now_v7().to_string();
         let payload_events: Vec<&UsageEvent> = values.iter().map(|(_, e)| e).collect();
         let body = json!({"protocol_version":1,"message_id":message_id,"sent_at":chrono::Utc::now().to_rfc3339(),"type":"usage_batch","payload":{"batch_id":batch_id,"core_instance_id":self.instance,"events":payload_events}});
@@ -86,7 +93,10 @@ impl UsageClient {
             .await?;
         let status = response.status().as_u16();
         match status {
-            202 => Ok(BatchResult::Accepted(Vec::new())),
+            202 => {
+                self.spool.record_send("accepted");
+                Ok(BatchResult::Accepted(Vec::new()))
+            }
             422 => {
                 let detail: serde_json::Value = response.json().await.unwrap_or_default();
                 let index = detail["details"]
@@ -96,6 +106,7 @@ impl UsageClient {
                     .and_then(|p| p.split(']').next())
                     .and_then(|i| i.parse::<usize>().ok());
                 if let Some(i) = index.filter(|i| *i < values.len()) {
+                    self.spool.record_send("rejected");
                     let mut rest = values;
                     let (dropped_seq, _) = rest.remove(i);
                     match Box::pin(self.post_batch(rest)).await? {
@@ -106,15 +117,20 @@ impl UsageClient {
                         BatchResult::Retained => Ok(BatchResult::Retained),
                     }
                 } else {
+                    self.spool.record_send("retry");
                     tracing::warn!("usage batch 422 had no isolatable event path");
                     Ok(BatchResult::Retained)
                 }
             }
             400 | 401 | 404 => {
+                self.spool.record_send("rejected");
                 tracing::warn!(status, "usage batch permanently rejected; retained");
                 Ok(BatchResult::Retained)
             }
-            _ => Ok(BatchResult::Retained),
+            _ => {
+                self.spool.record_send("retry");
+                Ok(BatchResult::Retained)
+            }
         }
     }
 }

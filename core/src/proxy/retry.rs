@@ -71,6 +71,8 @@ pub(crate) async fn forward(request: ForwardRequest<'_>) -> Response {
             usage: None,
             outcome: Outcome::Success,
             error_class: None,
+            error_code: None,
+            error_message: None,
         },
         started,
         attempt_started: None,

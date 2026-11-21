@@ -75,6 +75,8 @@ pub struct ForwardingFacts {
     pub usage: Option<UsageTokens>,
     pub outcome: Outcome,
     pub error_class: Option<ErrorClass>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
 }
 
 /// The observer should enqueue or otherwise record facts without blocking the response path.
@@ -105,6 +107,38 @@ impl Observation {
             _ => Outcome::UpstreamError,
         };
         self.facts.error_class = Some(class);
+        self.facts.error_code = self.facts.error_class.as_ref().map(|e| {
+            match e {
+                ErrorClass::ConnectError => "connect_error",
+                ErrorClass::DnsError => "dns_error",
+                ErrorClass::TlsError => "tls_error",
+                ErrorClass::FirstByteTimeout => "first_byte_timeout",
+                ErrorClass::IdleTimeout => "idle_timeout",
+                ErrorClass::UpstreamHttpError => "upstream_http_error",
+                ErrorClass::UpstreamStreamError => "upstream_stream_error",
+                ErrorClass::LocalValidationError => "local_validation_error",
+                ErrorClass::ClientDisconnected => "client_disconnected",
+                ErrorClass::Aborted => "aborted",
+                ErrorClass::Unknown => "unknown",
+            }
+            .into()
+        });
+        self.facts.error_message = Some(
+            match self.facts.error_class.as_ref().unwrap() {
+                ErrorClass::ConnectError => "upstream connection failed",
+                ErrorClass::DnsError => "upstream DNS lookup failed",
+                ErrorClass::TlsError => "upstream TLS handshake failed",
+                ErrorClass::FirstByteTimeout => "upstream first byte timed out",
+                ErrorClass::IdleTimeout => "upstream idle timeout",
+                ErrorClass::UpstreamHttpError => "upstream returned an error status",
+                ErrorClass::UpstreamStreamError => "upstream stream failed",
+                ErrorClass::LocalValidationError => "request could not be processed",
+                ErrorClass::ClientDisconnected => "client disconnected",
+                ErrorClass::Aborted => "request aborted",
+                ErrorClass::Unknown => "unknown forwarding error",
+            }
+            .into(),
+        );
     }
 }
 
