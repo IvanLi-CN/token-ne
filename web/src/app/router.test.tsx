@@ -1,0 +1,267 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { MorphGroup, MorphPanel } from "../components/morph-panel";
+import { Button } from "../components/primitives";
+import { apiRequest, onUnauthorized } from "../lib/api";
+import { safeReturnPath } from "../lib/guards";
+import { createQueryClient } from "../lib/query-client";
+import { AppProviders } from "./providers";
+import { routes } from "./router";
+
+const admin = { id: "9b39c7da-619b-4108-b7fa-8f9c5fc1b9e8", username: "operator" };
+function response(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+function mount(path: string) {
+  const router = createMemoryRouter(routes, { initialEntries: [path] });
+  render(
+    <AppProviders client={createQueryClient()}>
+      <RouterProvider router={router} />
+    </AppProviders>,
+  );
+  return router;
+}
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+
+describe("application router", () => {
+  it("redirects an expired session and preserves the requested path", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 401)));
+    const router = mount("/requests?model=example");
+    await screen.findByRole("heading", { name: "管理员登录" });
+    expect(router.state.location.pathname).toBe("/login");
+    expect(new URLSearchParams(router.state.location.search).get("returnTo")).toBe(
+      "/requests?model=example",
+    );
+  });
+  it("keeps failed credentials, reports a generic error and never navigates", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response({ error: { message: "private failure" } }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+    const router = mount("/login?returnTo=/models");
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "用户名或密码错误");
+    expect((screen.getByLabelText("密码") as HTMLInputElement).value).toBe("wrong");
+    expect(router.state.location.pathname).toBe("/login");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/login");
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("same-origin");
+  });
+  it("disables duplicate submissions until real login succeeds then opens the target", async () => {
+    let finish: (value: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url === "/api/auth/login"
+          ? new Promise<Response>((resolve) => {
+              finish = resolve;
+            })
+          : Promise.resolve(response(admin)),
+      ),
+    );
+    const router = mount("/login?returnTo=/cores");
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "登录中" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
+    );
+    finish(response(admin));
+    await screen.findByRole("heading", { name: "Cores" });
+    expect(router.state.location.pathname).toBe("/cores");
+    expect(screen.getByRole("link", { name: /Cores/ }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByText("operator")).toBeTruthy();
+  });
+  it("navigates all stable route targets and switches theme", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    const router = mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    for (const [path, title] of [
+      ["/requests", "请求"],
+      ["/models", "Models"],
+      ["/upstreams", "Upstreams"],
+      ["/keys", "Downstream Keys"],
+      ["/cores", "Cores"],
+    ]) {
+      fireEvent.click(screen.getByRole("link", { name: new RegExp(title) }));
+      await screen.findByRole("heading", { name: title });
+      expect(router.state.location.pathname).toBe(path);
+    }
+    const previous = document.documentElement.dataset.theme;
+    fireEvent.click(screen.getByRole("button", { name: /切换到/ }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).not.toBe(previous));
+  });
+  it("only leaves the shell when logout succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string) =>
+        Promise.resolve(url.endsWith("logout") ? response({}, 503) : response(admin)),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const router = mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+    await screen.findByRole("alert");
+    expect(router.state.location.pathname).toBe("/");
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("logout") ? new Response(null, { status: 204 }) : response(admin),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+    await screen.findByRole("heading", { name: "管理员登录" });
+    expect(router.state.location.pathname).toBe("/login");
+  });
+  it("does not treat malformed successful responses as an authenticated session", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({})));
+    mount("/login");
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { name: "管理员登录" })).toBeTruthy();
+  });
+  it("renders retryable session errors instead of protected placeholder data", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 503)));
+    mount("/models");
+    await screen.findByRole("heading", { name: "暂时无法打开页面" });
+    expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Models" })).toBeNull();
+  });
+});
+
+describe("shared boundaries", () => {
+  it("rejects unsafe return destinations", () => {
+    for (const value of [
+      "https://evil.test",
+      "//evil.test",
+      "/login",
+      "/\\evil.test",
+      "/unknown",
+      "/\n/evil.test",
+    ])
+      expect(safeReturnPath(value)).toBe("/");
+    expect(safeReturnPath("/requests?model=abc#details")).toBe("/requests?model=abc#details");
+  });
+  it("rejects API paths that escape the same-origin API boundary", async () => {
+    for (const path of ["//evil.test", "/../auth", "/%2e%2e/auth"] as const)
+      await expect(apiRequest(path)).rejects.toThrow("API path");
+  });
+  it("preserves API field errors and handles unauthorized responses", async () => {
+    const unauthorized = vi.fn();
+    onUnauthorized(unauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response(
+          {
+            error: {
+              code: "validation_failed",
+              message: "invalid",
+              request_id: "req-1",
+              details: [{ path: "model_id", reason: "required" }],
+            },
+          },
+          401,
+        ),
+      ),
+    );
+    await expect(apiRequest("/models")).rejects.toMatchObject({
+      status: 401,
+      requestId: "req-1",
+      details: [{ path: "model_id", reason: "required" }],
+    });
+    expect(unauthorized).toHaveBeenCalledOnce();
+  });
+  it("opens a searchable command panel, records explicit pins and resets preferences", async () => {
+    localStorage.clear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    const search = await screen.findByRole("textbox", { name: "搜索页面" });
+    expect(document.activeElement).toBe(search);
+    fireEvent.change(search, { target: { value: "Models" } });
+    const panel = screen.getByRole("region", { name: "命令面板" });
+    expect(panel.querySelector('a[href="/models"]')).toBeTruthy();
+    expect(panel.querySelector('a[href="/upstreams"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "固定 Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "重置固定与最近" }));
+    expect(localStorage.getItem("token-ne.navigation.v1")).toContain('"pinned":[]');
+    fireEvent.click(screen.getByRole("button", { name: "关闭命令面板" }));
+    expect(screen.getByRole("link", { name: "总览" })).toBeTruthy();
+  });
+  it("opens mobile navigation and closes it after choosing a route", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    const router = mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    const trigger = screen.getByRole("button", { name: "打开导航菜单" });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const drawer = screen.getByRole("dialog", { name: "token-ne" });
+    expect(drawer.id).toBe(trigger.getAttribute("aria-controls"));
+    fireEvent.click(screen.getByRole("link", { name: "Models" }));
+    await screen.findByRole("heading", { name: "Models" });
+    expect(router.state.location.pathname).toBe("/models");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("keeps pending summary values explicit when changing the activity range", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    fireEvent.click(screen.getByRole("button", { name: "昨天" }));
+    expect(screen.getByRole("heading", { name: "昨天暂无可展示的数据" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "昨天" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "最近请求" })).toBeTruthy();
+  });
+  it("expands one morph panel at a time and restores focus on Escape", () => {
+    render(
+      <MorphGroup>
+        <MorphPanel title="用量" summary="等待数据" detail="用量说明" />
+        <MorphPanel title="请求" summary="尚无记录" detail="请求说明" />
+      </MorphGroup>,
+    );
+    const first = screen.getByRole("button", { name: /用量/ });
+    fireEvent.click(first);
+    expect(first.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("用量说明")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /请求/ }));
+    expect(first.getAttribute("aria-expanded")).toBe("false");
+    const second = screen.getByRole("button", { name: /请求/ });
+    expect(second.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(second.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(second);
+  });
+  it("opens an accessible confirmation and requires explicit action", async () => {
+    const confirm = vi.fn();
+    render(
+      <ConfirmDialog
+        trigger={<Button>删除</Button>}
+        title="删除上游"
+        description="能力关系会被删除。"
+        onConfirm={confirm}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    expect(await screen.findByRole("dialog", { name: "删除上游" })).toBeTruthy();
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确认" }));
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+});
