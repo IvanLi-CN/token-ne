@@ -376,7 +376,12 @@ fn disk_available(path: &Path) -> std::io::Result<u64> {
         return Err(std::io::Error::last_os_error());
     }
     let stat = unsafe { stat.assume_init() };
-    Ok(u64::from(stat.f_bavail) * stat.f_frsize)
+    // f_bavail and f_frsize widths differ across Unix targets.
+    #[allow(clippy::unnecessary_cast)]
+    let available = stat.f_bavail as u64;
+    #[allow(clippy::unnecessary_cast)]
+    let block_size = stat.f_frsize as u64;
+    Ok(available.saturating_mul(block_size))
 }
 #[cfg(not(unix))]
 fn disk_available(_path: &Path) -> std::io::Result<u64> {
