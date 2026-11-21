@@ -44,6 +44,7 @@ type ContainerSpec struct {
 	Networks                                               []string
 	StateHostDir                                           string
 	ControlURL, Token, SigningKey, SignatureMode, CacheKey string
+	AllowPrivateUpstreams                                  string
 	ConfigHash                                             string
 }
 
@@ -172,7 +173,8 @@ func (e *Engine) Create(ctx context.Context, s ContainerSpec) (Container, error)
 	env := map[string]string{"CORE_VERSION": s.Version, "CORE_INSTANCE_ID": s.Instance, "CORE_CONTROL_PLANE_URL": s.ControlURL,
 		"CORE_CONTROL_TOKEN": s.Token, "CORE_CONFIG_SIGNING_KEY": s.SigningKey, "CORE_CONFIG_SIGNATURE_MODE": s.SignatureMode,
 		"CORE_CACHE_KEY": s.CacheKey, "CORE_STATE_DIR": "/var/lib/token-ne/state", "CORE_CONFIG_OVERRIDE": "/var/lib/token-ne/state/config.override.json",
-		"CORE_LISTEN": "0.0.0.0:8080", "CORE_METRICS_LISTEN": "0.0.0.0:9091"}
+		"CORE_LISTEN": "0.0.0.0:8080", "CORE_METRICS_LISTEN": "0.0.0.0:9091",
+		"CORE_ALLOW_PRIVATE_UPSTREAMS": s.AllowPrivateUpstreams}
 	for k, v := range env {
 		spec.Env = append(spec.Env, k+"="+v)
 	}

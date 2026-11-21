@@ -21,22 +21,23 @@ import (
 )
 
 type Runtime struct {
-	DB            *store.Store
-	Config        SnapshotBuilder
-	Pool          Database
-	Peer          Peer
-	Docker        Docker
-	Caddy         Traffic
-	Project       string
-	Networks      []string
-	StateHostDir  string
-	CoreURL       string
-	Token         string
-	SigningKey    string
-	SignatureMode string
-	CacheKey      string
-	mu            sync.Mutex
-	lifecycle     sync.Mutex
+	DB                    *store.Store
+	Config                SnapshotBuilder
+	Pool                  Database
+	Peer                  Peer
+	Docker                Docker
+	Caddy                 Traffic
+	Project               string
+	Networks              []string
+	StateHostDir          string
+	CoreURL               string
+	Token                 string
+	SigningKey            string
+	SignatureMode         string
+	CacheKey              string
+	AllowPrivateUpstreams string
+	mu                    sync.Mutex
+	lifecycle             sync.Mutex
 }
 
 type Target struct {
@@ -507,7 +508,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				if _, e = tx.Exec(ctx, `update core_instances set state='pending',weight=0,config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e
 				}
-				replacement, createErr := r.Docker.Create(ctx, ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey})
+				replacement, createErr := r.Docker.Create(ctx, ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams})
 				if createErr != nil {
 					return createErr
 				}
