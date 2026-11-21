@@ -6,48 +6,102 @@
     "http": {
       "servers": {
         "token-ne": {
-          "listen": [":80"],
+          "listen": [
+            ":80"
+          ],
           "routes": [
             {
               "@id": "token-ne-deny-internal",
-              "match": [{ "path": ["/internal/*"] }],
+              "match": [
+                {
+                  "path": [
+                    "/internal",
+                    "/internal/*"
+                  ]
+                }
+              ],
               "handle": [
                 {
                   "handler": "static_response",
                   "status_code": 404,
                   "body": "not found"
                 }
-              ]
+              ],
+              "terminal": true
             },
             {
               "@id": "token-ne-v1",
-              "match": [{ "path": ["/v1/*"] }],
+              "match": [
+                {
+                  "path": [
+                    "/v1/*"
+                  ]
+                }
+              ],
               "handle": [
                 {
                   "handler": "reverse_proxy",
-                  "upstreams": [{ "dial": "core:8080" }],
+                  "upstreams": [
+                    {
+                      "dial": "core:8080"
+                    }
+                  ],
                   "health_checks": {
                     "active": {
                       "uri": "/readyz",
                       "interval": "5s",
-                      "timeout": "2s"
+                      "timeout": "2s",
+                      "passes": 2,
+                      "fails": 3
                     }
-                  }
+                  },
+                  "@id": "token-ne-v1-proxy",
+                  "flush_interval": -1
                 }
-              ]
+              ],
+              "terminal": true
             },
             {
               "@id": "token-ne-api",
               "handle": [
                 {
                   "handler": "reverse_proxy",
-                  "upstreams": [{ "dial": "api:8080" }]
+                  "upstreams": [
+                    {
+                      "dial": "api:8080"
+                    }
+                  ]
+                }
+              ],
+              "terminal": true,
+              "match": [
+                {
+                  "path": [
+                    "/api/*",
+                    "/healthz",
+                    "/readyz"
+                  ]
                 }
               ]
+            },
+            {
+              "@id": "token-ne-spa",
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "api:8080"
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
             }
           ]
         }
-      }
+      },
+      "grace_period": "0s"
     }
   }
 }
