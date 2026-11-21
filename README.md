@@ -4,7 +4,7 @@
 
 Real-time token usage and cost observability for AI coding agents.
 
-Status: design phase. Phase 1 product requirements, feasibility, architecture, and technology selection are documented in [`docs/`](./docs/README.md). There is no runnable code yet.
+Status: implementation bootstrap. Phase 1 product requirements, feasibility, architecture, and technology selection are documented in [`docs/`](./docs/README.md). The repository now has buildable Rust core, Go API, and Web skeletons; feature slices follow the architecture and acceptance criteria.
 
 ## Problem
 
@@ -30,6 +30,16 @@ Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream ro
 - [Technology selection](./docs/tech-selection.md)
 - [Upgrade and rollback runbook](./docs/runbooks/upgrade.md)
 - [Architecture decision records](./docs/adr/)
+
+## Development bootstrap
+
+```bash
+cd core && cargo check
+cd ../server && go test ./...
+cd ../web && bun install && bun run build
+```
+
+`ops/compose.yaml` is the Phase 1 deployment skeleton. It expects an external TLS reverse proxy in front of Caddy; see [`docs/architecture.md`](./docs/architecture.md).
 
 ## Non-goals (phase 1)
 

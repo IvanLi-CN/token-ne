@@ -1,0 +1,53 @@
+{
+  "admin": {
+    "listen": "unix//run/caddy/admin.sock"
+  },
+  "apps": {
+    "http": {
+      "servers": {
+        "token-ne": {
+          "listen": [":80"],
+          "routes": [
+            {
+              "@id": "token-ne-deny-internal",
+              "match": [{ "path": ["/internal/*"] }],
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404,
+                  "body": "not found"
+                }
+              ]
+            },
+            {
+              "@id": "token-ne-v1",
+              "match": [{ "path": ["/v1/*"] }],
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [{ "dial": "core:8080" }],
+                  "health_checks": {
+                    "active": {
+                      "uri": "/readyz",
+                      "interval": "5s",
+                      "timeout": "2s"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "@id": "token-ne-api",
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [{ "dial": "api:8080" }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

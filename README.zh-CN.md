@@ -4,7 +4,7 @@
 
 面向 AI 编程 Agent 的实时 Token 用量与花费观测工具。
 
-状态：设计阶段。第一期的产品需求、可行性分析、架构与技术选型已经写入 [`docs/`](./docs/README.md)，目前还没有可运行代码。
+状态：实现引导阶段。第一期的产品需求、可行性分析、架构与技术选型已经写入 [`docs/`](./docs/README.md)；仓库现在包含可构建的 Rust 核心、Go API 与 Web 骨架，功能按架构和验收标准推进。
 
 ## 问题
 
@@ -30,6 +30,16 @@ Codex、omp 等 Agent 客户端都不在同一个地方暴露实际花费：缓�
 - [技术选型](./docs/tech-selection.md)
 - [升级与回滚 Runbook](./docs/runbooks/upgrade.md)
 - [架构决策记录](./docs/adr/)
+
+## 开发引导
+
+```bash
+cd core && cargo check
+cd ../server && go test ./...
+cd ../web && bun install && bun run build
+```
+
+`ops/compose.yaml` 是第一期的部署骨架。默认由宿主外部 TLS 反向代理连接 Caddy，细节见[`docs/architecture.md`](./docs/architecture.md)。
 
 ## 非目标（第一期）
 

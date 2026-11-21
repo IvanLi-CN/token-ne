@@ -2,3 +2,24 @@
 .env
 .env.*
 !.env.example
+
+# Rust
+/target/
+/core/target/
+**/*.rs.bk
+
+# Go
+/server/bin/
+**/coverage.out
+
+# Web
+/node_modules/
+/web/node_modules/
+/web/dist/
+/web/.vite/
+/web/coverage/
+*.tsbuildinfo
+
+# Local runtime state
+/ops/state/
+*.log
