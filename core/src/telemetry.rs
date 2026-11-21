@@ -30,6 +30,7 @@ pub fn metrics(state: &CoreState) -> String {
         .map_or(0, |v| {
             (Utc::now() - v.with_timezone(&Utc)).num_seconds().max(0)
         });
+    let spool = state.spool_stats();
     format!(
         "# TYPE token_ne_core_up gauge\ntoken_ne_core_up 1\n# TYPE token_ne_core_inflight_requests gauge\ntoken_ne_core_inflight_requests {}\n# TYPE token_ne_core_config_revision gauge\ntoken_ne_core_config_revision {}\n# TYPE token_ne_core_config_age_seconds gauge\ntoken_ne_core_config_age_seconds {}\n# TYPE token_ne_core_config_override_active gauge\ntoken_ne_core_config_override_active {}\n# TYPE token_ne_core_config_signature_invalid_total counter\ntoken_ne_core_config_signature_invalid_total {}\n# TYPE token_ne_core_requests_total counter\ntoken_ne_core_requests_total {}\n",
         state.inflight.load(Ordering::Acquire),
@@ -38,6 +39,16 @@ pub fn metrics(state: &CoreState) -> String {
         u8::from(state.override_active()),
         state.signature_invalid_total.load(Ordering::Relaxed),
         state.requests_total.load(Ordering::Relaxed)
+    ) + &format!(
+        "# TYPE token_ne_core_spool_bytes gauge\ntoken_ne_core_spool_bytes {}\n# TYPE token_ne_core_spool_unacked_events gauge\ntoken_ne_core_spool_unacked_events {}\n# TYPE token_ne_core_spool_oldest_unacked_seconds gauge\ntoken_ne_core_spool_oldest_unacked_seconds {}\n# TYPE token_ne_core_spool_dropped_total counter\ntoken_ne_core_spool_dropped_total {}\n# TYPE token_ne_core_usage_send_total counter\ntoken_ne_core_usage_send_total{{result=\"accepted\"}} {}\ntoken_ne_core_usage_send_total{{result=\"retry\"}} {}\ntoken_ne_core_usage_send_total{{result=\"rejected\"}} {}\n# TYPE token_ne_core_usage_replayed_total counter\ntoken_ne_core_usage_replayed_total {}\n",
+        spool.bytes,
+        spool.unacked_events,
+        spool.oldest_unacked_seconds.unwrap_or(0),
+        spool.dropped_total,
+        spool.send_accepted,
+        spool.send_retry,
+        spool.send_rejected,
+        spool.replayed
     )
 }
 #[derive(Clone)]

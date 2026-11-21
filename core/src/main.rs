@@ -2,14 +2,17 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     process::ExitCode,
+    sync::Arc,
     sync::atomic::Ordering,
     time::Duration,
 };
 use token_ne_core::{
     config::{ConfigCache, ValidationOptions},
     server::{self, ServerState},
+    spool::Spool,
     state::{CoreState, SignatureMode, StateOptions},
     telemetry::{ControlPlane, PullResult},
+    usage_client::UsageClient,
 };
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -96,8 +99,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("CORE_METRICS_LISTEN").unwrap_or_else(|_| "0.0.0.0:9091".into());
     let listener = TcpListener::bind(&listen).await?;
     let metrics_listener = TcpListener::bind(&metrics_listen).await?;
-    let state = ServerState::new(core.clone(), token);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let snapshot = core.snapshot();
+    let usage_sender = snapshot
+        .as_ref()
+        .map(|s| {
+            let usage = &s.config.usage;
+            let spool = Arc::new(Spool::open_with_limits(
+                dir.join("spool"),
+                usage.spool.max_bytes,
+                usage.spool.segment_bytes,
+                usage.spool.max_age_hours,
+                usage.spool.min_free_bytes,
+            )?);
+            core.attach_spool(spool.clone());
+            UsageClient::new(
+                &usage.endpoint,
+                usage.token.clone(),
+                core.instance_id.clone(),
+                spool,
+            )
+        })
+        .transpose()?
+        .map(Arc::new);
+    let state = ServerState::new(core.clone(), token);
+    let state = if let Some(sender) = &usage_sender {
+        state.with_forwarding_observer(sender.observer())
+    } else {
+        state
+    };
+    let usage_task = usage_sender.map(|s| tokio::spawn(s.run(shutdown_rx.clone())));
     let control_task = control.map(|c| tokio::spawn(c.run(core.clone(), shutdown_rx.clone())));
     let http_shutdown = shutdown_rx.clone();
     let metrics_shutdown = shutdown_rx.clone();
@@ -136,6 +167,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(task) = control_task {
         task.abort();
+    }
+    if let Some(task) = usage_task {
+        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
     }
     Ok(())
 }

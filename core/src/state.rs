@@ -1,4 +1,5 @@
 use crate::config::{Config, ConfigCache, ConfigError, ValidationOptions};
+use crate::spool::{Spool, SpoolStats};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,7 @@ pub struct CoreState {
     keys: Mutex<HashMap<String, u64>>,
     pub signature_invalid_total: AtomicU64,
     pub requests_total: AtomicU64,
+    spool: Mutex<Option<Arc<Spool>>>,
     pub started_at: DateTime<Utc>,
 }
 impl CoreState {
@@ -75,11 +77,22 @@ impl CoreState {
             keys: Mutex::new(HashMap::new()),
             signature_invalid_total: AtomicU64::new(0),
             requests_total: AtomicU64::new(0),
+            spool: Mutex::new(None),
             started_at: Utc::now(),
         })
     }
     pub fn snapshot(&self) -> Option<Arc<AppliedConfig>> {
         self.current.read().expect("config lock poisoned").clone()
+    }
+    pub fn attach_spool(&self, spool: Arc<Spool>) {
+        *self.spool.lock().expect("spool lock poisoned") = Some(spool);
+    }
+    pub fn spool_stats(&self) -> SpoolStats {
+        self.spool
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().and_then(|sp| sp.stats().ok()))
+            .unwrap_or_default()
     }
     pub fn ready(&self) -> bool {
         self.snapshot().is_some() && !self.draining.load(Ordering::Acquire)
@@ -267,7 +280,12 @@ impl CoreState {
         let snapshot = self.snapshot();
         let config=snapshot.as_ref().map(|s|json!({"revision":s.config.revision,"hash":s.hash,"schema_version":1,"source":s.source,"signature_state":s.signature_state,"override_active":self.override_active()}));
         let policy=snapshot.as_ref().map(|s|json!({"source":s.config.status_rewrite.policy_source,"schema_version":s.config.status_rewrite.schema_version,"hash":s.config.status_rewrite.policy_hash}));
-        json!({"instance_id":self.instance_id,"version":env!("CARGO_PKG_VERSION"),"config":config,"status_rewrite_policy":policy,"last_controlled_at":snapshot.as_ref().and_then(|s|s.last_controlled_at),"inflight":self.inflight.load(Ordering::Acquire),"spool":{"bytes":0,"unacked_events":0,"oldest_unacked_at":null,"last_ack_seq":0,"dropped_total":0},"draining":self.draining.load(Ordering::Acquire),"started_at":self.started_at,"features":crate::telemetry::FEATURES})
+        let spool = self.spool_stats();
+        let oldest = self.spool.lock().ok().and_then(|s| {
+            s.as_ref()
+                .and_then(|sp| sp.oldest_unacked_at().ok().flatten())
+        });
+        json!({"instance_id":self.instance_id,"version":env!("CARGO_PKG_VERSION"),"config":config,"status_rewrite_policy":policy,"last_controlled_at":snapshot.as_ref().and_then(|s|s.last_controlled_at),"inflight":self.inflight.load(Ordering::Acquire),"spool":{"bytes":spool.bytes,"unacked_events":spool.unacked_events,"oldest_unacked_at":oldest,"oldest_unacked_seconds":spool.oldest_unacked_seconds,"last_ack_seq":spool.last_ack_seq,"dropped_total":spool.dropped_total},"draining":self.draining.load(Ordering::Acquire),"started_at":self.started_at,"features":crate::telemetry::FEATURES})
     }
 }
 pub struct InflightGuard {
