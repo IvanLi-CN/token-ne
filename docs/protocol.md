@@ -350,7 +350,7 @@ Idempotency-Key: <batch_id>
 - `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
 - `status_rewrite.schema_version` 必须是控制面支持的策略版本。
 - `status_rewrite.rules[].match` 至少包含 `upstream_status` 或 `error_class` 之一；`upstream_status` 只允许 `408`、`429` 和 `5xx`；`error_class` 只允许协议定义的错误分类；`committed` 必须为 `false`，`retry_exhausted` 必须为 `true`。
-- `status_rewrite.rules[].id` 必须唯一；`response.status` 只允许 5xx，且不能出现在同一规则的 `match.upstream_status` 中；`response.code`、`message`、`preserve_retry_after`、`default_retry_after_seconds` 必须通过类型和范围校验。
+- `status_rewrite.rules[].id` 必须唯一；`response.status` 只允许 5xx。若它出现在同一规则的 `match.upstream_status` 中，只允许完全相同的 5xx identity mapping（例如 `503 -> 503`），用于附加 `retryable`/`Retry-After` 元数据；其他重叠或跨状态映射拒绝。`response.code`、`message`、`preserve_retry_after`、`default_retry_after_seconds` 必须通过类型和范围校验。
 - `status_rewrite.never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；它匹配上游状态并只约束规则，不覆盖 401/403→502 等固定映射。规则不能覆盖这两项，不满足返回 `422`。
 - `status_rewrite.policy_source` 只允许 `file`、`db`、`default`；`policy_hash` 用于追踪策略版本。
 - `usage.spool.max_bytes`、`segment_bytes`、`max_age_hours` 在安全范围内；`max_bytes >= segment_bytes`。
