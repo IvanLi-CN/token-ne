@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,9 @@ type healthRepo struct {
 	err error
 }
 
-func (r healthRepo) Ping(context.Context) error { return r.err }
+func (r healthRepo) Ping(context.Context) error                               { return r.err }
+func (r healthRepo) UsageMetricCores(context.Context) ([]metrics.Core, error) { return nil, nil }
+func (r healthRepo) UsageMetricPool() map[string]int32                        { return nil }
 func TestMetricsListener(t *testing.T) {
 	cfg := config.Config{MetricsToken: "metrics-secret"}
 	for _, tc := range []struct {

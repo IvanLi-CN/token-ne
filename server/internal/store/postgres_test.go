@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IvanLi-CN/token-ne/server/internal/usage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type fakeDB struct {
@@ -108,6 +110,137 @@ func TestNormalize(t *testing.T) {
 type countRow int
 
 func (n countRow) Scan(dst ...any) error { *dst[0].(*int) = int(n); return nil }
+
+type usageTxFake struct {
+	pgx.Tx
+	commitErr         error
+	committed, rolled bool
+	existing          bool
+}
+
+func (t *usageTxFake) QueryRow(_ context.Context, q string, _ ...any) pgx.Row {
+	switch {
+	case strings.Contains(q, "exists(select 1 from core_instances"):
+		return usageRow{values: []any{true}}
+	case strings.Contains(q, "jsonb_object_agg(model_id"):
+		return usageRow{values: []any{[]byte(`{"gpt-5":{"Input":"0","Cached":"0","Output":"0"}}`)}}
+	case strings.Contains(q, "array(select event_id"):
+		ids := []string{}
+		if t.existing {
+			ids = []string{"0193f0c2-7b1a-7c3e-9f00-000000000001"}
+		}
+		return usageRow{values: []any{ids, []string{}, []byte(`{}`), []string{"0.2.0"}}}
+	default:
+		return usageRow{err: errors.New("unexpected query")}
+	}
+}
+func (t *usageTxFake) Query(_ context.Context, q string, args ...any) (pgx.Rows, error) {
+	if !strings.Contains(q, "on conflict (event_id) do nothing") {
+		return nil, errors.New("usage insert is not idempotent")
+	}
+	ids := []string{}
+	if !t.existing {
+		ids = []string{"0193f0c2-7b1a-7c3e-9f00-000000000001"}
+	}
+	return &usageRows{ids: ids}, nil
+}
+func (t *usageTxFake) Commit(context.Context) error { t.committed = true; return t.commitErr }
+func (t *usageTxFake) Rollback(context.Context) error {
+	if !t.committed {
+		t.rolled = true
+	}
+	return nil
+}
+
+type usageRow struct {
+	values []any
+	err    error
+}
+
+func (r usageRow) Scan(dst ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dst) != len(r.values) {
+		return errors.New("wrong scan destination count")
+	}
+	for i, v := range r.values {
+		switch p := dst[i].(type) {
+		case *bool:
+			*p = v.(bool)
+		case *[]byte:
+			*p = v.([]byte)
+		case *[]string:
+			*p = v.([]string)
+		default:
+			return errors.New("unexpected scan destination")
+		}
+	}
+	return nil
+}
+
+type usageRows struct {
+	ids    []string
+	index  int
+	closed bool
+}
+
+func (r *usageRows) Close()                                       { r.closed = true }
+func (r *usageRows) Err() error                                   { return nil }
+func (r *usageRows) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("INSERT") }
+func (r *usageRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *usageRows) Next() bool                                   { return r.index < len(r.ids) }
+func (r *usageRows) Scan(dst ...any) error {
+	if len(dst) != 1 {
+		return errors.New("unexpected scan")
+	}
+	*dst[0].(*string) = r.ids[r.index]
+	r.index++
+	return nil
+}
+func (r *usageRows) Values() ([]any, error) { return []any{r.ids[r.index]}, nil }
+func (r *usageRows) RawValues() [][]byte    { return nil }
+func (r *usageRows) Conn() *pgx.Conn        { return nil }
+func (r *usageRows) TypeMap() *pgtype.Map   { return pgtype.NewMap() }
+
+type usagePoolFake struct{ tx *usageTxFake }
+
+func (p usagePoolFake) Begin(context.Context) (pgx.Tx, error) { return p.tx, nil }
+func validUsageBatch() usage.Batch {
+	input, cached, output, total, duration := int64(1), int64(0), int64(1), int64(2), 1
+	model := "gpt-5"
+	return usage.Batch{Instance: "0193f0c2-7b1a-7c3e-9f00-000000000002", Events: []usage.Event{{
+		EventID: "0193f0c2-7b1a-7c3e-9f00-000000000001", RequestID: "req", CoreVersion: "0.2.0",
+		CoreInstance: "0193f0c2-7b1a-7c3e-9f00-000000000002", Endpoint: "/v1/chat/completions",
+		RequestedModel: &model, Outcome: "success", AttemptCount: 1, InputTokens: &input, CachedInputTokens: &cached,
+		OutputTokens: &output, TotalTokens: &total, Duration: &duration,
+	}}}
+}
+
+func TestUsageTransactionReturnsOnlyCommittedRows(t *testing.T) {
+	tx := &usageTxFake{}
+	inserter := NewUsageInserter(usagePoolFake{tx})
+	result, err := inserter.IngestUsage(context.Background(), validUsageBatch())
+	if err != nil || !tx.committed || tx.rolled || len(result.Inserted) != 1 || result.Duplicates != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if result.Inserted[0].Cost == nil || *result.Inserted[0].Cost != "0.000000" {
+		t.Fatal("free model should be stored as zero cost")
+	}
+	tx = &usageTxFake{existing: true}
+	inserter = NewUsageInserter(usagePoolFake{tx})
+	result, err = inserter.IngestUsage(context.Background(), validUsageBatch())
+	if err != nil || len(result.Inserted) != 0 || result.Duplicates != 1 || !tx.committed {
+		t.Fatalf("duplicate delivery result=%+v err=%v", result, err)
+	}
+	tx = &usageTxFake{commitErr: errors.New("commit failed")}
+	inserter = NewUsageInserter(usagePoolFake{tx})
+	result, err = inserter.IngestUsage(context.Background(), validUsageBatch())
+	if err == nil || len(result.Inserted) != 0 || !tx.committed {
+		t.Fatal("commit failure must not acknowledge inserted events")
+	}
+}
+
 func TestBootstrapExistingAdminUnchanged(t *testing.T) {
 	tx := &fakeTx{row: countRow(1)}
 	s := &Store{fakeDB{tx: tx}}

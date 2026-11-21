@@ -15,6 +15,7 @@ import (
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"github.com/IvanLi-CN/token-ne/server/internal/web"
 	"github.com/google/uuid"
@@ -48,6 +49,24 @@ type adminError struct {
 // NewRouter accepts a repository interface so handlers can be verified without PostgreSQL.
 func NewRouter(cfg config.Config, repo store.Repository) http.Handler {
 	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
+	return newRouter(cfg, repo, a, nil)
+}
+
+// NewRouterWithUsage registers protocol ingestion and authenticated usage query
+// endpoints alongside the management API.
+func NewRouterWithUsage(cfg config.Config, repo store.Repository, registry *metrics.Registry) http.Handler {
+	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
+	return newRouter(cfg, repo, a, registry, func(m *http.ServeMux) { registerUsage(m, a, registry) })
+}
+
+type RouteRegistrar func(*http.ServeMux)
+
+func NewRouterWithRegistrars(cfg config.Config, repo store.Repository, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
+	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
+	return newRouter(cfg, repo, a, registry, registrars...)
+}
+
+func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	m.HandleFunc("GET /readyz", a.ready)
@@ -71,6 +90,9 @@ func NewRouter(cfg config.Config, repo store.Repository) http.Handler {
 	m.HandleFunc("DELETE /api/downstream-keys/{key_id}", a.protect(a.deleteKey))
 	m.HandleFunc("POST /api/downstream-keys/{key_id}/rotate", a.protect(a.rotateKey))
 	m.HandleFunc("GET /api/audit", a.protect(a.listAudit))
+	for _, register := range registrars {
+		register(m)
+	}
 	m.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) { fail(w, r, 404, "not_found", "endpoint not found", nil) })
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, r, 404, "not_found", "endpoint not found", nil) })
 	m.HandleFunc("/v1", openAIUnavailable)
