@@ -25,7 +25,7 @@ _Avoid_: Provider, backend, target
 _Avoid_: WAL, queue, shared spool
 
 **Replay**:
-core 重启后重新发送自己 spool 中未确认事件的过程；控制面不解析或搬运 spool 文件。
+core 重新发送自己 spool 中未确认事件的过程；既发生在控制面恢复后运行中的 core，也发生在 core 重启后。控制面不解析或搬运 spool 文件。
 _Avoid_: Control-plane replay, file replay
 
 **Upstream base URL**:

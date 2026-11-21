@@ -67,7 +67,7 @@ Internet
 │ Docker Compose project: token-ne                         │
 │                                                             │
 │  caddy :80 ──────────┬───────────────► api:8080             │
-│   :2019 admin         │                 │  │                │
+│  admin.sock volume    │                 │  │                │
 │                       │                 │  └── postgres:5432│
 │                       │                 │                   │
 │                       ▼                 ▼                   │
@@ -211,7 +211,7 @@ core/src/
 
 - 核心 `/metrics` 不作为外部 Prometheus 抓取合同；它不发布宿主端口，Caddy 不路由 9091。
 - 业务 token、成本、TTFT 直方图由 Go 从 usage 事件生成，避免两套事实。
-- 外部 Prometheus 只抓 Go `/metrics`；Go 可以聚合核心实例状态，但不依赖核心 `/metrics` 的稳定性。
+- 外部 Prometheus 只抓 Go `/metrics`；Go 通过 `core-control` 网络尽力抓取核心本地计数器并聚合，抓取失败只让对应指标缺失，不阻塞请求、部署或健康判断。
 - 如需本地排障，可从 API 容器或宿主机网络访问核心 9091。
 
 ### 请求管线
@@ -219,7 +219,7 @@ core/src/
 1. **接收与限额**：检查方法、路径、请求体大小、并发上限；生成 `request_id`（默认 UUIDv7，可复用合法的下游 `x-request-id`）。
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
-4. **模型与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。候选来自启用的 `upstream_models` 能力关系，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
+4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用且 `weight > 0`，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
 5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 注入 `include_usage`。
 6. **尝试**：构造上游 URL、认证头、透传头；发送请求；等待响应头；分类状态。
 7. **提交闸门**：
@@ -418,11 +418,15 @@ core/src/
     "max_request_body_bytes": 33554432,
     "max_inflight": 512,
     "per_key_max_inflight": 64,
+    "request_max_duration_ms": 1800000,
+    "shutdown_grace_ms": 1800000,
     "precommit_buffer_bytes": 262144,
     "nonstream_inspect_bytes": 1048576
   }
 }
 ```
+
+`usage.token` 必须等于控制面的 `CORE_CONTROL_TOKEN`；core 只把这个值用于 `/internal/v1/usage/batch`，不得用于任何其他接口。
 
 ```mermaid
 sequenceDiagram
@@ -566,7 +570,7 @@ $CORE_STATE_DIR/
 - spool 是 core 私有文件；API 容器不挂载状态根目录，不读取、不解析、不搬运 spool 段。
 - 运行中的 core 自己按 `ack.json` 的 `processed_seq` 重放；控制面只接收 HTTP 批次并观察 heartbeat/status。
 - 实例停止但 spool 未清零时，保留状态目录，用兼容 core 镜像重启该实例；core 启动时自动重放。
-- 控制面 prune 只在 core 上报 `spool.unacked_events == 0` 后允许；否则返回 `409 spool_not_drained`。
+- 控制面 prune 只对已停止实例使用最后一次 heartbeat/status 观测值：`spool.unacked_events == 0` 时允许，并记录 `last_ack_seq` 到审计；观测非零或缺失时先用兼容 core 重启并等待清零，否则返回 `409 spool_not_drained`。
 - 如果实例后来重启，已推进的处理位点会阻止重复发送；已丢弃事件不会再次阻塞后续事件。
 - 宿主机整体故障会同时丢失状态目录；第一期不覆盖这种场景。需要跨宿主机持久化时，改用 Redis Streams、NATS JetStream 或对象存储，并保留相同的 `event_id` 幂等合同。
 
@@ -642,8 +646,8 @@ $CORE_STATE_DIR/
 规则：
 
 - 只有 `status_rewrite.enabled=true` 且未提交时生效；默认开启。配置中的 `code` 是默认值，429 可使用更具体的 `upstream_rate_limited`。
-- 返回合成的 OpenAI 错误 JSON，包含 `code`、`message`、`request_id`、`retryable: true` 和 `upstream_status`。
-- 响应头带 `x-token-ne-upstream-status`、`x-token-ne-retryable: true`；如果上游有 `Retry-After`，保留；没有则按配置填默认值。
+- 返回严格 OpenAI `ErrorResponse`：`message`、`type`、`param`、`code`；`type` 使用 `rate_limit_error` 或 `server_error`，`param` 为 `null`。详细映射见 [`errors.md`](./errors.md)。
+- 响应头带 `x-token-ne-retryable: true`；`x-token-ne-upstream-status` 只在存在真实上游 HTTP 状态时附加。如果上游有 `Retry-After`，保留；没有则按配置填默认值。
 - 不转发被改写状态下的上游错误体，避免状态码和 body 语义冲突。
 - 记录 `status_rewritten_total{from,to,reason}`，并在请求记录中保存原始上游状态。
 - 策略文件示例见 [`examples/status-rewrite.yaml`](./examples/status-rewrite.yaml)；配置快照中的 `status_rewrite` 是校验后的同一规则对象。
@@ -656,7 +660,7 @@ $CORE_STATE_DIR/
 第一版不把策略写死在代码里，也不要求先有数据库：
 
 1. **配置文件（v1 默认）**：控制面启动时读取 `STATUS_REWRITE_CONFIG`，默认 `/etc/token-ne/status-rewrite.yaml`；支持 YAML 和 JSON，按扩展名/内容识别。
-2. **内置安全默认（fallback）**：文件缺失或无效时使用内置策略，并输出警告；不阻止网关启动。
+2. **内置安全默认（fallback）**：只有从未加载或持久化过有效策略，且文件缺失或无效时才使用内置策略；保留告警，不阻止网关启动。
 3. **数据库 + 界面（后续）**：策略存入 `status_rewrite_policies`，Web 编辑、校验、发布；数据库策略优先于文件。
 
 配置文件是**控制面的输入**，不是核心直接读取的文件。控制面校验后把策略放进配置快照，随 revision 推送给所有核心；核心继续用缓存快照工作，不直接读 YAML。
@@ -714,12 +718,12 @@ never_rewrite:
 - 规则按顺序匹配，首个命中生效；`match` 至少包含 `upstream_status` 或 `error_class` 之一。
 - `match.upstream_status` 只允许 408、429 和 5xx；`match.error_class` 只允许定义的错误分类；`committed` 必须是 `false`，`retry_exhausted` 必须是 `true`。
 - `never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；规则不能绕过。
-- `response.status` 只允许 5xx；`code` 必须是稳定错误码；`retryable` 默认 `true`。
-- `never_rewrite.statuses` 是硬保护，规则不能覆盖。
+- `response.status` 只允许 5xx，且不能出现在同一规则的 `match.upstream_status` 中；`code` 必须是稳定错误码；`retryable` 默认 `true`。
+- `never_rewrite.statuses` 匹配上游状态并只约束规则；固定的上游 401/403→502 映射先于规则执行，不受它覆盖。
 - 配置策略的 `schema_version` 独立于协议版本；策略变更递增配置 revision，核心原子切换。
-- 控制面每 5 秒检查文件哈希；有效变更自动推送；无效变更保留上一份有效策略并告警。上一份有效策略持久化到 `system_state`，重启后复用；只有从未加载过有效策略时才使用内置默认。
-- 状态接口和指标显示 `policy_source`（`file`/`db`/`default`）、`policy_hash` 和最后加载结果。
-- 文件缺失或无效时 `policy_source=default`；`status_rewrite_policy_invalid_total` 增加。
+- 控制面每 5 秒检查文件哈希；有效变更自动推送；无效变更保留上一份有效策略并告警。上一份有效策略持久化到 `system_state`，重启后复用；只有从未加载或持久化过有效策略时才使用内置默认。
+- 状态接口的 `status_rewrite_policy` 显示 `source`、`schema_version`、`hash`；加载结果通过 `status_rewrite_policy_invalid_total`、控制面日志和策略哈希指标核对。
+- 文件缺失或无效时，若已有持久化有效策略则保留其 `policy_source`/`policy_hash`/`schema_version`，只增加 `status_rewrite_policy_invalid_total`；只有从未有过有效策略时才 `policy_source=default`。
 - 未来数据库策略使用同一个规则 schema；UI 保存前执行同一套校验，发布时递增 revision。
 
 示例文件见 [`examples/status-rewrite.yaml`](./examples/status-rewrite.yaml)；部署时复制到 `config/status-rewrite.yaml`，挂载到控制面 `/etc/token-ne/`。
@@ -782,10 +786,10 @@ server/
 紧急配置恢复使用本地 CLI，不新增暴露密钥的 HTTP 接口：
 
 ```bash
-api config export --instance <instance_id> --out /var/lib/token-ne/cores/<instance_id>/config.override.json
+api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>/config.override.json"
 ```
 
-该命令需要宿主/控制面本地访问权限，输出文件权限 0600，并记录审计。它只用于生成手动 override，不改变控制面期望状态。
+`--out` 是可选的；省略时写 stdout，方便从容器重定向到宿主机。该命令需要宿主/控制面本地访问权限，输出文件权限 0600，并记录审计。它只用于生成手动 override，不改变控制面期望状态。
 
 ### 内部 API
 
@@ -842,7 +846,7 @@ flowchart TD
     V -->|失败| K["保留旧配置 + 告警指标"]
 ```
 
-- 只有同时满足“实例健康、`config_revision_applied == config_revision_desired`、`last_controlled_at` 非空”的实例才进入上游数组；从未被成功控制的实例权重始终为 0 且不写入 Caddy。
+- 只有同时满足“实例健康、`config.source=control_plane`、`override_active=false`、`config_revision_applied == config_revision_desired`、`config.hash == 期望哈希`、`last_controlled_at` 非空”的实例才进入上游数组。手动 override 实例即使 `last_controlled_at` 仍有旧值也不得接流量；从未被成功控制的实例权重始终为 0 且不写入 Caddy。`PUT /internal/v1/config` 在 override 存在时返回 409 `override_active`，控制面保留期望 revision。
 - 使用 PostgreSQL advisory lock 保证只有一个协调器；部署状态机在应用内再加互斥，禁止并发部署。
 - 生成配置时保留稳定的 `@id`：`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa`、`token-ne-deny-internal`。
 - 任何变化（TLS、路由、健康检查、upstream 数组、权重）都生成完整 JSON 并走 `POST /load`；不再使用分离的 `PATCH`，避免权重与 upstream 顺序错位。Caddy 会重建并替换 `http` app，因此每次应用都按同一稳定窗口处理。
@@ -877,7 +881,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 镜像拉取支持显式 API 触发；生产环境禁止 `latest`。
-- 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且核心上报 `spool.unacked_events == 0` 的实例容器和状态目录；`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。不要在 spool 未清零前删除状态目录。
+- 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -888,7 +892,7 @@ flowchart TD
 - `docker compose up` 不会为动态版本创建或修复容器；它们只由 Go 控制面创建。
 - `docker compose down --remove-orphans` 会删除项目内不在 Compose 文件中的容器，包括动态核心。
 - 不带 `--remove-orphans` 的 `docker compose down` 只处理声明服务，可能留下动态核心。
-- `POST /api/cores/prune` 是控制面清理入口；执行前必须确认对应实例上报 `spool.unacked_events == 0`。
+- `POST /api/cores/prune` 是控制面清理入口；执行前必须确认对应实例最后一次观测为 `spool.unacked_events == 0`，并记录审计。
 - 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它，清理必须显式进行。
 
 如果要求动态核心必须是 Compose 声明 service，需要引入 Compose CLI adapter：Go 生成 override 文件并调用 `docker compose up/scale`。这会把容器生命周期、文件状态和并发锁耦合在一起，第一期不采用。
@@ -962,7 +966,8 @@ Go 生成的默认 HTTP 配置保留以下结构（省略可选 TLS 细节）：
                     },
                     "passive": {
                       "fail_duration": "30s",
-                      "max_fails": 3
+                      "max_fails": 3,
+                      "unhealthy_status": [500, 502, 503, 504]
                     }
                   },
                   "flush_interval": -1
@@ -1693,7 +1698,6 @@ networks:
 | `token_ne_core_spool_unacked_events` | gauge | version, instance |
 | `token_ne_core_spool_oldest_unacked_seconds` | gauge | version, instance |
 | `token_ne_core_spool_dropped_total` | counter | version, instance |
-| `token_ne_core_spool_replayed_total` | counter | result |
 | `token_ne_core_forced_drain_total` | counter | version |
 | `token_ne_caddy_apply_total` | counter | result |
 | `token_ne_db_pool_connections` | gauge | state |

@@ -1,4 +1,4 @@
-# ADR 0005: 控制面不可用时用本地分段 WAL 缓冲用量
+# ADR 0005: 控制面不可用时用本地分段 usage spool 缓冲用量
 
 ## Status
 
@@ -11,27 +11,27 @@ Accepted; control-plane replay clause superseded by ADR 0008.
 可选方案：
 
 - 内存队列，控制面恢复后重试：进程崩溃或重启会丢数据。
-- 本地分段 WAL + 确认位点：无新服务，跨进程重启保留，控制面恢复后重放。
+- 本地分段 spool + 确认位点：无新服务，跨进程重启保留，控制面恢复后由 core 自行重放。
 - Redis Streams / NATS JetStream：成熟 ACK 和裁剪语义，但增加服务、凭据和运维面。
 - Kafka：高吞吐长期保留，第一期过重。
 - 核心直写 PostgreSQL：违反数据库边界，控制面故障时直接丢数据。
 
 ## Decision
 
-使用核心本地分段 WAL，默认保留 24 小时或 8 GiB。
+使用核心本地分段 spool，默认保留 24 小时或 8 GiB。
 
 约束：
 
-- WAL 只保存用量元数据：事件 ID、请求 ID、时间、模型、上游、token、延迟、状态、错误分类。
+- spool 只保存用量元数据：事件 ID、请求 ID、时间、模型、上游、token、延迟、状态、错误分类。
 - 不保存 Prompt、响应正文、请求头、上游密钥或下游 Key 明文。
 - 每个实例写 `CORE_STATE_HOST_DIR/<instance_id>/spool/`；容器重建复用同一状态目录。
 - 记录使用 `{"seq":n,"event":{...}}` 包装，发送按 `seq` 顺序。
-- 先写 WAL，再 POST `/internal/v1/usage/batch`；只有收到 `202`（控制面 PostgreSQL 事务已提交）才原子推进 `ack.json`，再删除完全确认的段。`202` 是持久接受，不是内存接受。
-- 控制面 `422` 必须带 `events[<index>].<field>`；核心隔离/丢弃单条无效事件，重新组批发送剩余事件，推进处理位点并记录 `usage_send_total{result="dropped"}`，不得让一个永久失败批次阻塞 WAL。
+- 先写 spool，再 POST `/internal/v1/usage/batch`；只有收到 `202`（控制面 PostgreSQL 事务已提交）才原子推进 `ack.json`，再删除完全确认的段。`202` 是持久接受，不是内存接受。
+- 控制面 `422` 必须带 `events[<index>].<field>`；核心隔离/丢弃单条无效事件，重新组批发送剩余事件，推进处理位点并记录 `usage_send_total{result="dropped"}`，不得让一个永久失败批次阻塞 spool。
 - 段按大小或时间轮转；全局 `seq` 连续确认，段最大 `seq <= processed_seq` 的段整体删除。
 - 跨段批次只保留包含处理位点的部分段，最多多保留一个段；不需要单文件 compaction。
 - `spool_max_bytes` 默认 8 GiB，`spool_min_free_bytes` 默认 1 GiB 或磁盘 5%；达到上限时优先删除已确认段，没有可删段时删除最旧未确认段并记录 `spool_dropped_total`。
-- 控制面挂载状态根目录；只对容器已停止/删除或已明确停止接收请求的实例，按 `ack.json` 位点重放。心跳超时只用于告警，不能单独触发重放。
+- 控制面不挂载、不读取、不解析 spool；实例停止但 spool 未清零时保留状态目录，用兼容 core 镜像重启，由 core 启动时按 `ack.json` 自行重放。心跳超时只用于告警，不能单独触发重放。该重放路径已由 ADR 0008 取代旧的控制面文件重放方案。
 - 重复投递由控制面 `event_id` 唯一约束吸收；`request_id` 只用于关联，不设唯一约束。
 - 宿主机整体故障不在第一期保证范围内；需要跨主机持久化时，把 sender 替换为 Redis Streams/NATS/Kafka producer，事件 schema 不变。
 
@@ -41,14 +41,14 @@ Accepted; control-plane replay clause superseded by ADR 0008.
 
 - 不增加消息队列服务。
 - 控制面故障、核心崩溃、上报后立刻崩溃都不会丢已写入的事件。
-- 控制面恢复后可以自动重放，重复事件安全。
-- WAL 只存小体积元数据，隐私和存储风险低。
+- 控制面恢复后，运行中的 core 自行按 `processed_seq` 重放；重复事件安全。控制面文件重放路径已由 ADR 0008 删除。
+- spool 只存小体积元数据，隐私和存储风险低。
 
 负面：
 
 - 需要实现分段、fsync、确认位点、重放和容量淘汰。
 - 每个实例增加磁盘 I/O；高请求率下需要提高容量或压缩。
-- 宿主机整体故障会丢失本地 WAL。
+- 宿主机整体故障会丢失本地 spool。
 - 控制面长期不可用超过保留窗口时仍会丢数据；需要容量告警。
 
 ## Why not a single file

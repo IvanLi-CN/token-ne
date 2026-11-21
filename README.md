@@ -12,12 +12,13 @@ Agent clients such as Codex and omp do not expose effective spend in one place. 
 
 ## Direction
 
-Account for usage at an LLM gateway: agent traffic passes through a local proxy that records model, input/output/cached tokens, latency, and per-call cost, then exposes a query and dashboard surface. Gateway-side accounting is independent of agent log formats; Phase 1 covers clients that use the supported OpenAI-style HTTP endpoints, with broader OpenAI coverage and Anthropic-style clients planned for later.
+Account for usage at an LLM gateway: agent traffic passes through a local proxy that records model, input/output/cached tokens, latency, and per-call cost, then exposes a query and dashboard surface. Gateway-side accounting is independent of agent log formats; Phase 1 covers clients that use the supported OpenAI-style HTTP endpoints, with Anthropic-style clients planned for later.
 
 ## Phase 1 design
 
 Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream routing, API-key upstream management, and versioned Rust forwarding cores behind Caddy.
 
+- [Glossary](./GLOSSARY.md)
 - [Product requirements](./docs/prd.md)
 - [Feasibility analysis](./docs/feasibility.md)
 - [Development and deployment architecture](./docs/architecture.md)

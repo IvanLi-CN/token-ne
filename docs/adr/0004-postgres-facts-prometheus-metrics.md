@@ -22,7 +22,7 @@ Accepted.
 - PostgreSQL 是业务事实和控制面管理的期望状态的唯一来源；第一期状态码改写策略来自控制面挂载的文件（ADR 0007），必须随部署单独备份。
 - Prometheus 只保存指标，不作为计费、审计或请求明细来源。
 - Go 控制面统一暴露 `/metrics`；外部 Prometheus 抓取；Grafana 只读 Prometheus。
-- 核心在内部端口暴露 `/metrics` 供排障，但不作为外部抓取目标；它把请求事件推给 Go，由 Go 生成业务指标。
+- 核心在内部端口暴露 `/metrics`，不作为外部抓取目标；业务指标由核心推送的请求事件在 Go 生成，核心本地计数器（如 `usage_send_total`、`config_apply_total`）由 Go 通过 `core-control` 网络尽力抓取并聚合。抓取失败只让对应指标缺失，不阻塞请求或部署。
 - 指标标签限制在低基数维度；`request_id`、Key、错误消息不进入标签。
 
 ## Consequences

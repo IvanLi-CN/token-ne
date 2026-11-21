@@ -25,9 +25,9 @@ Accepted.
 - 核心不直接读取 YAML/JSON 文件；它只消费配置快照，保证多版本策略一致。
 - 文件每 5 秒检查哈希；有效变更自动发布，无效变更保留上一份有效策略并告警。上一份有效策略持久化到 `system_state`，控制面重启后复用。
 - 只有从未加载或持久化过有效策略，且文件缺失或无效时，才使用内置安全默认，不阻止网关启动；不得用默认策略覆盖已持久化的有效策略。
-- 规则只允许提交前把可重试临时失败映射为 5xx；`never_rewrite.statuses` 和 `after_commit` 是硬保护。
+- 规则只允许提交前把可重试临时失败映射为 5xx；`never_rewrite.statuses` 匹配上游状态并只约束规则，`after_commit` 是硬保护。固定的上游 401/403→502 映射先于规则执行，不受 `never_rewrite` 约束。
 - 后续新增 `status_rewrite_policies` 表和 Web 编辑器；数据库策略优先于文件，规则 schema 和校验逻辑复用。
-- 状态接口暴露 `policy_source`、`policy_hash` 和加载结果；指标暴露 `policy_source`、加载结果和 `token_ne_status_rewrite_policy_hash_info{hash}` 供核对。
+- 状态接口的 `status_rewrite_policy` 暴露 `source`、`schema_version`、`hash`；加载成功/失败通过 `status_rewrite_policy_invalid_total`、控制面日志和 `token_ne_status_rewrite_policy_hash_info{hash}` 核对。第一期不新增 heartbeat 字段。
 
 ## Consequences
 

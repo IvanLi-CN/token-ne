@@ -53,8 +53,16 @@ paths:
                 $ref: "#/components/schemas/AdminUser"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/auth/logout:
     post:
@@ -68,6 +76,12 @@ paths:
           description: 已退出
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/auth/me:
     get:
@@ -85,6 +99,12 @@ paths:
                 $ref: "#/components/schemas/AdminUser"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/models:
     get:
@@ -108,6 +128,12 @@ paths:
                       $ref: "#/components/schemas/ModelAdmin"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
     post:
       tags: [models]
       summary: 创建全局模型
@@ -129,8 +155,16 @@ paths:
                 $ref: "#/components/schemas/ModelAdmin"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "409":
           $ref: "#/components/responses/AdminConflict"
         "422":
@@ -154,6 +188,12 @@ paths:
                 $ref: "#/components/schemas/ModelAdmin"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
     put:
@@ -177,8 +217,16 @@ paths:
                 $ref: "#/components/schemas/ModelAdmin"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "422":
@@ -194,6 +242,12 @@ paths:
           description: 已删除
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "409":
@@ -221,6 +275,12 @@ paths:
                       $ref: "#/components/schemas/Upstream"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
     post:
       tags: [upstreams]
       summary: 创建上游
@@ -232,7 +292,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpstreamInput"
+              $ref: "#/components/schemas/UpstreamCreateInput"
       responses:
         "201":
           description: 已创建
@@ -242,8 +302,16 @@ paths:
                 $ref: "#/components/schemas/Upstream"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
 
@@ -265,6 +333,12 @@ paths:
                 $ref: "#/components/schemas/Upstream"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
     put:
@@ -288,8 +362,16 @@ paths:
                 $ref: "#/components/schemas/Upstream"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "422":
@@ -305,6 +387,12 @@ paths:
           description: 已删除
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "409":
@@ -328,6 +416,12 @@ paths:
                 $ref: "#/components/schemas/UpstreamTestResult"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
@@ -353,6 +447,12 @@ paths:
                       $ref: "#/components/schemas/DownstreamKey"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
     post:
       tags: [downstream-keys]
       summary: 创建下游 Key
@@ -374,8 +474,16 @@ paths:
                 $ref: "#/components/schemas/DownstreamKeyCreated"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
 
@@ -403,8 +511,16 @@ paths:
                 $ref: "#/components/schemas/DownstreamKey"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "422":
@@ -420,6 +536,12 @@ paths:
           description: 已删除
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
@@ -441,6 +563,12 @@ paths:
                 $ref: "#/components/schemas/DownstreamKeyCreated"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
@@ -460,6 +588,12 @@ paths:
                 $ref: "#/components/schemas/CoresState"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/cores/versions:
     post:
@@ -483,8 +617,16 @@ paths:
                 $ref: "#/components/schemas/CoreVersion"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "409":
           $ref: "#/components/responses/AdminConflict"
         "422":
@@ -508,6 +650,12 @@ paths:
                 $ref: "#/components/schemas/CoreInstance"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
@@ -533,8 +681,16 @@ paths:
                 $ref: "#/components/schemas/CoreDeployment"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "409":
           $ref: "#/components/responses/AdminConflict"
         "422":
@@ -564,8 +720,16 @@ paths:
                 $ref: "#/components/schemas/CoreDeployment"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "409":
@@ -589,6 +753,12 @@ paths:
                 $ref: "#/components/schemas/CoreDeployment"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "409":
@@ -618,8 +788,16 @@ paths:
                 $ref: "#/components/schemas/CoreInstance"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "409":
@@ -654,8 +832,16 @@ paths:
                       format: uuid
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "409":
           $ref: "#/components/responses/AdminConflict"
 
@@ -681,6 +867,12 @@ paths:
                       $ref: "#/components/schemas/CoreSpoolState"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/overview:
     get:
@@ -701,8 +893,16 @@ paths:
                 $ref: "#/components/schemas/Overview"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/usage/timeseries:
     get:
@@ -729,8 +929,16 @@ paths:
                 $ref: "#/components/schemas/UsageTimeseries"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/usage/breakdown:
     get:
@@ -757,8 +965,16 @@ paths:
                 $ref: "#/components/schemas/UsageBreakdown"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/requests:
     get:
@@ -802,8 +1018,16 @@ paths:
                 $ref: "#/components/schemas/RequestList"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/requests/{request_id}:
     parameters:
@@ -827,6 +1051,12 @@ paths:
                 $ref: "#/components/schemas/RequestDetail"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
@@ -858,6 +1088,12 @@ paths:
                 $ref: "#/components/schemas/AuditList"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /v1/models:
     get:
@@ -1153,6 +1389,30 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/AdminError"
+    AdminForbidden:
+      description: 同源/CSRF 校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminPayloadTooLarge:
+      description: 请求体超过上限
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminInternal:
+      description: 控制面内部错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminStorageUnavailable:
+      description: PostgreSQL 或依赖不可用
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
     OpenAIUnauthorized:
       description: 下游 API Key 无效
       content:
@@ -1248,7 +1508,8 @@ components:
           type: string
         type:
           type: string
-          enum:
+          description: OpenAI 风格错误类型；本地生成值使用固定集合，上游透传值保留原文。
+          examples:
             - invalid_request_error
             - authentication_error
             - permission_error
@@ -1447,6 +1708,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UpstreamCapability"
+    UpstreamCreateInput:
+      allOf:
+        - $ref: "#/components/schemas/UpstreamInput"
+        - type: object
+          required: [api_key]
+          properties:
+            api_key:
+              type: string
+              minLength: 1
     UpstreamTestResult:
       type: object
       required: [ok, status, duration_ms]

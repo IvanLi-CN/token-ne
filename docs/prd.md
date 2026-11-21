@@ -33,7 +33,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 用量与延迟事实写入 PostgreSQL；Prometheus `/metrics`；外部 Grafana 仪表盘。
 - Web 后台：登录、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
 - Go 控制面动态创建/停止 Rust 核心容器；动态容器带 Compose 项目标签和网络，属于项目成员但不是 Compose 声明服务。
-- Docker Compose 部署；PostgreSQL、Caddy、Go API、Rust 核心在同一个 Compose 项目网络内。
+- Docker Compose 部署；PostgreSQL、Caddy、Go API、Rust 核心在同一个 Compose 项目中，按 `edge`、`core-control`、`data` 网络分区。
 - Caddy 默认只监听 HTTP；TLS 由宿主上的外部反向代理终止，可选启用 Caddy 内置 TLS。
 - Go 托管 Web 静态站点。
 - 控制面不可用时，核心继续服务，并把用量元数据写入核心私有 usage spool，默认保留 24 小时，恢复后由核心自行重放。
@@ -112,11 +112,11 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 `/v1/models` 严格使用 OpenAI `ListModelsResponse`：
 
 - `object="list"`，`data` 为 `Model` 数组；
-- `Model` 必填 `id`、`object="model"`、`created`（Unix 秒）、`owned_by`；
-- 可选 `shutdown_date`，无值时输出 `null`；
+- `Model` 必填 `id`、`object="model"`、`created`（模型 `created_at` 的 Unix 秒）、`owned_by="token-ne"`；
+- 可选 `shutdown_date`，无值时输出 `null`；第一期仅作公告元数据，不改变可见性或路由；
 - 不返回计费、上游、映射或候选信息。
 
-`/v1/models` 只返回启用且至少有一个启用上游能力的模型，并按 Key 的 `allowed_models` 过滤；空结果返回 `200` + 空 `data`。`/v1/models/{model}` 返回同一个 `Model` 字段集合；不可见模型返回 404。两个模型接口都不访问上游。
+`/v1/models` 只返回全局启用且至少有一个正权重候选的模型；候选必须同时满足 `upstream.enabled`、`upstream_models.enabled`、`weight > 0`。按 Key 的 `allowed_models` 过滤；空结果返回 `200` + 空 `data`。`/v1/models/{model}` 返回同一个 `Model` 字段集合；不可见模型返回 404。两个模型接口都不访问上游。
 
 其他 `/v1/*` 返回 404 和明确错误码，不做隐式透传。
 

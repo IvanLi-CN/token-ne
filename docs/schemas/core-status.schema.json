@@ -1,6 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://token-ne.local/schemas/core-status.schema.json",
-  "title": "token-ne core status payload",
-  "$ref": "heartbeat.schema.json#/$defs/payload"
-}

@@ -7,7 +7,7 @@
   "additionalProperties": true,
   "properties": {
     "protocol_version": { "const": 1 },
-    "message_id": { "type": "string", "format": "uuid" },
+    "message_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "sent_at": { "type": "string", "format": "date-time" },
     "type": { "const": "usage_batch" },
     "payload": {
@@ -29,7 +29,13 @@
   "$defs": {
     "nullableInteger": {
       "type": ["integer", "null"],
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "nullableDuration": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 86400000
     },
     "nullableUuid": {
       "type": ["string", "null"],
@@ -50,7 +56,7 @@
       ],
       "additionalProperties": true,
       "properties": {
-        "event_id": { "type": "string", "format": "uuid" },
+        "event_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
         "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "occurred_at": { "type": "string", "format": "date-time" },
         "core_version": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -111,7 +117,7 @@
           "type": ["string", "null"],
           "maxLength": 1024
         },
-        "attempt_count": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "attempt_count": { "type": "integer", "minimum": 0, "maximum": 10 },
         "request_bytes": { "$ref": "#/$defs/nullableInteger" },
         "response_bytes": { "$ref": "#/$defs/nullableInteger" },
         "input_tokens": { "$ref": "#/$defs/nullableInteger" },
@@ -119,10 +125,10 @@
         "output_tokens": { "$ref": "#/$defs/nullableInteger" },
         "reasoning_tokens": { "$ref": "#/$defs/nullableInteger" },
         "total_tokens": { "$ref": "#/$defs/nullableInteger" },
-        "ttft_ms": { "$ref": "#/$defs/nullableInteger" },
-        "upstream_ttfb_ms": { "$ref": "#/$defs/nullableInteger" },
-        "duration_ms": { "$ref": "#/$defs/nullableInteger" },
-        "upstream_duration_ms": { "$ref": "#/$defs/nullableInteger" }
+        "ttft_ms": { "$ref": "#/$defs/nullableDuration" },
+        "upstream_ttfb_ms": { "$ref": "#/$defs/nullableDuration" },
+        "duration_ms": { "$ref": "#/$defs/nullableDuration" },
+        "upstream_duration_ms": { "$ref": "#/$defs/nullableDuration" }
       },
       "allOf": [
         {
@@ -132,6 +138,15 @@
           },
           "then": {
             "properties": { "ttft_ms": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "not": { "const": "local_error" } } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "properties": { "attempt_count": { "minimum": 1 } }
           }
         }
       ]

@@ -48,14 +48,9 @@
           "properties": {
             "message": { "type": "string" },
             "type": {
-              "enum": [
-                "invalid_request_error",
-                "authentication_error",
-                "permission_error",
-                "not_found_error",
-                "rate_limit_error",
-                "server_error"
-              ]
+              "type": "string",
+              "minLength": 1,
+              "description": "OpenAI-style error type; local values use the documented set, upstream values are preserved."
             },
             "param": { "type": ["string", "null"] },
             "code": { "type": ["string", "null"] }

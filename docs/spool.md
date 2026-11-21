@@ -44,7 +44,7 @@ usage spool 是单个 core 实例私有的追加式本地日志，只保存用�
 
 - 实例停止但 spool 未清零：保留状态目录，用兼容 core 镜像重启该实例，由 core 启动时自动重放。
 - 控制面不自动读取 spool，也不提供“控制面重放”接口。
-- `POST /api/cores/prune` 只在 core 上报 `spool.unacked_events == 0` 后允许；否则返回 `409`。
+- `POST /api/cores/prune` 只对已停止实例使用最后一次 heartbeat/status 观测值：`spool.unacked_events == 0` 时允许，并记录 `last_ack_seq` 到审计；观测非零或缺失时先用兼容 core 重启并等待清零。
 - 镜像无法启动时，使用兼容旧镜像人工恢复；恢复后再升级。
 - 控制面重启不影响运行中 core 的自重放。
 
@@ -71,6 +71,5 @@ heartbeat 和 status 暴露：
 - `token_ne_core_spool_unacked_events`
 - `token_ne_core_spool_oldest_unacked_seconds`
 - `token_ne_core_spool_dropped_total`
-- `token_ne_core_spool_replayed_total`
 
-`oldest_unacked_at` 超过 3 小时、未确认事件持续增长或丢弃计数增加时必须告警。
+`oldest_unacked_at` 超过 3 小时、未确认事件持续增长或丢弃计数增加时必须告警。replay 计数器只存在于 core 内部 `/metrics`，不作为控制面外部指标。

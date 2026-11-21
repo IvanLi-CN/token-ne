@@ -10,6 +10,7 @@
     "revision",
     "issued_at",
     "features",
+    "downstream_keys",
     "models",
     "upstreams",
     "upstream_models",
@@ -43,6 +44,10 @@
       },
       "additionalProperties": true
     },
+    "downstream_keys": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/downstreamKey" }
+    },
     "models": {
       "type": "array",
       "items": { "$ref": "#/$defs/model" }
@@ -61,6 +66,22 @@
     "limits": { "$ref": "#/$defs/limits" }
   },
   "$defs": {
+    "downstreamKey": {
+      "type": "object",
+      "required": ["id", "name", "sha256", "enabled", "allowed_models", "max_inflight"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "enabled": { "type": "boolean" },
+        "allowed_models": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 256 }
+        },
+        "max_inflight": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      },
+      "additionalProperties": true
+    },
     "billing": {
       "type": "object",
       "required": [
@@ -106,7 +127,7 @@
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "base_url": { "type": "string", "format": "uri" },
+        "base_url": { "type": "string", "format": "uri", "pattern": "^https://" },
         "auth_style": { "enum": ["bearer", "api_key"] },
         "api_key": { "type": "string", "minLength": 1 },
         "connect_timeout_ms": { "type": "integer", "minimum": 100 },
@@ -182,7 +203,15 @@
           "properties": {
             "statuses": {
               "type": "array",
-              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
+              "items": { "type": "integer", "minimum": 400, "maximum": 599 },
+              "allOf": [
+                { "contains": { "const": 400 } },
+                { "contains": { "const": 401 } },
+                { "contains": { "const": 403 } },
+                { "contains": { "const": 404 } },
+                { "contains": { "const": 409 } },
+                { "contains": { "const": 422 } }
+              ]
             },
             "after_commit": { "const": true }
           },
@@ -225,6 +254,10 @@
             "committed": { "const": false },
             "retry_exhausted": { "const": true }
           },
+          "anyOf": [
+            { "required": ["upstream_status"] },
+            { "required": ["error_class"] }
+          ],
           "additionalProperties": true
         },
         "response": {
@@ -284,6 +317,8 @@
         "max_request_body_bytes",
         "max_inflight",
         "per_key_max_inflight",
+        "request_max_duration_ms",
+        "shutdown_grace_ms",
         "precommit_buffer_bytes",
         "nonstream_inspect_bytes"
       ],
@@ -291,6 +326,8 @@
         "max_request_body_bytes": { "type": "integer", "minimum": 1 },
         "max_inflight": { "type": "integer", "minimum": 1 },
         "per_key_max_inflight": { "type": "integer", "minimum": 1 },
+        "request_max_duration_ms": { "type": "integer", "minimum": 1000 },
+        "shutdown_grace_ms": { "type": "integer", "minimum": 1000 },
         "precommit_buffer_bytes": { "type": "integer", "minimum": 1 },
         "nonstream_inspect_bytes": { "type": "integer", "minimum": 1 }
       },

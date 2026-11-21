@@ -105,7 +105,7 @@
 }
 ```
 
-控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。`features.X` 与对应策略对象的 `enabled` 冲突时返回 `422`，不得静默择一。控制面不得向未声明某项能力的核心发送依赖该能力的配置；缺少所需能力返回 `409 unsupported_feature`。
+控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。第一期只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，两者冲突时返回 `422`；其余能力标记自身权威，没有策略对象 `enabled` 可比较。控制面不得向未声明某项能力的核心发送依赖该能力的配置；缺少所需能力返回 `409 unsupported_feature`。
 
 ### `GET /internal/v1/config?instance_id=<id>`
 
@@ -124,7 +124,8 @@ If-None-Match: "42"
 - `304`：revision 未变。
 - `404`：控制面不认识该实例；核心不得用缓存伪装成已控制。
 - `409`：协议或配置 schema 不兼容。
-- `422`：实例 ID 或配置语义错误。
+- `400`：实例 ID 在路径/请求头/请求体之间不一致。
+- `422`：配置语义错误。
 
 ### `PUT /internal/v1/config`
 
@@ -153,8 +154,8 @@ X-Token-Ne-Config-Signature: <optional hmac>
 }
 ```
 
-- `200`：revision 大于已应用值；或 revision 等于已应用值且请求体与签名完全一致，返回原先的 `applied_revision`，不重复应用。
-- `409`：revision 低于已应用值，或 revision 等于已应用值但内容不同（`stale_revision`）；协议或配置 schema 不兼容（`incompatible_version`）。
+- `200`：revision 大于已应用值；或 revision 等于已应用值且请求体字节与已应用版本完全一致，返回原先的 `applied_revision`，不重复应用。签名单独校验，不作为相等性依据。
+- `409`：revision 低于已应用值，或 revision 等于已应用值但内容不同（`stale_revision`）；协议或配置 schema 不兼容（`incompatible_version`）；手动 override 存在时返回 `override_active`。override 存在期间控制面不得认为配置已替换。
 - `422`：语义校验失败，返回字段路径。
 - `enforce` 签名模式下无效签名返回 `422`；`warn` 模式只记录 `signature_state=invalid`。
 
@@ -337,9 +338,9 @@ Idempotency-Key: <batch_id>
 ### 配置
 
 - `instance_id` 必须与路径、`X-Token-Ne-Instance-Id` 和请求体中的值逐字节一致。
-- `revision` 必须大于已应用 revision；相同且请求体与签名完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。
+- `revision` 必须大于已应用 revision；相同且请求体字节与已应用版本完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。比较不依赖可选签名；核心保留已应用 revision 的原始字节或 SHA-256。
 - `config_schema_version` 必须在核心声明的范围内。
-- `features.X` 与对应策略对象的 `enabled` 冲突时返回 `422`；控制面不得向未声明能力的核心发送依赖该能力的配置。
+- 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记自身权威。控制面不得向未声明能力的核心发送依赖该能力的配置。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`。
@@ -348,22 +349,23 @@ Idempotency-Key: <batch_id>
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。
 - `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
 - `status_rewrite.schema_version` 必须是控制面支持的策略版本。
-- `status_rewrite.rules[].match.upstream_status` 只允许 `408`、`429` 和 `5xx`；`match.error_class` 只允许协议定义的错误分类；`committed` 必须为 `false`，`retry_exhausted` 必须为 `true`。
-- `status_rewrite.rules[].id` 必须唯一；`response.status` 只允许 5xx；`response.code`、`message`、`preserve_retry_after`、`default_retry_after_seconds` 必须通过类型和范围校验。
-- `status_rewrite.never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；规则不能覆盖这两项，不满足返回 `422`。
+- `status_rewrite.rules[].match` 至少包含 `upstream_status` 或 `error_class` 之一；`upstream_status` 只允许 `408`、`429` 和 `5xx`；`error_class` 只允许协议定义的错误分类；`committed` 必须为 `false`，`retry_exhausted` 必须为 `true`。
+- `status_rewrite.rules[].id` 必须唯一；`response.status` 只允许 5xx，且不能出现在同一规则的 `match.upstream_status` 中；`response.code`、`message`、`preserve_retry_after`、`default_retry_after_seconds` 必须通过类型和范围校验。
+- `status_rewrite.never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；它匹配上游状态并只约束规则，不覆盖 401/403→502 等固定映射。规则不能覆盖这两项，不满足返回 `422`。
 - `status_rewrite.policy_source` 只允许 `file`、`db`、`default`；`policy_hash` 用于追踪策略版本。
 - `usage.spool.max_bytes`、`segment_bytes`、`max_age_hours` 在安全范围内；`max_bytes >= segment_bytes`。
 
 ### 用量事件
 
 - `event_id` 唯一；`request_id` 只用于关联，同一 `request_id` 可以对应多个 `event_id`（客户端复用 `x-request-id` 时）。控制面不得因 `request_id` 冲突丢弃事件；`request_id` 上只建普通索引。
+- `payload.core_instance_id` 必须与每条事件的 `core_instance` 逐字节一致；不一致返回 `422` 并定位到 `events[<index>].core_instance`。
 - `outcome` 只允许 `success`、`upstream_error`、`local_error`、`client_disconnected`、`aborted`。
-- `attempt_count` 1 到 10；`error_message` 最多 1024 字符，仅错误结果非空。
+- `attempt_count` 0 到 10；`outcome=local_error` 且未发起任何上游尝试时允许 0，其余情况至少为 1。`error_message` 最多 1024 字符，仅错误结果非空。
 - `error_class` 只允许 `connect_error`、`dns_error`、`tls_error`、`first_byte_timeout`、`idle_timeout`、`upstream_http_error`、`upstream_stream_error`、`local_validation_error`、`client_disconnected`、`aborted`、`unknown`，或空值。
 - `http_status` 100 到 599 或空。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
-- `status_rewritten_from` 非空时，`http_status` 必须与它不同且在 100 到 599 之间；控制面不重新执行改写策略。
+- `status_rewritten_from` 只在确实发生状态码改写且存在真实上游 HTTP 状态时非空；非空时 `http_status` 必须与它不同且在 100 到 599 之间。连接/DNS/TLS/超时等无上游响应的情况必须为 `null`；控制面不重新执行改写策略。
 
 ## 兼容规则
 
@@ -410,6 +412,7 @@ Idempotency-Key: <batch_id>
 | 401 | `unauthorized` | Token 缺失或错误 |
 | 404 | `unknown_instance` | 实例未登记 |
 | 409 | `incompatible_version` / `stale_revision` | 协议/schema/revision 冲突 |
+| 409 | `override_active` | 手动 override 存在，配置推送未应用 |
 | 409 | `unsupported_feature` | 核心缺少控制面要求的能力 |
 | 413 | `payload_too_large` | 超过请求体上限或批次条数上限 |
 | 422 | `validation_failed` | 字段或语义校验失败 |
@@ -423,7 +426,7 @@ Idempotency-Key: <batch_id>
 - 配置推送：控制面按 revision 幂等；超时重试同一 revision 且内容一致时，核心返回 `200` 和已应用 revision；内容不同返回 `409 stale_revision`。
 - 用量：`event_id` 是唯一幂等键；`batch_id` 用于批次重试；`202` 表示事件已持久写入控制面摄入存储（PostgreSQL 已提交），不是内存接受。
 - 心跳：幂等覆盖，不累积状态。
-- 核心对 `429`/`503` 按 `Retry-After` 退避；对其他 4xx，按 `422 details[].path` 隔离单条无效事件并推进处理位点，不得阻塞后续事件。
+- 核心对 `429`/`503` 保留 spool 并按 `Retry-After` 退避；`413` 缩小批次后重试；`422` 按 `details[].path` 隔离单条无效事件并推进处理位点；`400`/`401`/`404` 不推进位点并告警，`401`/`404` 同时使实例 readiness 失败。
 - 控制面对核心 5xx/超时重试 3 次，指数退避 1s、2s、4s；仍失败则标记实例不可用并阻止切换。
 
 ## 观测

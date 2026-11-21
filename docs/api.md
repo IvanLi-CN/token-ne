@@ -10,7 +10,9 @@
 - `GET /v1/models`
 - `GET /v1/models/{model}`
 
-`/v1/models` 严格使用 OpenAI `ListModelsResponse`：`object="list"` + `Model` 数组；`Model` 必填 `id`、`object="model"`、`created`、`owned_by`，可选 `shutdown_date`。只返回启用且至少有一个启用上游能力的模型；按 Key 的 `allowed_models` 过滤；空结果为 `200` + 空 `data`。
+`/v1/models` 严格使用 OpenAI `ListModelsResponse`：`object="list"` + `Model` 数组；`Model` 必填 `id`、`object="model"`、`created`、`owned_by`，可选 `shutdown_date`。`created` 取模型 `created_at` 的 Unix 秒，`owned_by` 固定为 `token-ne`。
+
+只返回全局 `enabled=true` 且至少有一个候选的模型；候选谓词固定为 `upstream.enabled && upstream_models.enabled && weight > 0`。按 Key 的 `allowed_models` 过滤；空结果为 `200` + 空 `data`。`shutdown_date` 第一期只作公告元数据，不改变可见性或路由；到期后是否隐藏留到后续版本。
 
 `/v1/models/{model}` 返回同一个 `Model` 字段集合；不可见模型返回 `404`。两个模型接口都不访问上游。
 
@@ -36,7 +38,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `default_upstream_model` 是该模型的全局名称改写，空时回退 `model_id`。
 - 上游能力 `upstream_models` 决定候选；`upstream_model_name` 覆盖全局映射。
 - 有效名称：上游能力名称 > 全局映射 > `model_id`。
-- 候选按能力上的 `priority` 升序、`weight` 加权；`weight=0` 不接新流量。
+- 候选必须同时满足 `upstream.enabled`、`upstream_models.enabled`、`weight > 0`；按 `priority` 升序、`weight` 加权。
 - 模型启用但没有正权重候选时，配置仍可发布，但 `/v1/models` 隐藏，请求返回 `503 no_upstream_available` 并告警。
 
 ## 分页与幂等

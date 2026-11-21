@@ -33,19 +33,22 @@
 | 503 | `server_error` | `no_upstream_available` | 模型存在但没有启用候选 |
 | 500 | `server_error` | `internal_error` | 核心内部错误 |
 
+错误优先级固定为：认证（401）→ 模型不存在/禁用（404）→ Key 模型权限（403）→ 候选选择（503）。`GET /v1/models/{model}` 对不可见模型统一返回 404；推理端点对存在但 Key 不允许的模型返回 403 `model_not_allowed`。
+
 ### 重试耗尽后的改写
 
 - 可重试的 429 改写为 `503 upstream_rate_limited`。
 - 可重试的 5xx、连接、DNS、TLS、首字节/空闲超时、提交前 SSE 错误改写为 `503 upstream_unavailable`。
-- 返回 `Retry-After`、`x-token-ne-upstream-status`、`x-token-ne-retryable: true`。
-- 原始上游状态写入 usage event 的 `status_rewritten_from`。
+- 返回 `Retry-After` 和 `x-token-ne-retryable: true`；`x-token-ne-upstream-status` 只在存在真实上游 HTTP 状态时附加。
+- 原始上游状态写入 usage event 的 `status_rewritten_from`；连接/DNS/TLS/超时等尚未收到上游响应的失败写 `null`，不得伪造 sentinel。
 - 已提交的流不改写状态码。
+- 本地合成的 `502 upstream_auth_failed`、`502 upstream_encoding_error`、`502 upstream_protocol_error` 在候选耗尽后保持 502 和原 code，不再改写为 503，也不带 `x-token-ne-retryable`。
 
 ### 上游 4xx
 
-- 上游 `400`、`404`、`409`、`422` 默认透传状态和 OpenAI 错误体，并附加 `x-request-id`。
+- 上游 `400`、`404`、`409`、`422` 默认透传状态；OpenAI 错误体按标准形状归一化后输出：缺失的 `param`/`code` 补 `null`，未知 `type` 保留原文并记录告警。
 - 上游 `401`/`403` 不向上游泄漏凭据语义，映射为 `502 upstream_auth_failed`。
-- 上游 4xx 体不是 OpenAI 错误对象时，不透传伪造结构，返回 `502 upstream_protocol_error`。
+- 上游 4xx 体不是 JSON 或没有 `error` 对象时，不透传伪造结构，返回 `502 upstream_protocol_error`。
 
 ## 管理 API 错误
 

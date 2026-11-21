@@ -197,19 +197,22 @@ docker compose exec api sh -c "
 " | jq '{config,status_rewrite_policy}'
 ```
 
-无效文件不会阻止网关启动：控制面保留上一份有效策略，`status_rewrite_policy_invalid_total` 增加并记录告警。文件缺失时使用内置默认策略。后续数据库/UI 策略使用同一规则 schema，发布时递增配置 revision。
+无效文件不会阻止网关启动：控制面保留上一份有效策略，`status_rewrite_policy_invalid_total` 增加并记录告警。只有从未加载或持久化过有效策略时，文件缺失/无效才使用内置默认策略；不得用默认策略覆盖已持久化策略。后续数据库/UI 策略使用同一规则 schema，发布时递增配置 revision。
 
 ## 配置紧急恢复
 
 当控制面不可用、配置损坏或错误配置导致核心无法启动时，使用手动 override。override 是普通 JSON，优先于控制面推送和缓存；启动时只输出警告，不阻止启动。`CORE_CONFIG_SIGNATURE_MODE=enforce` 时必须在 override 顶层写入 `"allow_unsigned": true`，否则核心拒绝加载。
 
-1. 从控制面导出当前实例配置（控制面可用时）：
+1. 从控制面导出当前实例配置到宿主机（控制面可用时）：
 
 ```bash
-docker compose exec api /app/api config export \
+mkdir -p "$CORE_STATE_HOST_DIR/$INSTANCE_ID"
+docker compose exec -T api /app/api config export \
   --instance "$INSTANCE_ID" \
-  --out "/var/lib/token-ne/cores/$INSTANCE_ID/config.override.json"
+  > "$CORE_STATE_HOST_DIR/$INSTANCE_ID/config.override.json"
 ```
+
+API 容器不再挂载核心状态目录；导出必须通过 stdout 重定向到宿主机路径，不能写入容器内 `/var/lib/token-ne/cores`。
 
 2. 在宿主机上修正权限并编辑：
 

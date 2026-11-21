@@ -12,12 +12,13 @@ Codex、omp 等 Agent 客户端都不在同一个地方暴露实际花费：缓�
 
 ## 方向
 
-在 LLM 网关侧记账：Agent 流量经过本地代理，记录每次请求的模型、输入/输出/缓存 Token、延迟和花费，再提供查询与看板入口。网关记账不依赖各 Agent 的日志格式；第一期覆盖使用受支持 OpenAI 风格 HTTP 端点的客户端，更广的 OpenAI 端点与 Anthropic 风格客户端留待后续。
+在 LLM 网关侧记账：Agent 流量经过本地代理，记录每次请求的模型、输入/输出/缓存 Token、延迟和花费，再提供查询与看板入口。网关记账不依赖各 Agent 的日志格式；第一期覆盖使用受支持 OpenAI 风格 HTTP 端点的客户端，Anthropic 风格客户端留待后续。
 
 ## 第一期设计
 
 第一期是一个 OpenAI 兼容网关：用量记账、模型与上游路由、API Key 形式的上游管理，以及 Caddy 后面的多版本 Rust 转发核心。
 
+- [术语表](./GLOSSARY.md)
 - [产品需求](./docs/prd.md)
 - [技术可行性分析](./docs/feasibility.md)
 - [开发与部署架构](./docs/architecture.md)

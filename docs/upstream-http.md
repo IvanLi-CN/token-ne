@@ -34,8 +34,9 @@
 - `Content-Length`（由 core 重算）
 - `Authorization`
 - `Cookie`
+- `x-api-key`、`api-key`、`x-goog-api-key`
 - `Accept-Encoding`（core 固定发送 `identity`）
-- `x-token-ne-no-status-rewrite` 等 token-ne 控制头
+- `x-token-ne-no-status-rewrite`、`x-token-ne-probe` 等 token-ne 控制头
 
 保留：
 
@@ -47,7 +48,7 @@
 - `traceparent`、`tracestate`
 - 其他非敏感业务头
 
-`api_key` 不得出现在日志、错误消息或用量事件中。
+上游认证头由 core 在 denylist 清理之后单独写入；下游传入的任何认证头都不得透传。`api_key` 不得出现在日志、错误消息或用量事件中。
 
 ## 请求体与模型改写
 
@@ -67,7 +68,7 @@
 
 ## 重定向与 TLS
 
-- 默认不跟随上游 3xx；3xx 作为上游 HTTP 错误处理，不把认证头带到新地址。
+- 默认不跟随上游 3xx；3xx 一律映射为 `502 upstream_protocol_error`，不重试，不透传 `Location`。
 - TLS 证书校验默认开启；第一期不支持自定义 CA 或跳过校验。
 - 不使用系统代理环境变量；如需代理，后续显式配置。
 - HTTP/2 可由客户端库自动协商；不承诺上游必须支持 HTTP/2。
@@ -77,8 +78,8 @@
 - `connect_timeout_ms`：TCP/TLS 连接。
 - `first_byte_timeout_ms`：发送请求到响应头/首字节。
 - `idle_timeout_ms`：两个响应 chunk 之间。
-- `request_max_duration_ms`：单请求硬上限。
-- 超时属于可重试错误，前提是尚未提交下游响应。
+- `request_max_duration_ms`：整个下游请求的硬上限，不是单次尝试超时；达到后不再重试。
+- 连接、首字节和空闲超时属于可重试错误，前提是尚未提交下游响应；`request_max_duration_ms` 不可重试。
 
 ## 响应头
 
@@ -88,6 +89,8 @@
 - `Content-Length`（由 core 重算或使用 chunked）
 - `Set-Cookie`
 - `Server`
+- `Location`
+- 上游 `x-request-id`
 - 上游 `Content-Encoding`（第一期只接受 identity）
 
 保留：
@@ -96,12 +99,11 @@
 - `Retry-After`
 - `x-ratelimit-*`
 - `OpenAI-*`
-- `x-request-id`
 - 其他非敏感业务头
 
 core 统一附加：
 
-- `x-request-id`
+- `x-request-id`（core 生成，覆盖上游值）
 - `x-token-ne-attempts`
 - `x-token-ne-upstream`
 - 状态码改写时附加 `x-token-ne-upstream-status`、`x-token-ne-retryable`
@@ -111,6 +113,8 @@ core 统一附加：
 - 连接、DNS、TLS、首字节超时、空闲超时：可重试。
 - `408`、`429`、`500`、`502`、`503`、`504`：提交前可重试。
 - 其他 4xx：不重试；按原状态透传或映射为明确错误。
+- `3xx`：不跟随、不重试，映射为 `502 upstream_protocol_error`。
+- `request_max_duration_ms` 到达：不重试，按超时终态处理。
 - 流式 200 后、首个语义增量前出现 `error`、`response.failed` 或等价事件：可重试。
 - 提交首个语义增量后：只透传，不再重试或改写状态码。
 

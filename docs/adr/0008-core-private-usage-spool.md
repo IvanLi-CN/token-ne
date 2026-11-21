@@ -14,7 +14,7 @@ usage spool 是 core 私有存储，只有 core 读写。
 
 - 控制面只通过 heartbeat/status 观察 `unacked_events`、字节数和最早未确认时间，不挂载、不解析、不搬运 spool 文件。
 - 实例停止但 spool 未清零时，保留状态目录；用兼容 core 镜像重启该实例，由 core 启动时自动重放。
-- 控制面 prune 只在 core 上报 spool 清零后允许；镜像无法启动时使用兼容旧镜像人工恢复，不引入 Go 文件解析器。
+- 控制面 prune 只对已停止实例使用最后一次 heartbeat/status 观测值：`spool.unacked_events == 0` 时允许，并把该值和 `last_ack_seq` 写入审计。最后一次观测非零或缺失时，先用兼容 core 重启、等待上报清零，再停止并 prune；不引入 Go 文件解析器。
 - spool 格式固定为 `spool_format_version=1`，第一期所有 core 版本必须能读取 v1；未来改格式必须先完成 drain 或显式迁移。
 - API 容器不再为了重放挂载核心状态根目录。
 
@@ -30,4 +30,4 @@ usage spool 是 core 私有存储，只有 core 读写。
 
 - 实例停止后不能仅靠控制面恢复；必须能启动兼容 core。
 - 状态目录保留和兼容镜像可用性成为恢复前提。
-- prune 依赖 core 上报的清零状态，不能靠控制面扫盘判断。
+- prune 依赖 core 最后一次上报的清零状态和审计记录，不能靠控制面扫盘判断；观测非零或缺失时必须先重启兼容 core。
