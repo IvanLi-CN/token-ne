@@ -4,7 +4,7 @@
 
 Real-time token usage and cost observability for AI coding agents.
 
-Status: design phase. This repository is initialized for the upcoming specification; the runtime stack, API surface, and storage schema are not settled, and there is no runnable code yet.
+Status: design phase. Phase 1 product requirements, feasibility, architecture, and technology selection are documented in [`docs/`](./docs/README.md). There is no runnable code yet.
 
 ## Problem
 
@@ -12,13 +12,31 @@ Agent clients such as Codex and omp do not expose effective spend in one place. 
 
 ## Direction
 
-Account for usage at an LLM gateway: agent traffic passes through a local proxy that records model, input/output/cached tokens, latency, and per-call cost, then exposes a query and dashboard surface. Gateway-side accounting is independent of agent log formats and covers any client that speaks an OpenAI- or Anthropic-style HTTP API.
+Account for usage at an LLM gateway: agent traffic passes through a local proxy that records model, input/output/cached tokens, latency, and per-call cost, then exposes a query and dashboard surface. Gateway-side accounting is independent of agent log formats; Phase 1 covers clients that use the supported OpenAI-style HTTP endpoints, with Anthropic-style clients planned for later.
 
-## Non-goals (tentative)
+## Phase 1 design
+
+Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream routing, API-key upstream management, and versioned Rust forwarding cores behind Caddy.
+
+- [Glossary](./GLOSSARY.md)
+- [Product requirements](./docs/prd.md)
+- [Feasibility analysis](./docs/feasibility.md)
+- [Development and deployment architecture](./docs/architecture.md)
+- [API contract](./docs/api.md) and [OpenAPI](./openapi.yaml)
+- [Error contract](./docs/errors.md)
+- [Upstream HTTP semantics](./docs/upstream-http.md)
+- [Core spool lifecycle](./docs/spool.md)
+- [Web design](./DESIGN.md)
+- [Technology selection](./docs/tech-selection.md)
+- [Upgrade and rollback runbook](./docs/runbooks/upgrade.md)
+- [Architecture decision records](./docs/adr/)
+
+## Non-goals (phase 1)
 
 - Not an API-key marketplace or credential reseller.
 - Not a prompt/response archive by default; token accounting does not require retaining message bodies.
+- No OAuth account pool, Anthropic protocol, multi-tenancy, or multi-node high availability yet.
 
 ## Status
 
-No releases. Scope decisions and the long-term spec will land before implementation. See [LICENSE](./LICENSE) for terms.
+No releases. The phase 1 contract is documented; implementation follows the architecture and acceptance criteria. See [LICENSE](./LICENSE) for terms.

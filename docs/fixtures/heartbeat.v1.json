@@ -1,0 +1,41 @@
+{
+  "protocol_version": 1,
+  "message_id": "0193f0c2-7b1a-7c3e-9f00-000000000008",
+  "sent_at": "2026-11-21T10:00:00Z",
+  "type": "heartbeat",
+  "payload": {
+    "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+    "version": "0.2.0",
+    "config": {
+      "revision": 42,
+      "hash": "sha256:abc123",
+      "schema_version": 1,
+      "source": "control_plane",
+      "signature_state": "valid",
+      "override_active": false
+    },
+    "status_rewrite_policy": {
+      "source": "file",
+      "schema_version": 1,
+      "hash": "sha256:6a4e7f2b"
+    },
+    "last_controlled_at": "2026-11-21T09:00:00Z",
+    "inflight": 7,
+    "spool": {
+      "bytes": 104857600,
+      "unacked_events": 1200,
+      "oldest_unacked_at": "2026-11-21T09:50:00Z",
+      "last_ack_seq": 88100,
+      "dropped_total": 0
+    },
+    "draining": false,
+    "started_at": "2026-11-21T09:00:00Z",
+    "features": [
+      "chat_completions",
+      "responses",
+      "embeddings",
+      "stream_usage_injection",
+      "status_rewrite"
+    ]
+  }
+}

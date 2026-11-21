@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://token-ne.local/schemas/heartbeat.schema.json",
+  "title": "token-ne core heartbeat",
+  "type": "object",
+  "required": ["protocol_version", "message_id", "sent_at", "type", "payload"],
+  "additionalProperties": true,
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "message_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "sent_at": { "type": "string", "format": "date-time" },
+    "type": { "const": "heartbeat" },
+    "payload": { "$ref": "#/$defs/payload" }
+  },
+  "$defs": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "instance_id",
+        "version",
+        "config",
+        "status_rewrite_policy",
+        "inflight",
+        "spool",
+        "draining",
+        "started_at",
+        "features"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "instance_id": { "type": "string", "format": "uuid" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "config": {
+          "type": "object",
+          "required": [
+            "revision",
+            "hash",
+            "schema_version",
+            "source",
+            "signature_state",
+            "override_active"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "revision": { "type": "integer", "minimum": 1 },
+            "hash": { "type": "string", "minLength": 1 },
+            "schema_version": { "type": "integer", "minimum": 1 },
+            "source": {
+              "enum": ["control_plane", "cache", "manual_override"]
+            },
+            "signature_state": {
+              "enum": ["valid", "invalid", "missing", "off"]
+            },
+            "override_active": { "type": "boolean" }
+          }
+        },
+        "status_rewrite_policy": {
+          "type": "object",
+          "required": ["source", "schema_version", "hash"],
+          "additionalProperties": true,
+          "properties": {
+            "source": { "enum": ["file", "db", "default"] },
+            "schema_version": { "type": "integer", "minimum": 1 },
+            "hash": { "type": "string", "minLength": 1 }
+          }
+        },
+        "last_controlled_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "inflight": { "type": "integer", "minimum": 0 },
+        "spool": {
+          "type": "object",
+          "required": [
+            "bytes",
+            "unacked_events",
+            "last_ack_seq",
+            "dropped_total"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "bytes": { "type": "integer", "minimum": 0 },
+            "unacked_events": { "type": "integer", "minimum": 0 },
+            "oldest_unacked_at": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            },
+            "last_ack_seq": { "type": "integer", "minimum": 0 },
+            "dropped_total": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "draining": { "type": "boolean" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "features": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

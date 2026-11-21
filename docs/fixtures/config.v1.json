@@ -1,0 +1,153 @@
+{
+  "protocol_version": 1,
+  "config_schema_version": 1,
+  "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+  "revision": 42,
+  "issued_at": "2026-11-21T09:00:00Z",
+  "features": {
+    "chat_completions": true,
+    "responses": true,
+    "embeddings": true,
+    "stream_usage_injection": true,
+    "status_rewrite": true
+  },
+  "downstream_keys": [
+    {
+      "id": "0193f0c2-7b1a-7c3e-9f00-000000000003",
+      "name": "default",
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "enabled": true,
+      "allowed_models": ["*"],
+      "max_inflight": 64
+    }
+  ],
+  "models": [
+    {
+      "model_id": "gpt-5",
+      "enabled": true,
+      "default_upstream_model": "gpt-5-2026-xx",
+      "shutdown_date": null,
+      "billing": {
+        "input_usd_per_mtok": 1.25,
+        "cached_input_usd_per_mtok": 0.125,
+        "output_usd_per_mtok": 10.0
+      }
+    },
+    {
+      "model_id": "text-embedding-3-small",
+      "enabled": true,
+      "default_upstream_model": null,
+      "shutdown_date": null,
+      "billing": {
+        "input_usd_per_mtok": 0.02,
+        "cached_input_usd_per_mtok": null,
+        "output_usd_per_mtok": 0.0
+      }
+    }
+  ],
+  "upstreams": [
+    {
+      "id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+      "name": "openai",
+      "base_url": "https://api.openai.com",
+      "auth_style": "bearer",
+      "api_key": "sk-example",
+      "connect_timeout_ms": 10000,
+      "first_byte_timeout_ms": 90000,
+      "idle_timeout_ms": 300000,
+      "enabled": true
+    }
+  ],
+  "upstream_models": [
+    {
+      "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+      "model_id": "gpt-5",
+      "upstream_model_name": null,
+      "enabled": true,
+      "priority": 100,
+      "weight": 100
+    },
+    {
+      "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+      "model_id": "text-embedding-3-small",
+      "upstream_model_name": null,
+      "enabled": true,
+      "priority": 100,
+      "weight": 100
+    }
+  ],
+  "retry": {
+    "max_attempts": 3,
+    "retry_statuses": [408, 429, 500, 502, 503, 504],
+    "backoff_ms": [100, 300],
+    "respect_retry_after": true,
+    "retry_after_max_ms": 2000
+  },
+  "status_rewrite": {
+    "schema_version": 1,
+    "policy_source": "file",
+    "policy_hash": "sha256:6a4e7f2b",
+    "enabled": true,
+    "rules": [
+      {
+        "id": "upstream-rate-limit",
+        "match": {
+          "upstream_status": [429],
+          "committed": false,
+          "retry_exhausted": true
+        },
+        "response": {
+          "status": 503,
+          "code": "upstream_rate_limited",
+          "message": "upstream rate limited; retry later",
+          "retryable": true,
+          "preserve_retry_after": true,
+          "default_retry_after_seconds": 1
+        }
+      },
+      {
+        "id": "transient-upstream-status",
+        "match": {
+          "upstream_status": [408, 500, 502, 503, 504],
+          "committed": false,
+          "retry_exhausted": true
+        },
+        "response": {
+          "status": 503,
+          "code": "upstream_unavailable",
+          "message": "upstream temporarily unavailable; retry later",
+          "retryable": true,
+          "preserve_retry_after": true,
+          "default_retry_after_seconds": 1
+        }
+      }
+    ],
+    "never_rewrite": {
+      "statuses": [400, 401, 403, 404, 409, 422],
+      "after_commit": true
+    }
+  },
+  "usage": {
+    "endpoint": "http://api:8080/internal/v1/usage/batch",
+    "token": "control-secret",
+    "batch_max_events": 500,
+    "queue_max_events": 10000,
+    "spool": {
+      "dir": "/var/lib/token-ne/state/spool",
+      "max_bytes": 8589934592,
+      "min_free_bytes": 1073741824,
+      "max_age_hours": 24,
+      "segment_bytes": 67108864,
+      "fsync_interval_ms": 1000
+    }
+  },
+  "limits": {
+    "max_request_body_bytes": 33554432,
+    "max_inflight": 512,
+    "per_key_max_inflight": 64,
+    "request_max_duration_ms": 1800000,
+    "shutdown_grace_ms": 1800000,
+    "precommit_buffer_bytes": 262144,
+    "nonstream_inspect_bytes": 1048576
+  }
+}
