@@ -27,31 +27,14 @@ export default function LoginPage() {
   }
   return (
     <main id="main-content" className="login-layout">
-      <div className="login-instrument">
-        <section className="login-readout" aria-label="系统信息">
-          <p className="wordmark">
-            <span className="brand-mark" aria-hidden="true">
-              t/n
-            </span>{" "}
-            token-ne
-          </p>
-          <p className="login-section-label">系统状态</p>
-          <dl className="system-readout">
-            <div>
-              <dt>运行模式</dt>
-              <dd>管理员</dd>
-            </div>
-            <div>
-              <dt>会话状态</dt>
-              <dd>未登录</dd>
-            </div>
-            <div>
-              <dt>访问方式</dt>
-              <dd>同源会话</dd>
-            </div>
-          </dl>
-        </section>
-        <section className="login-panel" aria-labelledby="login-title">
+      <div className="login-container">
+        <p className="wordmark">
+          <span className="brand-mark" aria-hidden="true">
+            t/n
+          </span>{" "}
+          token-ne
+        </p>
+        <section className="surface-card login-panel" aria-labelledby="login-title">
           <h1 id="login-title">管理员登录</h1>
           <p className="muted">使用管理员凭据登录。</p>
           <form onSubmit={submit} aria-busy={login.isPending}>

@@ -99,11 +99,10 @@ export function PageHeader({
           <h1 tabIndex={-1} id="page-title">
             {title}
           </h1>
-          {actions}
         </div>
         {description && <p>{description}</p>}
       </div>
-      <div className="header-rule" aria-hidden="true" />
+      {actions && <div className="page-actions">{actions}</div>}
     </header>
   );
 }

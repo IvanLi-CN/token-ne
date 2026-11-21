@@ -201,7 +201,33 @@ describe("shared boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "固定 Models" }));
     fireEvent.click(screen.getByRole("button", { name: "重置固定与最近" }));
     expect(localStorage.getItem("token-ne.navigation.v1")).toContain('"pinned":[]');
+    fireEvent.click(screen.getByRole("button", { name: "关闭命令面板" }));
     expect(screen.getByRole("link", { name: "总览" })).toBeTruthy();
+  });
+  it("opens mobile navigation and closes it after choosing a route", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    const router = mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    const trigger = screen.getByRole("button", { name: "打开导航菜单" });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const drawer = screen.getByRole("dialog", { name: "token-ne" });
+    expect(drawer.id).toBe(trigger.getAttribute("aria-controls"));
+    fireEvent.click(screen.getByRole("link", { name: "Models" }));
+    await screen.findByRole("heading", { name: "Models" });
+    expect(router.state.location.pathname).toBe("/models");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("keeps pending summary values explicit when changing the activity range", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    fireEvent.click(screen.getByRole("button", { name: "昨天" }));
+    expect(screen.getByRole("heading", { name: "昨天暂无可展示的数据" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "昨天" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "最近请求" })).toBeTruthy();
   });
   it("expands one morph panel at a time and restores focus on Escape", () => {
     render(

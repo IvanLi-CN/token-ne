@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { destinations, useAdaptiveState } from "../app/adaptive-state";
@@ -47,105 +48,124 @@ export function CommandPanel() {
         item !== undefined && !pinned.includes(item.path),
     );
   return (
-    <div className="command-launcher">
-      <Button
-        variant="secondary"
-        className="command-open"
-        ref={triggerRef}
-        aria-expanded={open}
-        aria-controls="command-panel"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span aria-hidden="true">⌘</span> <span>命令</span>
-        <kbd>Ctrl K</kbd>
-      </Button>
-      <section id="command-panel" className="command-panel" aria-label="命令面板" hidden={!open}>
-        <div className="command-search-row">
-          <label className="visually-hidden" htmlFor="command-search">
-            搜索页面
-          </label>
-          <Input
-            ref={searchRef}
-            id="command-search"
-            placeholder="搜索页面…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setOpen(false);
-            }}
-          />
-          <Button variant="secondary" onClick={reset}>
-            重置固定与最近
-          </Button>
-          <Button variant="secondary" aria-label="关闭命令面板" onClick={() => setOpen(false)}>
-            关闭
-          </Button>
-        </div>
-        {!search && (
-          <div className="command-preferences">
-            <span>固定</span>
-            {pinnedRoutes.length ? (
-              pinnedRoutes.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => {
-                    visit(item.path);
-                    setOpen(false);
-                  }}
-                >
-                  {item.label}
-                </NavLink>
-              ))
-            ) : (
-              <span>尚未固定页面</span>
-            )}
-            <span>最近</span>
-            {recentRoutes.length ? (
-              recentRoutes.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => {
-                    visit(item.path);
-                    setOpen(false);
-                  }}
-                >
-                  {item.label}
-                </NavLink>
-              ))
-            ) : (
-              <span>尚无访问记录</span>
-            )}
-          </div>
-        )}
-        <ul className="command-results">
-          {filtered.map((item) => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                onClick={() => {
-                  visit(item.path);
-                  setOpen(false);
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger asChild>
+        <Button
+          variant="secondary"
+          className="command-open"
+          ref={triggerRef}
+          aria-expanded={open}
+          aria-controls="command-panel"
+          aria-label="打开命令面板"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span aria-hidden="true">⌘</span> <span>命令</span>
+          <kbd>Ctrl K</kbd>
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content
+          className="command-dialog"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            searchRef.current?.focus();
+          }}
+        >
+          <Dialog.Title className="visually-hidden">页面命令</Dialog.Title>
+          <Dialog.Description className="visually-hidden">
+            搜索、打开或固定控制面页面。
+          </Dialog.Description>
+          <section id="command-panel" className="command-panel" aria-label="命令面板">
+            <div className="command-search-row">
+              <label className="visually-hidden" htmlFor="command-search">
+                搜索页面
+              </label>
+              <Input
+                ref={searchRef}
+                id="command-search"
+                placeholder="搜索页面…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setOpen(false);
                 }}
-                aria-current={current?.path === item.path ? "page" : undefined}
-              >
-                <span>{item.label}</span>
-                <span>{current?.path === item.path ? "当前" : "打开"}</span>
-              </NavLink>
-              <button
-                type="button"
-                className="pin-toggle"
-                aria-label={`${pinned.includes(item.path) ? "取消固定" : "固定"} ${item.label}`}
-                aria-pressed={pinned.includes(item.path)}
-                onClick={() => togglePin(item.path)}
-              >
-                {pinned.includes(item.path) ? "已固定" : "固定"}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
+              />
+              <Button variant="secondary" onClick={reset}>
+                重置固定与最近
+              </Button>
+              <Button variant="secondary" aria-label="关闭命令面板" onClick={() => setOpen(false)}>
+                关闭
+              </Button>
+            </div>
+            {!search && (
+              <div className="command-preferences">
+                <span>固定</span>
+                {pinnedRoutes.length ? (
+                  pinnedRoutes.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => {
+                        visit(item.path);
+                        setOpen(false);
+                      }}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))
+                ) : (
+                  <span>尚未固定页面</span>
+                )}
+                <span>最近</span>
+                {recentRoutes.length ? (
+                  recentRoutes.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => {
+                        visit(item.path);
+                        setOpen(false);
+                      }}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))
+                ) : (
+                  <span>尚无访问记录</span>
+                )}
+              </div>
+            )}
+            <ul className="command-results">
+              {filtered.map((item) => (
+                <li key={item.path}>
+                  <NavLink
+                    to={item.path}
+                    onClick={() => {
+                      visit(item.path);
+                      setOpen(false);
+                    }}
+                    aria-current={current?.path === item.path ? "page" : undefined}
+                  >
+                    <span>{item.label}</span>
+                    <span>{current?.path === item.path ? "当前" : "打开"}</span>
+                  </NavLink>
+                  <button
+                    type="button"
+                    className="pin-toggle"
+                    aria-label={`${pinned.includes(item.path) ? "取消固定" : "固定"} ${item.label}`}
+                    aria-pressed={pinned.includes(item.path)}
+                    onClick={() => togglePin(item.path)}
+                  >
+                    {pinned.includes(item.path) ? "已固定" : "固定"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {filtered.length === 0 && <p className="command-no-results">未找到匹配的页面</p>}
+          </section>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
