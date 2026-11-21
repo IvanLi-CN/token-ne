@@ -10,6 +10,7 @@
 
 # Go
 /server/bin/
+/tests/e2e/mock-upstream/mock-upstream
 **/coverage.out
 
 # Web
