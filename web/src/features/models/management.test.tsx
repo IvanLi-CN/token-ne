@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../../lib/query-client";
@@ -87,6 +87,56 @@ afterEach(() => {
 });
 
 describe("models management", () => {
+  it.each([
+    [
+      ModelsPage,
+      "全局模型",
+      "example",
+      ["输入价格", "缓存输入价格", "输出价格", "全局映射", "停用日期", "能力数"],
+    ],
+    [
+      UpstreamsPage,
+      "上游列表",
+      "Primary",
+      ["Base URL", "认证 / 密钥", "状态", "能力数量", "最近测试（本次会话）"],
+    ],
+    [KeysPage, "下游 Key 列表", "Application", ["允许模型", "并发上限", "最后使用"]],
+  ] as const)(
+    "renders every management field and a single usable action set below 720px: %s",
+    async (Page, caption, name, labels) => {
+      let narrow = true;
+      let listener: (() => void) | undefined;
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: query === "(max-width: 719px)" && narrow,
+          addEventListener: (_type: string, callback: () => void) => {
+            listener = callback;
+          },
+          removeEventListener: vi.fn(),
+        })),
+      );
+      mock();
+      mount(Page);
+      await screen.findByText(name);
+      const cards = screen.getByRole("region", { name: caption });
+      expect(cards.querySelectorAll("dl")).toHaveLength(1);
+      for (const label of labels)
+        expect(within(cards).getByText(label, { selector: "dt" })).toBeTruthy();
+      expect(within(cards).getAllByRole("button", { name: "编辑" })).toHaveLength(1);
+      expect(screen.queryByRole("table")).toBeNull();
+      fireEvent.click(within(cards).getByRole("button", { name: "编辑" }));
+      expect(await screen.findByRole("dialog")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      act(() => {
+        narrow = false;
+        listener?.();
+      });
+      expect(screen.getByRole("table")).toBeTruthy();
+      expect(document.querySelector(".management-record")).toBeNull();
+    },
+  );
   it("distinguishes unknown/free pricing and derives routing only from explicit positive capabilities", async () => {
     mock();
     mount(ModelsPage);

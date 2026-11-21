@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { DataTable } from "../../components/data-table";
 import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
@@ -12,6 +11,7 @@ import {
   Field,
   FormError,
 } from "../models/management";
+import { ManagementTable } from "../models/management-table";
 import { type TestResult, type Upstream, type UpstreamInput, upstreamsApi } from "./api";
 import { CapabilityEditor } from "./capability-editor";
 
@@ -276,7 +276,7 @@ export default function UpstreamsPage() {
           </div>
         </div>
         <div className="px-5 pb-5">
-          <DataTable
+          <ManagementTable
             caption="上游列表"
             rows={upstreams.data ?? []}
             rowKey={(upstream) => upstream.id}

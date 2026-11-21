@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { DataTable } from "../../components/data-table";
 import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
@@ -12,6 +11,7 @@ import {
   Field,
   FormError,
 } from "../models/management";
+import { ManagementTable } from "../models/management-table";
 import { type DownstreamKey, type KeyInput, keysApi } from "./api";
 import { ModelSelect } from "./model-select";
 import { OneTimeSecret, SecretNavigationGuard } from "./one-time-secret";
@@ -156,7 +156,7 @@ export default function KeysPage() {
           </div>
         </div>
         <div className="px-5 pb-5">
-          <DataTable
+          <ManagementTable
             caption="下游 Key 列表"
             rows={keys.data ?? []}
             rowKey={(item) => item.id}

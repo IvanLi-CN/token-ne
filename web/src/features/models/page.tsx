@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { DataTable } from "../../components/data-table";
 import { Button, PageHeader, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
 import { type Billing, type Model, type ModelInput, modelsApi } from "./api";
 import { ActionGroup, DangerAction, Editor, errorMessage, Field, FormError } from "./management";
+import { ManagementTable } from "./management-table";
 
 const prices = [
   ["input_usd_per_mtok", "输入价格"],
@@ -175,7 +175,7 @@ export default function ModelsPage() {
           </fieldset>
         </div>
         <div className="px-5 pb-5">
-          <DataTable
+          <ManagementTable
             caption="全局模型"
             rows={(models.data ?? []).filter(
               (model) => filter === "all" || model.enabled === (filter === "enabled"),
