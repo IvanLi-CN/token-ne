@@ -169,13 +169,9 @@ h2 {
   align-items: center;
   gap: 8px;
   padding: 0 13px;
-  border-left: 1px solid var(--border-quiet);
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
-}
-.command-link:last-child {
-  border-right: 1px solid var(--border-quiet);
 }
 .command-link:hover {
   color: var(--fg);
@@ -183,7 +179,8 @@ h2 {
 }
 .command-link.active {
   color: var(--fg);
-  background: var(--surface);
+  background: var(--accent-soft);
+  border-radius: 4px 4px 0 0;
 }
 .command-link.active::after {
   position: absolute;
@@ -193,10 +190,6 @@ h2 {
   right: 0;
   height: 1px;
   background: var(--accent);
-}
-.nav-index {
-  color: var(--accent);
-  font: 11px var(--mono);
 }
 .command-status {
   display: flex;
@@ -234,13 +227,15 @@ h2 {
   gap: 7px;
 }
 .page-eyebrow,
-.login-overline,
+.login-section-label {
+  color: var(--muted);
+  font-size: 11px;
+}
 .panel-label,
 .placeholder-coordinate,
 .readout-coordinate {
   color: var(--muted);
   font: 10px var(--mono);
-  letter-spacing: 0.08em;
 }
 .page-title-row {
   display: flex;
@@ -254,8 +249,8 @@ h2 {
 }
 .header-rule {
   height: 1px;
-  margin-top: 18px;
-  background: var(--border);
+  margin-top: 15px;
+  background: var(--border-quiet);
 }
 .system-footer {
   display: flex;
@@ -265,19 +260,20 @@ h2 {
   border-top: 1px solid var(--border-quiet);
   color: var(--muted);
   font: 10px var(--mono);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 .footer-separator {
   color: var(--accent);
 }
 .instrument-placeholder {
   position: relative;
-  min-height: 220px;
+  min-height: 190px;
   display: grid;
   align-content: center;
   justify-items: start;
-  padding: 34px 28px;
-  border: 1px dashed var(--border);
+  padding: 30px 26px;
+  border: 1px solid var(--border-quiet);
+  border-radius: 5px;
   background: var(--panel);
 }
 .instrument-placeholder .empty-state {
@@ -290,13 +286,6 @@ h2 {
   font-size: 12px;
   line-height: 1.7;
   margin: 7px 0 0;
-}
-.placeholder-crosshair {
-  position: absolute;
-  top: 13px;
-  left: 15px;
-  color: var(--accent);
-  font: 12px var(--mono);
 }
 .placeholder-coordinate {
   position: absolute;
@@ -331,7 +320,7 @@ h2 {
   min-height: 30px;
   padding: 5px 9px;
   border: 1px solid transparent;
-  border-radius: 1px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 550;
   line-height: 1.2;
@@ -363,9 +352,9 @@ h2 {
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: 1px;
+  border-radius: 4px;
   color: var(--fg);
-  background: var(--surface);
+  background: var(--surface-raised);
 }
 .input[aria-invalid="true"] {
   border-color: var(--error);
@@ -389,9 +378,9 @@ h2 {
   gap: 5px;
   padding: 3px 6px;
   border: 1px solid var(--border);
-  border-radius: 1px;
+  border-radius: 4px;
   color: var(--muted);
-  font: 10px var(--mono);
+  font-size: 11px;
   white-space: nowrap;
 }
 .badge-success {
@@ -444,8 +433,10 @@ caption {
   text-align: left;
   padding: 9px 12px;
   color: var(--muted);
-  font: 10px var(--mono);
-  letter-spacing: 0.06em;
+  font:
+    11px system-ui,
+    sans-serif;
+  letter-spacing: 0;
 }
 th,
 td {
@@ -478,6 +469,7 @@ th {
   width: min(440px, calc(100vw - 28px));
   padding: 20px;
   border: 1px solid var(--border);
+  border-radius: 5px;
   background: var(--surface-raised);
   z-index: 21;
 }
@@ -503,31 +495,29 @@ th {
   padding: 34px;
 }
 .login-instrument {
-  width: min(100%, 900px);
+  width: min(100%, 820px);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
+  grid-template-columns: minmax(0, 1fr) 350px;
   border: 1px solid var(--border);
   background: var(--panel);
 }
 .login-readout {
   position: relative;
-  min-height: 390px;
-  padding: 28px 34px;
-  border-right: 1px solid var(--border);
+  min-height: 290px;
+  padding: 25px 28px;
+  border-right: 1px solid var(--border-quiet);
   background: var(--surface-raised);
 }
 .wordmark {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 42px;
+  margin-bottom: 0;
   font-size: 14px;
   font-weight: 600;
 }
-.login-readout h1 {
-  margin-top: 13px;
-  font: 500 clamp(24px, 4vw, 36px) / 1.12 var(--mono);
-  letter-spacing: -0.07em;
+.login-section-label {
+  margin-top: 32px;
 }
 .login-description {
   color: var(--muted);
@@ -536,8 +526,8 @@ th {
 }
 .system-readout {
   width: min(100%, 390px);
-  margin: 35px 0 0;
-  border-top: 1px solid var(--border);
+  margin: 12px 0 0;
+  border-top: 1px solid var(--border-quiet);
 }
 .system-readout div {
   display: flex;
@@ -545,7 +535,7 @@ th {
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border-quiet);
-  font: 10px var(--mono);
+  font: 12px var(--mono);
 }
 .system-readout dt {
   color: var(--muted);
@@ -587,7 +577,7 @@ th {
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 400;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
 }
 @media (max-width: 1050px) {
   .command-bar {
@@ -646,21 +636,18 @@ th {
     gap: 0;
   }
   .command-link,
-  .command-link:last-child {
+  .command-link {
     justify-content: flex-start;
     min-width: 0;
     min-height: 35px;
     padding: 5px 6px;
-    border-right: 0;
     font-size: 10px;
   }
   .command-link span:last-child {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .nav-index {
-    font-size: 9px;
-  }
+
   .main-content {
     padding: 23px 14px 28px;
   }
@@ -686,28 +673,24 @@ th {
     min-height: auto;
     padding: 18px 20px;
     border-right: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-quiet);
   }
   .wordmark {
-    margin-bottom: 22px;
+    margin-bottom: 0;
   }
-  .login-readout h1 {
-    font-size: 22px;
+  .login-section-label {
+    margin-top: 14px;
   }
   .login-description {
     margin-top: 6px;
   }
   .system-readout {
-    margin-top: 14px;
+    margin-top: 8px;
   }
   .system-readout div {
     padding: 5px 0;
   }
-  .readout-coordinate {
-    top: 19px;
-    bottom: auto;
-    right: 18px;
-  }
+
   .login-panel {
     padding: 20px;
   }
@@ -728,9 +711,6 @@ th {
   .command-status .button {
     font-size: 9px;
     padding: 4px;
-  }
-  .nav-index {
-    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {

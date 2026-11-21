@@ -65,13 +65,13 @@ export function ErrorState({
     </div>
   );
 }
-const sectionIndices: Record<string, string> = {
-  总览: "01 / OVERVIEW",
-  请求: "02 / REQUESTS",
-  Models: "03 / MODELS",
-  Upstreams: "04 / UPSTREAMS",
-  "Downstream Keys": "05 / KEYS",
-  Cores: "06 / CORES",
+const sectionLabels: Record<string, string> = {
+  总览: "总览",
+  请求: "请求",
+  Models: "Models",
+  Upstreams: "Upstreams",
+  "Downstream Keys": "Downstream Keys",
+  Cores: "Cores",
 };
 export function PageHeader({
   title,
@@ -87,7 +87,7 @@ export function PageHeader({
   return (
     <header className="page-header">
       <div className="page-heading">
-        <span className="page-eyebrow">{eyebrow ?? sectionIndices[title] ?? "SYSTEM / ROUTE"}</span>
+        <span className="page-eyebrow">{eyebrow ?? sectionLabels[title] ?? "系统"}</span>
         <div className="page-title-row">
           <h1 tabIndex={-1} id="page-title">
             {title}

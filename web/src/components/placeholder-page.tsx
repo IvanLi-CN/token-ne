@@ -17,13 +17,8 @@ export function PlaceholderPage({
         actions={<StatusBadge>待接入</StatusBadge>}
       />
       <section className="instrument-placeholder" aria-label={`${title}内容`}>
-        <span className="placeholder-crosshair" aria-hidden="true">
-          +
-        </span>
-        <EmptyState title="尚无业务数据源">
-          功能接入后，此观测面板将在此呈现实时状态与操作。
-        </EmptyState>
-        <span className="placeholder-coordinate">SIGNAL / NOT CONNECTED</span>
+        <EmptyState title="尚无数据源">数据接入后将在此显示状态与操作。</EmptyState>
+        <span className="placeholder-coordinate">数据源未连接</span>
       </section>
     </>
   );

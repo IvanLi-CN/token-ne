@@ -5,7 +5,7 @@ export default function KeysPage() {
     <PlaceholderPage
       title="Downstream Keys"
       description="下游访问凭据、允许模型与并发上限。"
-      scope="ACCESS / KEYS"
+      scope="Downstream Keys"
     />
   );
 }

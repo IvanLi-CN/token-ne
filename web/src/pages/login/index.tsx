@@ -35,35 +35,25 @@ export default function LoginPage() {
             </span>{" "}
             token-ne
           </p>
-          <span className="login-overline">CONTROL PLANE / PHASE 1</span>
-          <h1>
-            Observation
-            <br />
-            &amp; Routing
-          </h1>
-          <p className="login-description">网关观测与控制接口</p>
+          <p className="login-section-label">系统状态</p>
           <dl className="system-readout">
             <div>
               <dt>运行模式</dt>
-              <dd>ADMIN / LOCAL</dd>
+              <dd>管理员</dd>
             </div>
             <div>
-              <dt>控制面</dt>
-              <dd>
-                <span className="operator-indicator" /> READY
-              </dd>
+              <dt>会话状态</dt>
+              <dd>未登录</dd>
             </div>
             <div>
-              <dt>版本阶段</dt>
-              <dd>PHASE 01</dd>
+              <dt>访问方式</dt>
+              <dd>同源会话</dd>
             </div>
           </dl>
-          <span className="readout-coordinate">TNE / 001</span>
         </section>
         <section className="login-panel" aria-labelledby="login-title">
-          <span className="login-overline">AUTHENTICATED ACCESS</span>
-          <h2 id="login-title">管理员登录</h2>
-          <p className="muted">输入凭据以进入控制面。</p>
+          <h1 id="login-title">管理员登录</h1>
+          <p className="muted">使用管理员凭据登录。</p>
           <form onSubmit={submit} aria-busy={login.isPending}>
             <div className="field">
               <label htmlFor="username">用户名</label>
@@ -101,7 +91,7 @@ export default function LoginPage() {
               {login.isPending ? <Spinner label="登录中" /> : "登录"}
             </Button>
           </form>
-          <p className="login-footnote">SESSION COOKIE · SAME-ORIGIN</p>
+          <p className="login-footnote">登录后使用安全会话</p>
         </section>
       </div>
     </main>

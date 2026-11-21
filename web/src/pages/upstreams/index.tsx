@@ -5,7 +5,7 @@ export default function UpstreamsPage() {
     <PlaceholderPage
       title="Upstreams"
       description="上游连接、认证与模型能力集合。"
-      scope="ROUTING / UPSTREAMS"
+      scope="Upstreams"
     />
   );
 }

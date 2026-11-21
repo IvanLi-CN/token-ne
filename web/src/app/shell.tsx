@@ -52,16 +52,13 @@ export function AppShell() {
           <span className="brand-name">token-ne</span>
         </NavLink>
         <nav className="command-nav" aria-label="主导航">
-          {navigation.map(([path, label], index) => (
+          {navigation.map(([path, label]) => (
             <NavLink
               key={path}
               to={path}
               end={path === "/"}
               className={({ isActive }) => (isActive ? "command-link active" : "command-link")}
             >
-              <span className="nav-index" aria-hidden="true">
-                0{index + 1}
-              </span>
               <span>{label}</span>
             </NavLink>
           ))}
@@ -96,10 +93,8 @@ export function AppShell() {
         <Outlet />
       </main>
       <footer className="system-footer">
-        <span>token-ne / CONTROL PLANE</span>
-        <span>
-          PHASE 1 <span className="footer-separator">·</span> OBSERVATION LAB
-        </span>
+        <span>token-ne · 控制面</span>
+        <span>观测实验室</span>
       </footer>
     </div>
   );
