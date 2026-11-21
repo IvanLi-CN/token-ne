@@ -5,3 +5,4 @@ pub(crate) mod retry;
 pub mod routing;
 pub(crate) mod sse;
 pub mod upstream;
+pub mod usage;
