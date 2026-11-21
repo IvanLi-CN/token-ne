@@ -9,6 +9,24 @@ publish = false
 axum = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.54", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1.54", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+hex = "0.4"
+futures-util = "0.3"
+hmac = "0.12"
+http-body-util = "0.1"
+rand = "0.9"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+sha2 = "0.10"
+subtle = "2.6"
+thiserror = "2.0"
+url = "2.5"
+uuid = { version = "1.29", features = ["v7", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

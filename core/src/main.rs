@@ -1,13 +1,18 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::process::ExitCode;
-
-use axum::{Router, routing::get};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+    process::ExitCode,
+    sync::atomic::Ordering,
+    time::Duration,
+};
+use token_ne_core::{
+    config::{ConfigCache, ValidationOptions},
+    server::{self, ServerState},
+    state::{CoreState, SignatureMode, StateOptions},
+    telemetry::{ControlPlane, PullResult},
+};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
-
-const DEFAULT_LISTEN: &str = "0.0.0.0:8080";
-const DEFAULT_METRICS_LISTEN: &str = "0.0.0.0:9091";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -18,90 +23,143 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         };
     }
-
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
-
-    let listen = std::env::var("CORE_LISTEN").unwrap_or_else(|_| DEFAULT_LISTEN.to_owned());
-    let metrics_listen =
-        std::env::var("CORE_METRICS_LISTEN").unwrap_or_else(|_| DEFAULT_METRICS_LISTEN.to_owned());
-
-    let app = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
-        .route("/readyz", get(readyz))
-        .route("/metrics", get(metrics));
-
-    let listener = match TcpListener::bind(&listen).await {
-        Ok(listener) => listener,
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(%listen, %error, "failed to bind core HTTP listener");
-            return ExitCode::FAILURE;
+            tracing::error!(%error,"core startup failed");
+            ExitCode::FAILURE
         }
-    };
-    tracing::info!(%listen, "core HTTP listening");
-
-    let metrics_listener = match TcpListener::bind(&metrics_listen).await {
-        Ok(listener) => listener,
-        Err(error) => {
-            tracing::error!(%metrics_listen, %error, "failed to bind core metrics listener");
-            return ExitCode::FAILURE;
-        }
-    };
-    tracing::info!(%metrics_listen, "core metrics listening");
-
-    let metrics_app = Router::new().route("/metrics", get(metrics));
-    let http = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
-    let metrics =
-        axum::serve(metrics_listener, metrics_app).with_graceful_shutdown(shutdown_signal());
-
-    if let Err(error) = tokio::try_join!(http, metrics) {
-        tracing::error!(%error, "core server failed");
-        return ExitCode::FAILURE;
     }
-
-    ExitCode::SUCCESS
 }
-
-async fn readyz() -> (axum::http::StatusCode, &'static str) {
-    // T1 replaces this with the real configuration/cache readiness gate.
-    (
-        axum::http::StatusCode::SERVICE_UNAVAILABLE,
-        "not_configured",
-    )
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let instance = std::env::var("CORE_INSTANCE_ID")?;
+    if uuid::Uuid::parse_str(&instance)?.to_string() != instance {
+        return Err("CORE_INSTANCE_ID must be a canonical UUID".into());
+    }
+    let dir = std::path::PathBuf::from(
+        std::env::var("CORE_STATE_DIR").unwrap_or_else(|_| "/var/lib/token-ne/state".into()),
+    );
+    let cache = std::env::var("CORE_CACHE_KEY")
+        .ok()
+        .map(|key| ConfigCache::new(&dir, &key))
+        .transpose()?;
+    let mode = match std::env::var("CORE_CONFIG_SIGNATURE_MODE")
+        .as_deref()
+        .unwrap_or("warn")
+    {
+        "off" => SignatureMode::Off,
+        "warn" => SignatureMode::Warn,
+        "enforce" => SignatureMode::Enforce,
+        _ => return Err("invalid CORE_CONFIG_SIGNATURE_MODE".into()),
+    };
+    let options = StateOptions {
+        cache,
+        override_path: Some(
+            std::env::var("CORE_CONFIG_OVERRIDE")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| dir.join("config.override.json")),
+        ),
+        signature_mode: mode,
+        signing_key: std::env::var("CORE_CONFIG_SIGNING_KEY")
+            .ok()
+            .map(String::into_bytes),
+        validation: ValidationOptions {
+            allow_private_upstreams: std::env::var("CORE_ALLOW_PRIVATE_UPSTREAMS").as_deref()
+                == Ok("true"),
+        },
+    };
+    let core = CoreState::new(instance, options);
+    let token = std::env::var("CORE_CONTROL_TOKEN").unwrap_or_default();
+    let control = std::env::var("CORE_CONTROL_PLANE_URL")
+        .ok()
+        .map(|url| ControlPlane::new(&url, token.clone()))
+        .transpose()?;
+    if core.override_active() {
+        if core.load_override().is_err() {
+            tracing::warn!("manual override invalid; readiness unavailable");
+        }
+    } else {
+        let fallback = if let Some(c) = &control {
+            matches!(c.pull(&core).await, Ok(PullResult::Unavailable))
+        } else {
+            true
+        };
+        if fallback && core.load_cache().is_err() {
+            tracing::warn!("no usable configuration cache; readiness unavailable");
+        }
+    }
+    let listen = std::env::var("CORE_LISTEN").unwrap_or_else(|_| "0.0.0.0:8080".into());
+    let metrics_listen =
+        std::env::var("CORE_METRICS_LISTEN").unwrap_or_else(|_| "0.0.0.0:9091".into());
+    let listener = TcpListener::bind(&listen).await?;
+    let metrics_listener = TcpListener::bind(&metrics_listen).await?;
+    let state = ServerState::new(core.clone(), token);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let control_task = control.map(|c| tokio::spawn(c.run(core.clone(), shutdown_rx.clone())));
+    let http_shutdown = shutdown_rx.clone();
+    let metrics_shutdown = shutdown_rx.clone();
+    let http = tokio::spawn(async move {
+        axum::serve(listener, server::router(state.clone()))
+            .with_graceful_shutdown(wait_shutdown(http_shutdown))
+            .await
+    });
+    let metrics_state = ServerState::new(core.clone(), String::new());
+    let metrics = tokio::spawn(async move {
+        axum::serve(metrics_listener, server::metrics_router(metrics_state))
+            .with_graceful_shutdown(wait_shutdown(metrics_shutdown))
+            .await
+    });
+    tracing::info!(%listen,%metrics_listen,"core listening");
+    shutdown_signal().await;
+    core.draining.store(true, Ordering::Release);
+    let _ = shutdown_tx.send(true);
+    let grace = core
+        .snapshot()
+        .map_or(1_800_000, |s| s.config.limits.shutdown_grace_ms);
+    let http_abort = http.abort_handle();
+    let metrics_abort = metrics.abort_handle();
+    let complete = async {
+        http.await??;
+        metrics.await??;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    match tokio::time::timeout(Duration::from_millis(grace), complete).await {
+        Ok(result) => result?,
+        Err(_) => {
+            http_abort.abort();
+            metrics_abort.abort();
+            tracing::warn!("shutdown grace expired");
+        }
+    }
+    if let Some(task) = control_task {
+        task.abort();
+    }
+    Ok(())
 }
-
-async fn metrics() -> &'static str {
-    "# HELP token_ne_core_up Core process is running.\n# TYPE token_ne_core_up gauge\ntoken_ne_core_up 1\n"
+async fn wait_shutdown(mut rx: tokio::sync::watch::Receiver<bool>) {
+    if !*rx.borrow() {
+        let _ = rx.changed().await;
+    }
 }
-
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-
     #[cfg(unix)]
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => {
-                signal.recv().await;
+            Ok(mut s) => {
+                s.recv().await;
             }
-            Err(error) => {
-                tracing::warn!(%error, "failed to install SIGTERM handler");
-                std::future::pending::<()>().await;
-            }
+            Err(_) => std::future::pending::<()>().await,
         }
     };
-
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        () = ctrl_c => {},
-        () = terminate => {},
-    }
-
-    tracing::info!("shutdown signal received");
+    tokio::select! {()=ctrl_c=>{},()=terminate=>{}}
 }
 
 fn healthcheck() -> bool {
