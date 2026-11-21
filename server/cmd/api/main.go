@@ -9,16 +9,26 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
+	"github.com/IvanLi-CN/token-ne/server/internal/cores"
 	"github.com/IvanLi-CN/token-ne/server/internal/httpapi"
 	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "config" {
+		if err := exportConfig(os.Args[2:]); err != nil {
+			slog.Error("configuration export failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if !healthcheck() {
 			os.Exit(1)
@@ -47,9 +57,41 @@ func main() {
 	slog.SetDefault(logger)
 	registry := metrics.New()
 
+	controlToken := cfg.CoreControlToken
+	peer := cores.NewClient(controlToken)
+	docker, err := cores.NewEngine(os.Getenv("DOCKER_HOST"))
+	if err != nil {
+		slog.Error("Docker API configuration failed", "error", err)
+		os.Exit(1)
+	}
+	caddySettings := caddy.Settings{Socket: os.Getenv("CADDY_ADMIN_URL"), Domain: os.Getenv("PUBLIC_DOMAIN"),
+		TLSMode: os.Getenv("CADDY_TLS_MODE"), APIAddress: "api:8080"}
+	if len(caddySettings.Socket) > 6 && caddySettings.Socket[:7] == "unix://" {
+		caddySettings.Socket = caddySettings.Socket[7:]
+	}
+	if caddySettings.Socket == "" {
+		caddySettings.Socket = "/run/caddy/admin.sock"
+	}
+	policyPath := os.Getenv("STATUS_REWRITE_CONFIG")
+	if policyPath == "" {
+		policyPath = "/etc/token-ne/status-rewrite.yaml"
+	}
+	proxy := caddy.New(caddySettings)
+	snapshots := &cores.Snapshots{DB: repo.Pool, Master: cfg.MasterKey, Token: controlToken,
+		SigningKey: os.Getenv("CORE_CONFIG_SIGNING_KEY"), SignatureMode: os.Getenv("CORE_CONFIG_SIGNATURE_MODE"),
+		BaseURL: "http://api:8080", PolicyPath: policyPath}
+	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy,
+		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
+		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", Token: controlToken,
+		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY")}
+	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}
+	serviceCtx, stopService := context.WithCancel(context.Background())
+	defer stopService()
+	go runtime.Run(serviceCtx)
+
 	api := &http.Server{
 		Addr:              cfg.HTTPListen,
-		Handler:           httpapi.NewRouterWithUsage(cfg, repo, registry),
+		Handler:           httpapi.NewRouterWithUsage(cfg, repo, registry, cores.Registrar(coreHTTP)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -85,6 +127,16 @@ func main() {
 	defer cancel()
 	_ = api.Shutdown(shutdownCtx)
 	_ = metrics.Shutdown(shutdownCtx)
+}
+
+func splitNetworks(value string) []string {
+	result := []string{}
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func serve(server *http.Server, name string, errs chan<- error) {

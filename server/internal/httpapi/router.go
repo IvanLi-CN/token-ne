@@ -54,17 +54,12 @@ func NewRouter(cfg config.Config, repo store.Repository) http.Handler {
 
 // NewRouterWithUsage registers protocol ingestion and authenticated usage query
 // endpoints alongside the management API.
-func NewRouterWithUsage(cfg config.Config, repo store.Repository, registry *metrics.Registry) http.Handler {
+func NewRouterWithUsage(cfg config.Config, repo store.Repository, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
 	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
-	return newRouter(cfg, repo, a, registry, func(m *http.ServeMux) { registerUsage(m, a, registry) })
+	return newRouter(cfg, repo, a, registry, append([]RouteRegistrar{func(m *http.ServeMux) { registerUsage(m, a, registry) }}, registrars...)...)
 }
 
 type RouteRegistrar func(*http.ServeMux)
-
-func NewRouterWithRegistrars(cfg config.Config, repo store.Repository, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
-	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
-	return newRouter(cfg, repo, a, registry, registrars...)
-}
 
 func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
 	m := http.NewServeMux()
@@ -102,7 +97,7 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 		id := uuid.NewString()
 		w.Header().Set("X-Request-Id", id)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		r = r.WithContext(context.WithValue(r.Context(), requestKey, id))
+		r = r.WithContext(context.WithValue(context.WithValue(r.Context(), requestKey, id), apiContextKey{}, a))
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 			if isWrite(r.Method) && !auth.ValidateOrigin(r, cfg.PublicOrigin) {
@@ -276,4 +271,23 @@ type OpenAIErrorResponse struct {
 func openAIUnavailable(w http.ResponseWriter, r *http.Request) {
 	code := "upstream_unavailable"
 	writeJSON(w, 503, OpenAIErrorResponse{Error: OpenAIError{Message: "data plane is served by the core", Type: "server_error", Code: &code}})
+}
+
+// ProtectRoute reuses the owning router's session validation for control handlers.
+func ProtectRoute(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, ok := r.Context().Value(apiContextKey{}).(*API)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		a.protect(next)(w, r)
+	}
+}
+
+type apiContextKey struct{}
+
+func AdminActor(r *http.Request) (string, bool) {
+	u, ok := r.Context().Value(adminKey).(store.Admin)
+	return u.Username, ok
 }
