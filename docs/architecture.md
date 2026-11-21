@@ -718,7 +718,7 @@ never_rewrite:
 - 规则按顺序匹配，首个命中生效；`match` 至少包含 `upstream_status` 或 `error_class` 之一。
 - `match.upstream_status` 只允许 408、429 和 5xx；`match.error_class` 只允许定义的错误分类；`committed` 必须是 `false`，`retry_exhausted` 必须是 `true`。
 - `never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；规则不能绕过。
-- `response.status` 只允许 5xx，且不能出现在同一规则的 `match.upstream_status` 中；`code` 必须是稳定错误码；`retryable` 默认 `true`。
+- `response.status` 只允许 5xx。若它出现在同一规则的 `match.upstream_status` 中，只允许完全相同的 5xx identity mapping（例如 `503 -> 503`），用于附加 `retryable`/`Retry-After` 元数据；其他重叠或跨状态映射拒绝。`code` 必须是稳定错误码；`retryable` 默认 `true`。
 - `never_rewrite.statuses` 匹配上游状态并只约束规则；固定的上游 401/403→502 映射先于规则执行，不受它覆盖。
 - 配置策略的 `schema_version` 独立于协议版本；策略变更递增配置 revision，核心原子切换。
 - 控制面每 5 秒检查文件哈希；有效变更自动推送；无效变更保留上一份有效策略并告警。上一份有效策略持久化到 `system_state`，重启后复用；只有从未加载或持久化过有效策略时才使用内置默认。
