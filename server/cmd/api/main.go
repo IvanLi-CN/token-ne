@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
 	"github.com/IvanLi-CN/token-ne/server/internal/httpapi"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 )
 
@@ -45,10 +45,11 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	registry := metrics.New()
 
 	api := &http.Server{
 		Addr:              cfg.HTTPListen,
-		Handler:           httpapi.NewRouter(cfg, repo),
+		Handler:           httpapi.NewRouterWithUsage(cfg, repo, registry),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -56,7 +57,7 @@ func main() {
 	}
 	metrics := &http.Server{
 		Addr:              cfg.MetricsListen,
-		Handler:           metricsHandler(cfg, repo),
+		Handler:           metricsHandler(cfg, repo, registry),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -96,16 +97,16 @@ func serve(server *http.Server, name string, errs chan<- error) {
 	errs <- err
 }
 
-func metricsHandler(cfg config.Config, repo store.Repository) http.Handler {
+func metricsHandler(cfg config.Config, repo interface {
+	store.Repository
+	metrics.Source
+}, registries ...*metrics.Registry) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+cfg.MetricsToken)) != 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		_, _ = io.WriteString(w, "# HELP token_ne_api_up API process is running.\n# TYPE token_ne_api_up gauge\ntoken_ne_api_up 1\n")
-	})
+	registry := metrics.New()
+	if len(registries) > 0 && registries[0] != nil {
+		registry = registries[0]
+	}
+	mux.HandleFunc("GET /metrics", registry.Handler(cfg.MetricsToken, repo))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

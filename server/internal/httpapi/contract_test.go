@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,7 +15,9 @@ import (
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/IvanLi-CN/token-ne/server/internal/usage"
 	"github.com/google/uuid"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
@@ -29,9 +32,49 @@ type fakeRepo struct {
 	audits    []store.Audit
 	pingErr   error
 	deleteErr error
+	ingestFn  func(context.Context, usage.Batch) (usage.Result, error)
+	requests  []store.RequestSummary
+	queryErr  error
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return f.pingErr }
+func (f *fakeRepo) IngestUsage(ctx context.Context, b usage.Batch) (usage.Result, error) {
+	if f.ingestFn != nil {
+		return f.ingestFn(ctx, b)
+	}
+	return usage.Result{}, nil
+}
+func (f *fakeRepo) UsageOverview(context.Context, store.UsageRange) (store.UsageOverview, error) {
+	return store.UsageOverview{}, f.queryErr
+}
+func (f *fakeRepo) UsageTimeseries(context.Context, store.UsageRange, string) ([]store.UsagePoint, error) {
+	return []store.UsagePoint{}, f.queryErr
+}
+func (f *fakeRepo) UsageBreakdown(context.Context, store.UsageRange, string) ([]store.UsageGroup, error) {
+	return []store.UsageGroup{}, f.queryErr
+}
+func (f *fakeRepo) UsageRequests(_ context.Context, q store.RequestFilter) ([]store.RequestSummary, error) {
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+	out := append([]store.RequestSummary{}, f.requests...)
+	if q.Cursor != nil {
+		filtered := out[:0]
+		for _, row := range out {
+			if row.OccurredAt.Before(q.Cursor.Time) || row.OccurredAt.Equal(q.Cursor.Time) && row.EventID < q.Cursor.ID {
+				filtered = append(filtered, row)
+			}
+		}
+		out = filtered
+	}
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+func (f *fakeRepo) UsageRequest(context.Context, string) (store.RequestDetail, error) {
+	return store.RequestDetail{}, store.ErrNotFound
+}
 func (f *fakeRepo) AdminByID(_ context.Context, id string) (store.Admin, error) {
 	if id != f.admin.ID {
 		return store.Admin{}, store.ErrNotFound
@@ -151,6 +194,140 @@ func testAPI(t *testing.T) (http.Handler, *fakeRepo, config.Config, *http.Cookie
 	f := &fakeRepo{admin: store.Admin{ID: uuid.NewString(), Username: "admin", PasswordHash: hash, SessionVersion: 1}, models: map[string]store.Model{}, upstreams: map[string]store.Upstream{}, keys: map[string]store.Key{}, audits: []store.Audit{}}
 	token, _ := auth.EncodeSession([]byte(cfg.SessionSecret), auth.Session{AdminID: f.admin.ID, Expires: time.Now().Add(time.Hour).Unix(), Version: 1})
 	return NewRouter(cfg, f), f, cfg, &http.Cookie{Name: auth.CookieName, Value: token}
+}
+
+func TestUsageIngestContract(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	fixture, err := os.ReadFile("../../../docs/fixtures/usage-batch.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(string(fixture), "2026-11-21T10:00:00Z", now.Format(time.RFC3339))
+	body = strings.ReplaceAll(body, "2026-11-21T09:59:59Z", now.Add(-time.Second).Format(time.RFC3339))
+	f := &fakeRepo{admin: store.Admin{ID: uuid.NewString(), Username: "admin", SessionVersion: 1}, models: map[string]store.Model{}, upstreams: map[string]store.Upstream{}, keys: map[string]store.Key{}}
+	cfg := config.Config{CoreControlToken: strings.Repeat("c", 32), PublicOrigin: "https://admin.example", SessionSecret: strings.Repeat("s", 32), MasterKey: make([]byte, 32)}
+	registry := metrics.New()
+	h := NewRouterWithUsage(cfg, f, registry)
+	request := func(payload string, headers bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/internal/v1/usage/batch", strings.NewReader(payload))
+		r.Header.Set("Content-Type", "application/json")
+		if headers {
+			r.Header.Set("Authorization", "Bearer "+cfg.CoreControlToken)
+			r.Header.Set("X-Token-Ne-Protocol-Version", "1")
+			r.Header.Set("X-Token-Ne-Request-Id", "0193f0c2-7b1a-7c3e-9f00-000000000006")
+			r.Header.Set("Idempotency-Key", "0193f0c2-7b1a-7c3e-9f00-000000000007")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	f.ingestFn = func(_ context.Context, b usage.Batch) (usage.Result, error) {
+		if len(b.Events) != 1 {
+			t.Fatalf("unexpected events: %d", len(b.Events))
+		}
+		return usage.Result{Inserted: []usage.AcceptedEvent{{Event: b.Events[0]}}}, nil
+	}
+	w := request(body, true)
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"accepted":1`) {
+		t.Fatalf("valid batch: %d %s", w.Code, w.Body.String())
+	}
+	f.ingestFn = func(context.Context, usage.Batch) (usage.Result, error) { return usage.Result{Duplicates: 1}, nil }
+	w = request(body, true)
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"duplicates":1`) {
+		t.Fatalf("duplicate batch: %d %s", w.Code, w.Body.String())
+	}
+	w = request(body, false)
+	if w.Code != 401 {
+		t.Fatalf("missing control token: %d", w.Code)
+	}
+	malformed := strings.Replace(body, `"attempt_count": 1`, `"attempt_count": -1`, 1)
+	w = request(malformed, true)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), `events[0].attempt_count`) {
+		t.Fatalf("event path: %d %s", w.Code, w.Body.String())
+	}
+	f.ingestFn = func(context.Context, usage.Batch) (usage.Result, error) {
+		return usage.Result{}, errors.New("database failure")
+	}
+	w = request(body, true)
+	if w.Code != 503 || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("database failure: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "database failure") {
+		t.Fatal("database error leaked")
+	}
+	large := strings.Repeat(" ", (4<<20)+1)
+	w = request(large, true)
+	if w.Code != 413 {
+		t.Fatalf("oversize batch: %d", w.Code)
+	}
+}
+
+func TestUsageRequestCursorPagination(t *testing.T) {
+	_, repo, cfg, cookie := testAPI(t)
+	h := NewRouterWithUsage(cfg, repo, metrics.New())
+	at := time.Now().UTC().Truncate(time.Second)
+	repo.requests = []store.RequestSummary{
+		{EventID: "0193f0c2-7b1a-7c3e-9f00-000000000003", RequestID: "c", OccurredAt: at},
+		{EventID: "0193f0c2-7b1a-7c3e-9f00-000000000002", RequestID: "b", OccurredAt: at},
+		{EventID: "0193f0c2-7b1a-7c3e-9f00-000000000001", RequestID: "a", OccurredAt: at},
+	}
+	first := request(h, cfg, cookie, "GET", "/api/requests?limit=2&from="+url.QueryEscape(at.Add(-time.Hour).Format(time.RFC3339))+"&to="+url.QueryEscape(at.Add(time.Second).Format(time.RFC3339)), "")
+	if first.Code != 200 {
+		t.Fatalf("first page: %d %s", first.Code, first.Body.String())
+	}
+	var page struct {
+		Data []store.RequestSummary `json:"data"`
+		Next *string                `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Data) != 2 || page.Next == nil {
+		t.Fatalf("missing cursor: %+v", page)
+	}
+	second := request(h, cfg, cookie, "GET", "/api/requests?limit=2&cursor="+url.QueryEscape(*page.Next)+"&from="+url.QueryEscape(at.Add(-time.Hour).Format(time.RFC3339))+"&to="+url.QueryEscape(at.Add(time.Second).Format(time.RFC3339)), "")
+	if second.Code != 200 {
+		t.Fatalf("second page: %d %s", second.Code, second.Body.String())
+	}
+	var nextPage struct {
+		Data []store.RequestSummary `json:"data"`
+		Next *string                `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &nextPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(nextPage.Data) != 1 || nextPage.Data[0].RequestID != "a" || nextPage.Next != nil {
+		t.Fatalf("cursor did not return the last record: %+v", nextPage)
+	}
+	if strings.Contains(second.Body.String(), "request body") || strings.Contains(second.Body.String(), "messages") {
+		t.Fatal("request body must not be returned")
+	}
+}
+
+func TestUsageQueryResponseShapes(t *testing.T) {
+	_, repo, cfg, cookie := testAPI(t)
+	h := NewRouterWithUsage(cfg, repo, metrics.New())
+	for _, tc := range []struct{ path, want string }{
+		{"/api/overview", `"requests"`},
+		{"/api/usage/timeseries", `"data":[]`},
+		{"/api/usage/breakdown?group_by=model", `"data":[]`},
+		{"/api/requests/missing-request", `"code":"not_found"`},
+	} {
+		w := request(h, cfg, cookie, "GET", tc.path, "")
+		if tc.path == "/api/requests/missing-request" {
+			if w.Code != 404 {
+				t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
+			}
+		} else if w.Code != 200 {
+			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), tc.want) {
+			t.Fatalf("%s response shape: %s", tc.path, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), "messages") || strings.Contains(w.Body.String(), "request_body") {
+			t.Fatal("usage query exposed message content")
+		}
+	}
 }
 func request(h http.Handler, cfg config.Config, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
