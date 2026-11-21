@@ -1,7 +1,9 @@
 use crate::{
     proxy::{
         body::{BodyError, RequestBody},
-        routing, upstream,
+        commit::ForwardingObserver,
+        retry::{self, ForwardRequest},
+        routing,
     },
     state::{AppliedConfig, CoreState},
     telemetry,
@@ -23,24 +25,33 @@ use std::{
     time::Duration,
 };
 use subtle::ConstantTimeEq;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 #[derive(Clone)]
 struct Authenticated {
     snapshot: Arc<AppliedConfig>,
     key_index: usize,
+    started: Instant,
 }
 #[derive(Clone)]
 pub struct ServerState {
     pub core: Arc<CoreState>,
     control_token: String,
+    forwarding_observer: Option<ForwardingObserver>,
 }
 impl ServerState {
     pub fn new(core: Arc<CoreState>, control_token: String) -> Self {
         Self {
             core,
             control_token,
+            forwarding_observer: None,
         }
+    }
+
+    pub fn with_forwarding_observer(mut self, observer: ForwardingObserver) -> Self {
+        self.forwarding_observer = Some(observer);
+        self
     }
 }
 pub fn router(state: ServerState) -> Router {
@@ -107,6 +118,7 @@ fn bearer(req: &Request) -> Option<&str> {
     .then_some(token)
 }
 async fn authenticate(State(state): State<ServerState>, mut req: Request, next: Next) -> Response {
+    let started = Instant::now();
     let Some(snapshot) = state.core.snapshot() else {
         return api_error(StatusCode::UNAUTHORIZED, "invalid_api_key");
     };
@@ -131,15 +143,13 @@ async fn authenticate(State(state): State<ServerState>, mut req: Request, next: 
     ) else {
         return api_error(StatusCode::TOO_MANY_REQUESTS, "rate_limit_exceeded");
     };
-    let duration = snapshot.config.limits.request_max_duration_ms;
     req.extensions_mut().insert(Authenticated {
         snapshot,
         key_index,
+        started,
     });
     state.core.requests_total.fetch_add(1, Ordering::Relaxed);
-    let response = tokio::time::timeout(Duration::from_millis(duration), next.run(req))
-        .await
-        .unwrap_or_else(|_| api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"));
+    let response = next.run(req).await;
     let (parts, body) = response.into_parts();
     let stream = body.into_data_stream().map(move |chunk| {
         let _ = &guard;
@@ -206,8 +216,7 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         .expect("auth middleware")
         .clone();
     let config = &auth.snapshot.config;
-    let path = req.uri().path().to_owned();
-    let enabled = match path.as_str() {
+    let enabled = match req.uri().path() {
         "/v1/chat/completions" => config.features.chat_completions,
         "/v1/responses" => config.features.responses,
         "/v1/embeddings" => config.features.embeddings,
@@ -229,12 +238,19 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
     {
         return api_error(StatusCode::BAD_REQUEST, "invalid_request");
     }
-    let body = match RequestBody::read(body, config.limits.max_request_body_bytes as usize).await {
-        Ok(b) => b,
-        Err(BodyError::TooLarge) => {
+    let deadline = auth.started + Duration::from_millis(config.limits.request_max_duration_ms);
+    let body = match tokio::time::timeout_at(
+        deadline,
+        RequestBody::read(body, config.limits.max_request_body_bytes as usize),
+    )
+    .await
+    {
+        Ok(Ok(body)) => body,
+        Ok(Err(BodyError::TooLarge)) => {
             return api_error(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large");
         }
-        Err(_) => return api_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        Ok(Err(_)) => return api_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"),
     };
     let Some(model) = routing::lookup(config, &body.model) else {
         return api_error(StatusCode::NOT_FOUND, "model_not_found");
@@ -242,93 +258,19 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
     if !routing::allowed(&config.downstream_keys[auth.key_index], &body.model) {
         return api_error(StatusCode::FORBIDDEN, "model_not_allowed");
     }
-    let candidate = {
-        let mut rng = rand::rng();
-        routing::candidates(config, &body.model, &mut rng)
-            .first()
-            .copied()
-    };
-    let Some(candidate) = candidate else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "no_upstream_available");
-    };
-    let rewritten = match body.rewrite(
-        routing::effective_model_name(model, candidate.capability),
-        path == "/v1/chat/completions" && config.features.stream_usage_injection,
-    ) {
-        Ok(b) => b,
-        Err(_) => return api_error(StatusCode::BAD_REQUEST, "invalid_request"),
-    };
-    let request_id = parts
-        .headers
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    let Ok(headers) = upstream::request_headers(&parts.headers, candidate.upstream, request_id)
-    else {
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal_error");
-    };
-    let Ok(url) = upstream::target_url(
-        candidate.upstream,
-        &path,
-        parts.uri.query(),
-        &state.core.options.validation,
-    ) else {
-        return api_error(StatusCode::BAD_GATEWAY, "upstream_protocol_error");
-    };
-    let Ok(client) = upstream::client_for(candidate.upstream, &state.core.options.validation).await
-    else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable");
-    };
-    // 基础单次发送；T2 在此接入 retry/SSE/commit/status-rewrite 管线。
-    let result = tokio::time::timeout(
-        Duration::from_millis(candidate.upstream.first_byte_timeout_ms.unwrap_or(90000)),
-        client.post(url).headers(headers).body(rewritten).send(),
-    )
-    .await;
-    let Ok(Ok(response)) = result else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable");
-    };
-    if response.status().is_redirection() {
-        return api_error(StatusCode::BAD_GATEWAY, "upstream_protocol_error");
-    }
-    if matches!(response.status().as_u16(), 401 | 403) {
-        return api_error(StatusCode::BAD_GATEWAY, "upstream_auth_failed");
-    }
-    if response
-        .headers()
-        .get(header::CONTENT_ENCODING)
-        .is_some_and(|v| v != "identity")
-    {
-        return api_error(StatusCode::BAD_GATEWAY, "upstream_encoding_error");
-    }
-    let mut out = Response::builder()
-        .status(response.status())
-        .header("x-token-ne-attempts", "1")
-        .header("x-token-ne-upstream", &candidate.upstream.id);
-    for (name, value) in response.headers() {
-        let n = name.as_str();
-        if matches!(
-            n,
-            "connection"
-                | "keep-alive"
-                | "te"
-                | "trailer"
-                | "transfer-encoding"
-                | "upgrade"
-                | "content-length"
-                | "set-cookie"
-                | "server"
-                | "location"
-                | "x-request-id"
-                | "content-encoding"
-        ) || n.starts_with("proxy-")
-        {
-            continue;
-        }
-        out = out.header(name, value);
-    }
-    out.body(Body::from_stream(response.bytes_stream()))
-        .unwrap_or_else(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))
+    let candidates = routing::candidates(config, &body.model, &mut rand::rng());
+    retry::forward(ForwardRequest {
+        parts,
+        body,
+        config,
+        options: &state.core.options.validation,
+        model,
+        key_id: &config.downstream_keys[auth.key_index].id,
+        candidates,
+        started: auth.started,
+        observer: state.forwarding_observer,
+    })
+    .await
 }
 pub fn api_error(status: StatusCode, code: &str) -> Response {
     let kind = match status.as_u16() {
