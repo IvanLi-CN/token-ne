@@ -1,0 +1,59 @@
+schema_version: 1
+enabled: true
+
+rules:
+  - id: upstream-rate-limit
+    match:
+      upstream_status: [429]
+      committed: false
+      retry_exhausted: true
+    response:
+      status: 503
+      code: upstream_rate_limited
+      message: "upstream rate limited; retry later"
+      retryable: true
+      preserve_retry_after: true
+      default_retry_after_seconds: 1
+
+  - id: transient-upstream-status
+    match:
+      upstream_status: [408, 500, 502, 503, 504]
+      committed: false
+      retry_exhausted: true
+    response:
+      status: 503
+      code: upstream_unavailable
+      message: "upstream temporarily unavailable; retry later"
+      retryable: true
+      preserve_retry_after: true
+      default_retry_after_seconds: 1
+
+  - id: upstream-network-failure
+    match:
+      error_class: [connect_error, dns_error, tls_error, first_byte_timeout, idle_timeout]
+      committed: false
+      retry_exhausted: true
+    response:
+      status: 503
+      code: upstream_unavailable
+      message: "upstream connection failed; retry later"
+      retryable: true
+      preserve_retry_after: true
+      default_retry_after_seconds: 1
+
+  - id: upstream-stream-error
+    match:
+      error_class: [upstream_stream_error]
+      committed: false
+      retry_exhausted: true
+    response:
+      status: 503
+      code: upstream_unavailable
+      message: "upstream stream failed before completion; retry later"
+      retryable: true
+      preserve_retry_after: true
+      default_retry_after_seconds: 1
+
+never_rewrite:
+  statuses: [400, 401, 403, 404, 409, 422]
+  after_commit: true

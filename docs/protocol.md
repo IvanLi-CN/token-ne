@@ -1,0 +1,434 @@
+# 核心与控制面通信协议 v1
+
+## 范围
+
+本文定义 Rust 转发核心与 Go 控制面之间的内部 HTTP/JSON 协议。核心是配置、用量和心跳的主要发起方；控制面是这些请求的服务方。`/healthz` 和 `/readyz` 保持无版本路径，供 Caddy 和 Docker 健康检查使用。
+
+协议不经过 Caddy 入口；`/internal/*` 在 Caddy 层直接拒绝。
+
+## 版本模型
+
+协议有两个独立版本：
+
+| 版本 | 作用 | v1 值 |
+| --- | --- | --- |
+| `protocol_version` | 线协议、端点、信封、错误格式 | `1` |
+| `config_schema_version` | 配置快照字段和语义 | `1` |
+
+核心还声明：
+
+- `features`：固定能力列表：`chat_completions`、`responses`、`embeddings`、`stream_usage_injection`、`status_rewrite`。
+- `build`：版本、commit、构建时间。
+- `config_schema_min` / `config_schema_max`：支持的配置 schema 范围。
+
+控制面在登记核心版本时保存这些值。只有协议主版本兼容、配置 schema 有交集、所需能力齐全的核心才能接流量。
+
+### 版本路径
+
+- 线协议路径带主版本：`/internal/v1/...`。
+- 不兼容变更使用 `/internal/v2/...`；控制面可以在迁移期同时提供 v1 和 v2。
+- 同一主版本内只做向后兼容的增量变更。
+- `GET /internal/v1/meta` 是稳定发现端点，所有主版本的核心都必须实现；响应中的 `protocol_version` 是核心支持的最高主版本，不要求等于路径主版本。控制面必须先读该端点，再决定使用 `/internal/v1/...` 还是 `/internal/v2/...`。
+- 心跳和业务信封中的 `protocol_version` 仍必须等于对应路径主版本。
+
+### 兼容矩阵
+
+| 控制面 | 核心 | 结果 |
+| --- | --- | --- |
+| v1 | v1 | 支持 |
+| v2 | v1 | 控制面必须继续提供 v1，或拒绝该核心；不能把 v1 核心路由到只支持 v2 的路径 |
+| v1 | v2 | 核心通过稳定 meta 报告 v2；控制面拒绝接流量，等待控制面升级 |
+| v1 | v1，配置 schema 无交集 | 拒绝接流量，返回 `409 incompatible_version` |
+| v1 | v1，缺少所需 feature | 拒绝接流量，返回 `409 unsupported_feature` |
+
+## 传输与安全
+
+- HTTP/1.1 或 HTTP/2，JSON UTF-8。
+- 内部 Compose 网络；不发布宿主端口。
+- `Authorization: Bearer <CORE_CONTROL_TOKEN>`；常量时间比较。
+- `X-Token-Ne-Protocol-Version: 1` 必填。
+- `X-Token-Ne-Request-Id` 必填；UUIDv7，重试时保持不变。
+- 请求体上限：
+  - 配置：8 MiB。
+  - 用量批次：4 MiB，最多 1000 条事件。
+  - 心跳：64 KiB。
+- 超时：
+  - 控制面到核心配置推送：5 秒。
+  - 核心拉取配置：5 秒。
+  - 核心上报用量：10 秒。
+  - 心跳：5 秒。
+- 不记录 Token、上游密钥、下游 Key 明文。
+
+## 通用信封
+
+用量和心跳使用统一信封；配置接口使用配置对象本身，避免无意义嵌套。
+
+```json
+{
+  "protocol_version": 1,
+  "message_id": "0193f0c2-7b1a-7c3e-9f00-000000000006",
+  "sent_at": "2026-11-21T10:00:00.123Z",
+  "type": "usage_batch",
+  "payload": {}
+}
+```
+
+字段：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `protocol_version` | 是 | 必须等于路径主版本 |
+| `message_id` | 是 | 唯一消息 ID；重试时保持不变 |
+| `sent_at` | 是 | UTC RFC3339；允许未来 5 分钟内的时钟偏差 |
+| `type` | 是 | `usage_batch`、`heartbeat` |
+| `payload` | 是 | 类型对应对象 |
+
+未知顶层字段忽略；类型错误的已知字段直接拒绝。
+
+## 端点
+
+### `GET /internal/v1/meta`
+
+核心与控制面都可以提供自己的元信息。核心实现：
+
+```json
+{
+  "protocol_version": 1,
+  "config_schema_min": 1,
+  "config_schema_max": 1,
+  "features": ["chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite"],
+  "version": "0.2.0",
+  "build": {
+    "commit": "abc123",
+    "built_at": "2026-11-21T08:00:00Z"
+  }
+}
+```
+
+控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。`features.X` 与对应策略对象的 `enabled` 冲突时返回 `422`，不得静默择一。控制面不得向未声明某项能力的核心发送依赖该能力的配置；缺少所需能力返回 `409 unsupported_feature`。
+
+### `GET /internal/v1/config?instance_id=<id>`
+
+请求头：
+
+```http
+Authorization: Bearer <CORE_CONTROL_TOKEN>
+X-Token-Ne-Protocol-Version: 1
+X-Token-Ne-Request-Id: 0193f0c2-7b1a-7c3e-9f00-000000000006
+If-None-Match: "42"
+```
+
+响应：
+
+- `200`：配置对象 + `ETag: "43"` + 可选 `X-Token-Ne-Config-Signature`。
+- `304`：revision 未变。
+- `404`：控制面不认识该实例；核心不得用缓存伪装成已控制。
+- `409`：协议或配置 schema 不兼容。
+- `422`：实例 ID 或配置语义错误。
+
+### `PUT /internal/v1/config`
+
+控制面推送配置到核心。
+
+```http
+PUT /internal/v1/config
+Authorization: Bearer <CORE_CONTROL_TOKEN>
+Content-Type: application/json
+X-Token-Ne-Protocol-Version: 1
+X-Token-Ne-Request-Id: 0193f0c2-7b1a-7c3e-9f00-000000000006
+X-Token-Ne-Instance-Id: 0193f0c2-7b1a-7c3e-9f00-000000000002
+X-Token-Ne-Config-Revision: 43
+X-Token-Ne-Config-Signature: <optional hmac>
+```
+
+核心校验通过后原子切换，返回：
+
+```json
+{
+  "protocol_version": 1,
+  "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+  "applied_revision": 43,
+  "config_schema_version": 1,
+  "signature_state": "valid"
+}
+```
+
+- `200`：revision 大于已应用值；或 revision 等于已应用值且请求体与签名完全一致，返回原先的 `applied_revision`，不重复应用。
+- `409`：revision 低于已应用值，或 revision 等于已应用值但内容不同（`stale_revision`）；协议或配置 schema 不兼容（`incompatible_version`）。
+- `422`：语义校验失败，返回字段路径。
+- `enforce` 签名模式下无效签名返回 `422`；`warn` 模式只记录 `signature_state=invalid`。
+
+`X-Token-Ne-Config-Signature` 的值为 `sha256=<lowercase hex>`，其中摘要为 HMAC-SHA256(`CORE_CONFIG_SIGNING_KEY`, 配置 JSON 的原始 UTF-8 字节)。GET 响应和 PUT 请求使用同一规则；发送方不得重新序列化已签名字节。`signature_state` 只允许 `valid`、`invalid`、`missing`、`off`；`config_source` 只允许 `control_plane`、`cache`、`manual_override`。
+
+### `POST /internal/v1/usage/batch`
+
+核心向控制面上报用量。
+
+```http
+POST /internal/v1/usage/batch
+Authorization: Bearer <CORE_CONTROL_TOKEN>
+Content-Type: application/json
+X-Token-Ne-Protocol-Version: 1
+X-Token-Ne-Request-Id: 0193f0c2-7b1a-7c3e-9f00-000000000006
+Idempotency-Key: <batch_id>
+```
+
+请求：
+
+```json
+{
+  "protocol_version": 1,
+  "message_id": "0193f0c2-7b1a-7c3e-9f00-000000000006",
+  "sent_at": "2026-11-21T10:00:00Z",
+  "type": "usage_batch",
+  "payload": {
+    "batch_id": "0193f0c2-7b1a-7c3e-9f00-000000000007",
+    "core_instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+    "events": [
+      {
+        "event_id": "0193f0c2-7b1a-7c3e-9f00-000000000001",
+        "request_id": "req_0193f0c2-7b1a-7c3e-9f00-000000000005",
+        "occurred_at": "2026-11-21T09:59:59Z",
+        "core_version": "0.2.0",
+        "core_instance": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+        "downstream_key_id": "0193f0c2-7b1a-7c3e-9f00-000000000003",
+        "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+        "endpoint": "/v1/chat/completions",
+        "requested_model": "gpt-5",
+        "upstream_model": "gpt-5-2026-xx",
+        "stream": true,
+        "http_status": 200,
+        "outcome": "success",
+        "error_class": null,
+        "error_code": null,
+        "error_message": null,
+        "attempt_count": 1,
+        "request_bytes": 2048,
+        "response_bytes": 4096,
+        "input_tokens": 1200,
+        "cached_input_tokens": 800,
+        "output_tokens": 350,
+        "reasoning_tokens": 120,
+        "total_tokens": 1550,
+        "ttft_ms": 420,
+        "upstream_ttfb_ms": 380,
+        "duration_ms": 5300,
+        "upstream_duration_ms": 5000,
+        "status_rewritten_from": null
+      }
+    ]
+  }
+}
+```
+
+响应：
+
+- `202 {"accepted": 1, "duplicates": 0}`：事件已持久写入控制面的摄入存储（PostgreSQL 事务已提交），崩溃后可重放；控制面不得丢弃已返回 `202` 的事件。核心只在收到 `202` 后推进确认位点。
+- `400 malformed_request`：JSON、字段类型、信封结构或 Content-Type 错误。
+- `401`：Token 无效。
+- `404`：实例未登记。
+- `413 payload_too_large`：超过请求体上限或 1000 条事件上限。
+- `422 validation_failed`：语义、范围、引用或重复 ID 错误；`details[].path` 必须定位到 `events[<index>].<field>`。核心必须隔离/丢弃单条无效事件，重新组批发送剩余事件，推进连续确认位点，并增加 `usage_send_total{result="dropped"}` 和告警；不得让一个永久失败的批次阻塞 WAL。无法定位到单条事件时返回 `400`，核心不得推进位点。
+- `429` / `503`：背压或存储不可用，带 `Retry-After`；核心保留 WAL 并重试。
+
+### `PUT /internal/v1/cores/{instance_id}/heartbeat`
+
+```json
+{
+  "protocol_version": 1,
+  "message_id": "0193f0c2-7b1a-7c3e-9f00-000000000006",
+  "sent_at": "2026-11-21T10:00:00Z",
+  "type": "heartbeat",
+  "payload": {
+    "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+    "version": "0.2.0",
+    "config": {
+      "revision": 43,
+      "hash": "sha256:...",
+      "schema_version": 1,
+      "source": "control_plane",
+      "signature_state": "valid",
+      "override_active": false
+    },
+    "status_rewrite_policy": {
+      "source": "file",
+      "schema_version": 1,
+      "hash": "sha256:..."
+    },
+    "last_controlled_at": "2026-11-21T09:00:00Z",
+    "inflight": 7,
+    "spool": {
+      "bytes": 104857600,
+      "unacked_events": 1200,
+      "oldest_unacked_at": "2026-11-21T09:50:00Z",
+      "last_ack_seq": 88100,
+      "dropped_total": 0
+    },
+    "draining": false,
+    "started_at": "2026-11-21T09:00:00Z",
+    "features": ["chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite"]
+  }
+}
+```
+
+`GET /internal/v1/status` 返回与心跳 `payload` 完全相同的字段集合。心跳间隔为 10 秒；连续 3 次未收到心跳视为超时并告警，但不得自动删除状态目录。控制面排水时轮询 `inflight` 和 `spool.unacked_events`。
+
+### `GET /internal/v1/status`
+
+核心提供给控制面的状态接口，返回与心跳 payload 完全相同的字段集合。控制面排水时轮询 `inflight` 和 `spool.unacked_events`。
+
+### 无版本健康检查
+
+- `GET /healthz`：进程存活；排水中仍返回 200。
+- `GET /readyz`：配置已加载且未排水。
+
+## 配置对象
+
+```json
+{
+  "protocol_version": 1,
+  "config_schema_version": 1,
+  "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
+  "revision": 43,
+  "issued_at": "2026-11-21T09:00:00Z",
+  "features": {
+    "status_rewrite": true,
+    "stream_usage_injection": true
+  },
+  "downstream_keys": [],
+  "upstreams": [],
+  "model_routes": [],
+  "retry": {},
+  "status_rewrite": {
+    "schema_version": 1,
+    "policy_source": "file",
+    "policy_hash": "sha256:...",
+    "enabled": true,
+    "rules": [],
+    "never_rewrite": { "statuses": [400, 401, 403, 404, 409, 422], "after_commit": true }
+  },
+  "usage": {},
+  "limits": {}
+}
+```
+
+配置中的未知字段必须忽略；缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
+
+## 严格校验规则
+
+控制面和核心都执行下列校验。JSON 解析、字段类型、信封结构和 Content-Type 错误返回 `400 malformed_request`；字段语义、范围、引用完整性和重复 ID 错误返回 `422 validation_failed` 并带字段路径；超过请求体上限或批次条数上限返回 `413 payload_too_large`。
+
+### 信封与通用
+
+- JSON 必须是对象；`protocol_version` 必须匹配路径主版本。
+- `message_id`、`event_id` 必须是 UUIDv7；`request_id` 是 1 到 128 字符的关联字符串，允许客户端复用；`instance_id`、`downstream_key_id`、`upstream_id` 必须是配置中的规范 UUID。不得使用 `key_...`/`up_...` 等展示前缀作为线上 ID。
+- 同一标识在路径、请求头和请求体中出现时，必须逐字节一致：`instance_id`（路径/`X-Token-Ne-Instance-Id`/body）、`revision`（`X-Token-Ne-Config-Revision`/body）、`batch_id`（`Idempotency-Key`/payload）。不一致返回 `400`，不得应用配置或去重。
+- `sent_at`、`occurred_at` 必须是 UTC RFC3339；未来时间超过 5 分钟拒绝。
+- 字符串长度：模型名 256、端点 256、错误消息 1024、名称 128。
+- 数值：token 非负且不超过 `i64`；耗时非负且不超过 24 小时；权重 0 到 10000。
+- 重复 ID：同一批次内重复 `event_id` 拒绝；配置内重复 Key/上游/路由 ID 拒绝。
+
+### 配置
+
+- `instance_id` 必须与路径、`X-Token-Ne-Instance-Id` 和请求体中的值逐字节一致。
+- `revision` 必须大于已应用 revision；相同且请求体与签名完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。
+- `config_schema_version` 必须在核心声明的范围内。
+- `features.X` 与对应策略对象的 `enabled` 冲突时返回 `422`；控制面不得向未声明能力的核心发送依赖该能力的配置。
+- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
+- `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
+- `model_routes[].upstream_id` 必须存在；`downstream_model` 非空；`priority`/`weight` 在范围内。
+- `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复。
+- `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
+- `status_rewrite.schema_version` 必须是控制面支持的策略版本。
+- `status_rewrite.rules[].match.upstream_status` 只允许 `408`、`429` 和 `5xx`；`match.error_class` 只允许协议定义的错误分类；`committed` 必须为 `false`，`retry_exhausted` 必须为 `true`。
+- `status_rewrite.rules[].id` 必须唯一；`response.status` 只允许 5xx；`response.code`、`message`、`preserve_retry_after`、`default_retry_after_seconds` 必须通过类型和范围校验。
+- `status_rewrite.never_rewrite.after_commit` 必须为 `true`；`never_rewrite.statuses` 必须包含 `[400, 401, 403, 404, 409, 422]`；规则不能覆盖这两项，不满足返回 `422`。
+- `status_rewrite.policy_source` 只允许 `file`、`db`、`default`；`policy_hash` 用于追踪策略版本。
+- `usage.spool.max_bytes`、`segment_bytes`、`max_age_hours` 在安全范围内；`max_bytes >= segment_bytes`。
+
+### 用量事件
+
+- `event_id` 唯一；`request_id` 只用于关联，同一 `request_id` 可以对应多个 `event_id`（客户端复用 `x-request-id` 时）。控制面不得因 `request_id` 冲突丢弃事件；`request_id` 上只建普通索引。
+- `outcome` 只允许 `success`、`upstream_error`、`local_error`、`client_disconnected`、`aborted`。
+- `attempt_count` 1 到 10；`error_message` 最多 1024 字符，仅错误结果非空。
+- `error_class` 只允许 `connect_error`、`dns_error`、`tls_error`、`first_byte_timeout`、`idle_timeout`、`upstream_http_error`、`upstream_stream_error`、`local_validation_error`、`client_disconnected`、`aborted`、`unknown`，或空值。
+- `http_status` 100 到 599 或空。
+- `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
+- `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
+- `status_rewritten_from` 非空时，`http_status` 必须与它不同且在 100 到 599 之间；控制面不重新执行改写策略。
+
+## 兼容规则
+
+同一主版本内：
+
+- 只允许新增可选字段、非安全枚举值和能力标记；安全、路由、认证枚举的新值必须由能力标记显式协商，控制面不得向未声明该能力的核心发送。
+- 不删除、不重命名、不改变字段类型、不复用字段含义。
+- 消费方必须忽略未知对象字段；未知数组元素类型按 `422` 拒绝，避免静默跳过路由。
+- 未知枚举值：
+  - 行为/展示类字段：映射为 `unknown` 并告警。
+  - 认证、路由、安全、状态码改写类字段：拒绝，避免按错误语义运行。
+- 新增字段必须有安全默认值，旧核心不配置时行为不变。
+- 控制面可以给旧核心发送新配置，但必须去掉旧核心不支持的字段或保持默认；不能依赖旧核心理解新语义。
+- 核心不能假设控制面一定发送最新字段；缺失字段按默认值处理。
+
+版本升级：
+
+- 破坏性变更提升 `protocol_version` 主版本，新增 `/internal/v2/...`。
+- 控制面在迁移期同时服务 v1 和 v2，直到所有核心升级。
+- 核心启动时通过 `/internal/v1/meta` 声明能力和 schema 范围；控制面拒绝不兼容实例。
+- 配置 schema 与协议版本独立；新增配置字段只提升 schema 次版本或保持同一主版本，按上述增量规则处理。
+- 废弃字段先在文档标记，再保持至少一个发布周期的兼容读取；第一期不做删除。
+
+## 错误格式
+
+```json
+{
+  "protocol_version": 1,
+  "error": {
+    "code": "validation_failed",
+    "message": "upstreams[0].base_url must be https",
+    "request_id": "req_0193f0c2-7b1a-7c3e-9f00-000000000005",
+    "retryable": false,
+    "details": [
+      { "path": "upstreams[0].base_url", "reason": "scheme must be https" }
+    ]
+  }
+}
+```
+
+| HTTP | code | 场景 |
+| --- | --- | --- |
+| 400 | `malformed_request` | JSON/信封/Content-Type 错误 |
+| 401 | `unauthorized` | Token 缺失或错误 |
+| 404 | `unknown_instance` | 实例未登记 |
+| 409 | `incompatible_version` / `stale_revision` | 协议/schema/revision 冲突 |
+| 409 | `unsupported_feature` | 核心缺少控制面要求的能力 |
+| 413 | `payload_too_large` | 超过请求体上限或批次条数上限 |
+| 422 | `validation_failed` | 字段或语义校验失败 |
+| 429 | `backpressure` | 并发或背压限制；带 `Retry-After` |
+| 500 | `internal_error` | 控制面内部错误 |
+| 503 | `storage_unavailable` | 控制面摄入存储不可用；核心保留 WAL 并重试 |
+
+## 重试与幂等
+
+- 配置拉取：`ETag`/`If-None-Match`；revision 不前进不重复应用。
+- 配置推送：控制面按 revision 幂等；超时重试同一 revision 且内容一致时，核心返回 `200` 和已应用 revision；内容不同返回 `409 stale_revision`。
+- 用量：`event_id` 是唯一幂等键；`batch_id` 用于批次重试；`202` 表示事件已持久写入控制面摄入存储（PostgreSQL 已提交），不是内存接受。
+- 心跳：幂等覆盖，不累积状态。
+- 核心对 `429`/`503` 按 `Retry-After` 退避；对其他 4xx，按 `422 details[].path` 隔离单条无效事件并推进处理位点，不得阻塞后续事件。
+- 控制面对核心 5xx/超时重试 3 次，指数退避 1s、2s、4s；仍失败则标记实例不可用并阻止切换。
+
+## 观测
+
+- 控制面指标：`token_ne_protocol_requests_total{role="control",endpoint,code}`、`token_ne_protocol_validation_failures_total{field}`、`token_ne_protocol_version_skew_total{core_version,control_version}`、`token_ne_protocol_retries_total{endpoint,reason}`。
+- 核心指标：`token_ne_protocol_requests_total{role="core",endpoint,code}`、`token_ne_core_config_apply_total{result}`、`token_ne_usage_send_total{result}`。
+- 日志带 `request_id`、`instance_id`、`protocol_version`、`config_revision`；不记录 Token 和密钥。
+
+## 测试
+
+- Golden fixtures：v1 配置、用量批次、心跳、错误响应。
+- 兼容测试：v1 控制面 × v1 核心；v1 控制面 × v2 核心；v2 控制面 × v1 核心。
+- 校验负例：未知安全枚举、重复 ID、非法 URL、负数 token、超时范围、schema 不匹配。
+- 模糊测试：未知字段、未知可选枚举、截断 JSON、超大字符串。
+- 幂等测试：重复批次、重复配置 revision、控制面重启后重放。
+- 升级测试：v1/v2 同时在线，Caddy 只路由兼容实例。

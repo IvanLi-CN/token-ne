@@ -4,7 +4,7 @@
 
 面向 AI 编程 Agent 的实时 Token 用量与花费观测工具。
 
-状态：设计阶段。本仓库为即将落地的规格初始化；运行时技术栈、API 面和存储 schema 尚未确定，也还没有可运行代码。
+状态：设计阶段。第一期的产品需求、可行性分析、架构与技术选型已经写入 [`docs/`](./docs/README.md)，目前还没有可运行代码。
 
 ## 问题
 
@@ -12,13 +12,25 @@ Codex、omp 等 Agent 客户端都不在同一个地方暴露实际花费：缓�
 
 ## 方向
 
-在 LLM 网关侧记账：Agent 流量经过本地代理，记录每次请求的模型、输入/输出/缓存 Token、延迟和花费，再提供查询与看板入口。网关记账不依赖各 Agent 的日志格式，也能覆盖任何使用 OpenAI 或 Anthropic 风格 HTTP API 的客户端。
+在 LLM 网关侧记账：Agent 流量经过本地代理，记录每次请求的模型、输入/输出/缓存 Token、延迟和花费，再提供查询与看板入口。网关记账不依赖各 Agent 的日志格式；第一期覆盖使用受支持 OpenAI 风格 HTTP 端点的客户端，更广的 OpenAI 端点与 Anthropic 风格客户端留待后续。
 
-## 非目标（暂定）
+## 第一期设计
+
+第一期是一个 OpenAI 兼容网关：用量记账、模型与上游路由、API Key 形式的上游管理，以及 Caddy 后面的多版本 Rust 转发核心。
+
+- [产品需求](./docs/prd.md)
+- [技术可行性分析](./docs/feasibility.md)
+- [开发与部署架构](./docs/architecture.md)
+- [技术选型](./docs/tech-selection.md)
+- [升级与回滚 Runbook](./docs/runbooks/upgrade.md)
+- [架构决策记录](./docs/adr/)
+
+## 非目标（第一期）
 
 - 不做 API Key 交易市场，也不转售凭据。
 - 默认不归档 Prompt 与响应正文；Token 记账不需要保留消息内容。
+- 暂不做 OAuth 账号池、Anthropic 协议、多租户或多机高可用。
 
 ## 状态
 
-尚无发布。范围决策和长期规格会在实现前落地。许可条款见 [LICENSE](./LICENSE)。
+尚无发布。第一期契约已经文档化；实现将按架构和验收标准推进。许可条款见 [LICENSE](./LICENSE)。
