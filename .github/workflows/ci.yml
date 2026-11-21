@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+        working-directory: core
+      - run: cargo clippy -- -D warnings
+        working-directory: core
+      - run: cargo test
+        working-directory: core
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.4
+          cache-dependency-path: server/go.mod
+      - run: go vet ./...
+        working-directory: server
+      - run: go test ./...
+        working-directory: server
+      - run: go build ./...
+        working-directory: server
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - run: bun install --frozen-lockfile
+        working-directory: web
+      - run: bun run typecheck
+        working-directory: web
+      - run: bun run lint
+        working-directory: web
+      - run: bun run test
+        working-directory: web
+      - run: bun run build
+        working-directory: web
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - run: bunx --bun @redocly/cli@latest lint openapi.yaml
+      - run: python3 -m pip install --user pyyaml
+      - run: python3 -c 'import yaml; yaml.safe_load(open("ops/compose.yaml")); yaml.safe_load(open("ops/prometheus/prometheus.yml")); yaml.safe_load(open("config/status-rewrite.yaml"))'

@@ -1,0 +1,151 @@
+services:
+  postgres:
+    image: postgres:19.0-alpine
+    environment:
+      POSTGRES_DB: token_ne
+      POSTGRES_USER: token_ne
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U token_ne -d token_ne"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - data
+
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:3.4
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    expose:
+      - "2375"
+    networks:
+      - data
+
+  api:
+    build: ../server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://token_ne:${POSTGRES_PASSWORD}@postgres:5432/token_ne?sslmode=disable
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+      CADDY_ADMIN_URL: unix:///run/caddy/admin.sock
+      CADDY_TLS_MODE: ${CADDY_TLS_MODE:-off}
+      CADDY_HTTP_PORT: ${CADDY_HTTP_PORT:-8080}
+      DOCKER_HOST: tcp://socket-proxy:2375
+      CORE_NETWORKS: token_ne_edge,token_ne_core_control
+      CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN}
+      CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
+      CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
+      CORE_CACHE_KEY: ${CORE_CACHE_KEY}
+      CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}
+      STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
+      MASTER_KEY: ${MASTER_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET}
+      METRICS_TOKEN: ${METRICS_TOKEN}
+    expose:
+      - "8080"
+      - "9090"
+    ports:
+      - "127.0.0.1:${METRICS_PORT:-9090}:9090"
+    volumes:
+      - ../config:/etc/token-ne:ro
+      - caddy_admin:/run/caddy
+    healthcheck:
+      test: ["CMD", "/app/api", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - edge
+      - core-control
+      - data
+
+  caddy:
+    image: caddy:2.11.9-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CADDY_HTTP_PORT:-8080}:80"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_admin:/run/caddy
+      - ./caddy/bootstrap.json:/etc/caddy/bootstrap.json:ro
+    command:
+      - sh
+      - -c
+      - |
+        if [ -f /config/caddy/autosave.json ]; then
+          exec caddy run --resume
+        else
+          exec caddy run --config /etc/caddy/bootstrap.json
+        fi
+    networks:
+      - edge
+
+  core:
+    build:
+      context: ..
+      dockerfile: core/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      CORE_VERSION: ${CORE_VERSION:-dev}
+      CORE_INSTANCE_ID: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
+      CORE_CONTROL_PLANE_URL: http://api:8080
+      CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN}
+      CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
+      CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
+      CORE_CONFIG_OVERRIDE: /var/lib/token-ne/state/config.override.json
+      CORE_CACHE_KEY: ${CORE_CACHE_KEY}
+      CORE_STATE_DIR: /var/lib/token-ne/state
+      CORE_LISTEN: 0.0.0.0:8080
+      CORE_METRICS_LISTEN: 0.0.0.0:9091
+    expose:
+      - "8080"
+      - "9091"
+    volumes:
+      - ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}/0193f0c2-7b1a-7c3e-9f00-0000000000b1:/var/lib/token-ne/state
+    labels:
+      com.token-ne.role: core
+      com.token-ne.version: ${CORE_VERSION:-dev}
+      com.token-ne.instance: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
+    healthcheck:
+      test: ["CMD", "/app/core", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+    networks:
+      - edge
+      - core-control
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  caddy_admin:
+
+networks:
+  edge:
+    name: token_ne_edge
+  core-control:
+    name: token_ne_core_control
+  data:
+    name: token_ne_data
