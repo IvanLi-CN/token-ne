@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
 	"github.com/IvanLi-CN/token-ne/server/internal/httpapi"
+	"github.com/IvanLi-CN/token-ne/server/internal/store"
 )
 
 func main() {
@@ -24,19 +26,41 @@ func main() {
 		return
 	}
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+	startup, cancelStartup := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancelStartup()
+	repo, err := store.Open(startup, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("database initialization failed")
+		os.Exit(1)
+	}
+	defer repo.Close()
+	if err := repo.Bootstrap(startup, cfg.AdminUsername, cfg.AdminPassword); err != nil {
+		slog.Error("admin bootstrap failed")
+		os.Exit(1)
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
 	api := &http.Server{
 		Addr:              cfg.HTTPListen,
-		Handler:           httpapi.NewRouter(cfg),
+		Handler:           httpapi.NewRouter(cfg, repo),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	metrics := &http.Server{
 		Addr:              cfg.MetricsListen,
-		Handler:           metricsHandler(),
+		Handler:           metricsHandler(cfg, repo),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -72,11 +96,25 @@ func serve(server *http.Server, name string, errs chan<- error) {
 	errs <- err
 }
 
-func metricsHandler() http.Handler {
+func metricsHandler(cfg config.Config, repo store.Repository) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+cfg.MetricsToken)) != 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = io.WriteString(w, "# HELP token_ne_api_up API process is running.\n# TYPE token_ne_api_up gauge\ntoken_ne_api_up 1\n")
+	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if repo.Ping(ctx) != nil {
+			w.WriteHeader(503)
+			return
+		}
+		w.WriteHeader(200)
 	})
 	return mux
 }
