@@ -83,4 +83,4 @@ jobs:
           bun-version: 1.4.5
       - run: bunx --bun @redocly/cli@latest lint openapi.yaml
       - run: python3 -m pip install --user pyyaml
-      - run: python3 -c 'import yaml; yaml.safe_load(open("ops/compose.yaml")); yaml.safe_load(open("ops/prometheus/prometheus.yml")); yaml.safe_load(open("config/status-rewrite.yaml"))'
+      - run: python3 -c 'import yaml; yaml.safe_load(open("ops/compose.yaml")); yaml.safe_load(open("ops/prometheus/prometheus.yml")); yaml.safe_load(open("config/status-rewrite.yaml")); yaml.safe_load(open("tests/e2e/compose.override.yaml"))'

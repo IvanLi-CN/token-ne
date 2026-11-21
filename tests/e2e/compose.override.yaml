@@ -1,0 +1,17 @@
+services:
+  mock-upstream:
+    build:
+      context: ../tests/e2e/mock-upstream
+      dockerfile: Dockerfile
+    environment:
+      MOCK_UPSTREAM_LISTEN: 0.0.0.0:8080
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    networks:
+      - edge
+      - core-control
