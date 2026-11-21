@@ -34,7 +34,7 @@
 | 状态码改写策略配置 | 可行 | 控制面读取 YAML/JSON，校验后随配置快照分发；未来迁入数据库和界面 | 文件无效时保留上一份有效策略；规则 schema 需要严格校验和测试 |
 | 核心/控制面协议 | 可行 | `/internal/v1` + 独立配置 schema + 能力协商；同主版本增量兼容 | 未知安全枚举必须拒绝；需要 golden fixtures 和版本矩阵测试 |
 | Caddy 加权多版本 | 可行 | Caddy 2.11 的 `weighted_round_robin` 接受 `weights` 数组；至少一个权重为正时，`0` 禁止新请求选中该上游 | 单上游池会直接返回 `pool[0]`，不按权重筛除；全零池无法通过校验。最后一个实例必须用 `static_response` 503 排水 |
-| Caddy 配置热更新 | 可行 | 管理 API 支持 `POST /load` 与 `/id/<id>/...` 粒度 `PATCH`；重载默认保留在途请求 | 管理 API 无内建认证，必须限制在内网 |
+| Caddy 配置热更新 | 可行 | 所有变更使用完整 `POST /load`；权重和 upstream 数组同一份配置原子更新；重载默认保留在途请求 | 管理 API 无内建认证，使用 API/Caddy 共享 Unix socket；主动健康检查用 `/readyz` |
 | Caddy 长连接保持 | 可行 | `flush_interval: -1` 强制流式刷新；HTTP server 的 `grace_period` 默认无限，重载不会主动掐断在途流 | 必须避免错误地重启 Caddy 容器来“应用配置” |
 | 在途请求排水信号 | 需要核心自报 | Caddy `/reverse_proxy/upstreams` 的 `num_requests` 是按 `dial` 地址计数，没有版本维度；条目在旧 handler 清理后消失，不能用来判断旧版本在途流 | 核心必须维护自己的在途计数，并通过 `GET /internal/v1/status` 暴露 |
 | 动态核心容器 | 可行 | Docker Engine API 支持按标签列出、创建、启动、停止、删除容器；Compose 网络可被动态容器加入 | Docker socket 等价于 root；需要 socket proxy 与网络隔离 |
@@ -56,13 +56,13 @@
 }
 ```
 
-权重与 `upstreams` 数组顺序一一对应；当另一个上游权重为正时，权重 `0` 表示该上游不再接收新请求。至少一个权重必须为正；全零池无法通过 Caddy 校验。切换时先更新权重，再等待旧版本在途请求归零，最后停止容器。排水最后一个实例时不能依赖权重 `0`：先把 `/v1/*` 切到 `static_response` 503，再停止实例。
+权重与 `upstreams` 数组顺序一一对应；当另一个上游权重为正时，权重 `0` 表示该上游不再接收新请求。至少一个权重必须为正；全零池无法通过 Caddy 校验。所有变更都生成完整 JSON 并 `POST /load`，保证权重和 upstream 顺序原子更新。切换时先更新权重，再等待旧版本在途请求归零，最后停止容器。排水最后一个实例时不能依赖权重 `0`：先把 `/v1/*` 切到 `static_response` 503，再停止实例。
 
-Caddy 管理 API 支持用稳定的 `@id` 定位配置节点：
+Caddy 管理 API 使用稳定 `@id` 生成完整配置：
 
-- `PATCH /id/token-ne-v1-proxy/upstreams` 替换整个上游数组。
-- `PATCH /id/token-ne-v1-proxy/load_balancing` 替换负载均衡策略。
-- `POST /load` 用于首次装载和结构性变更。
+- 上游数组、负载均衡权重、TLS、路由和健康检查都在同一份 JSON 中。
+- 不再使用 `/id/<id>/...` 分离 `PATCH`。
+- 主动健康检查使用核心 `/readyz`；Docker liveness 使用 `/healthz`。
 
 入口路由需要配置 `flush_interval: -1`，否则 SSE 可能被缓冲。Caddy 的 `grace_period` 默认为无限，配置重载不会取消已在处理的请求；这也是“权重归零后旧流还能自然结束”的前提。
 
@@ -89,7 +89,7 @@ Caddy 的 `/reverse_proxy/upstreams` 返回 `num_requests`，但它是按 `dial`
 | 30 天用量行数 | 约 3000 万行 | 需要 BRIN（时间）与少量 B-tree 索引；超过 500 万行/日时改为按月分区 |
 | Caddy 吞吐 | 远高于第一期需求 | Caddy 不是瓶颈；瓶颈通常在上游和 PostgreSQL 写入 |
 | Go 控制面 | 单实例足够 | 用量摄入、配置推送、Caddy 协调、Docker 协调均为低频操作 |
-| 核心用量 WAL | 默认 8 GiB / 24 小时 | 单条约 0.8 到 1.5 KiB；10 请求/秒可用超过 24 小时，100 请求/秒接近 24 小时 |
+| 核心 usage spool | 默认 8 GiB / 24 小时 | 单条约 0.8 到 1.5 KiB；10 请求/秒可用超过 24 小时，100 请求/秒接近 24 小时 |
 | 配置传播 | 小于 5 秒 | Go 推送 + 核心原子切换；失败时保留上一版配置 |
 
 这些数字是工程预算，不是承诺。第一期验收用压测确认 50 条并发 SSE 流、10 分钟持续运行、无内存持续增长。
@@ -105,7 +105,7 @@ Caddy 的 `/reverse_proxy/upstreams` 返回 `num_requests`，但它是按 `dial`
 | 请求重试位置 | Rust 核心做内容感知重试 | Caddy 重试 | Caddy 看不到 SSE 内容，也无法安全重放已读取的 POST 体 |
 | 核心配置来源 | Go 推送 + 核心本地加密缓存 | 核心直连 PostgreSQL | 核心直连数据库会把数据面耦合到数据库凭据和 schema |
 | 用量传输 | 核心 HTTP 批量推送 Go | 核心直写 PostgreSQL；OpenTelemetry Collector | HTTP 批量最简单，schema 单一所有者；OTel 留到需要跨系统追踪时 |
-| 控制面不可用时的用量缓冲 | 核心本地分段 WAL（只存用量元数据），控制面恢复后重放 | Redis Streams / NATS / Kafka | 单机第一期不需要额外 MQ；本地 WAL 无新服务、可跨容器重启、满足 3 到 24 小时缓冲。跨宿主机持久化再上 MQ |
+| 控制面不可用时的用量缓冲 | 核心私有分段 usage spool（只存用量元数据），由 core 自行重放 | Redis Streams / NATS / Kafka | 单机第一期不需要额外 MQ；spool 无新服务、可跨容器重启、满足 3 到 24 小时缓冲；控制面不读取文件。跨宿主机持久化再上 MQ |
 | 核心配置缓存 | 控制面推送，本地加密缓存；签名可选且默认只告警；手动 override 可启动 | 核心直连数据库；强制签名启动门 | 核心不碰数据库；缓存和 override 提供紧急恢复能力；不支持从未被控制过的纯冷启动 |
 | 业务存储 | PostgreSQL | ClickHouse | 第一期数据量不需要列式数据库；先保证正确性和运维简单 |
 | 指标存储 | Go `/metrics` 作为唯一外部抓取目标；核心内部 `/metrics` 仅排障 | 核心各自暴露指标由外部抓取 | 外部 Prometheus 无法可靠解析 Compose DNS；Go 聚合后只暴露一个抓取目标 |
@@ -117,7 +117,7 @@ Caddy 的 `/reverse_proxy/upstreams` 返回 `num_requests`，但它是按 `dial`
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| Caddy 管理 API 无认证 | 内网容器可改全部路由 | 只绑定内部网络，不发布端口；API 容器是唯一调用方；入口显式拒绝 `/internal/*` |
+| Caddy 管理 API 无认证 | 内网容器可改全部路由 | 使用 API 与 Caddy 共享的 Unix socket，不监听网络；API 是唯一调用方；入口显式拒绝 `/internal/*` |
 | Docker socket 权限过大 | 控制面被攻破等价于宿主机 root | 使用 socket proxy 限定容器/镜像/网络接口；控制面不暴露公网；后续可拆独立 `core-controller` |
 | 重试导致重复输出 | 下游看到重复 token | 只在提交前重试；提交后无论是超时、断开还是上游错误都只透传 |
 | 状态码改写过宽 | 隐藏不可重试错误，延长故障 | 只改临时类别；400/401/403/404/409/422 保持原样；原始上游状态和改写指标可见 |
@@ -129,25 +129,28 @@ Caddy 的 `/reverse_proxy/upstreams` 返回 `num_requests`，但它是按 `dial`
 | 指标基数爆炸 | Prometheus 内存和查询恶化 | 标签只允许 model、upstream、status、core_version 等低基数维度 |
 | TypeScript 7 / Vite 8 / Storybook 10 组合不兼容 | 前端无法构建 | 初始化时跑一次真实构建门禁；不通过则降级到 TypeScript 5.9，保持其他最新主版本 |
 | 上游 URL 可配置导致 SSRF | 控制面可被用来访问内网 | 默认只允许 `https` 和公网地址；开发模式显式放开；核心二次校验 |
-| 控制面不可用 | 无法改配置或部署 | 核心使用本地配置缓存继续服务；用量写入有界分段 WAL，控制面恢复后重放；默认保留 24 小时 |
+| 控制面不可用 | 无法改配置或部署 | 核心使用本地配置缓存继续服务；用量写入核心私有 spool，core 自行重放；默认保留 24 小时 |
 | 用量 spool 写满 | 控制面长期不可用时可能丢失旧用量 | 按 `spool_max_bytes` 和 `spool_max_age_hours` 限制；删除最旧未确认段并记录 `spool_dropped_total`；容量按峰值请求量预估 |
 | 配置缓存过期或被吊销 | 控制面不可用时仍按旧 Key/上游服务 | 缓存只在被控制面成功控制过后有效；记录 `config_age` 并告警；需要立即吊销时停止实例，而不是依赖缓存自动失效 |
 | 手动 override 引入错误配置 | 核心按错误路由/密钥启动，可能泄漏或失败 | override 只用于紧急恢复；启动日志高优先级告警、指标可见、审计记录；操作者恢复后删除文件并重新由控制面推送 |
 | 配置签名被误认为安全门 | 操作者以为签名能阻止篡改 | 签名默认只告警，用于发现损坏/误改；真正的配置写入权限由状态目录权限和控制面 Token 控制 |
 | 宿主机整体故障 | 本地 spool 和配置缓存一起丢失 | 第一期只保证控制面故障和容器重启；跨宿主机持久化需要外部队列或对象存储，明确不在第一期 |
 
-## 需要主人确认的默认决策
+## 已确认的默认决策
 
-以下决策已经写入 PRD 和架构文档，按默认执行；如果主人不同意，应在实施前调整：
+以下决策已经确认并写入 PRD、架构和 ADR：
 
 1. **用 Docker Engine API 代替 Compose CLI 做动态核心编排**。动态容器带 `com.docker.compose.project`、`service`、`oneoff`、`config-hash` 等标签，仍是 Compose 项目成员，但不是 Compose 文件里声明的 service。整机下线时 `docker compose down --remove-orphans` 可以清理；`docker compose up` 不会重建它们；单实例清理使用控制面 prune。若要求“必须是声明服务”，需要改成 Compose CLI 编排，不推荐。
 2. **第一期不保存请求/响应正文**。只保存用量、延迟、状态、错误分类和截断后的错误消息，降低隐私与存储风险。
 3. **Caddy 默认只监听 HTTP，不终止 TLS**。TLS 由宿主上的外部反向代理负责；只有显式启用 `CADDY_TLS_MODE=auto` 时，Go 才生成 443 监听和自动 HTTPS 配置。
 4. **chat.completions 流式请求默认注入 `stream_options.include_usage=true`**，以保证可计费用量；该行为可在上游或全局配置中关闭。
 5. **第一期只支持 API Key 上游**，不做 OAuth 登录、账号配额窗口、自动轮换和号池健康评分。
-6. **控制面不可用时，用量写入核心本地分段 WAL，默认保留 24 小时，控制面恢复后重放**。只缓存用量元数据，不缓存原始请求/响应正文；宿主机整体故障不在第一期保证范围内。
+6. **控制面不可用时，用量写入核心私有 spool，默认保留 24 小时，由 core 自行重放**。控制面不读取文件；已停止实例用兼容 core 重启后自愈。宿主机整体故障不在第一期保证范围内。
 7. **配置签名默认只告警，手动 override 可以启动但会记录高优先级警告**。签名不作为不可绕过的启动门；它只用于发现损坏或误改。
 8. **状态码改写策略第一版来自 YAML/JSON 文件，由控制面校验并随配置快照分发**。后续迁入数据库和 Web 编辑器；文件缺失/无效时使用内置安全默认。
+9. **模型是全局实体，不按上游拆分**；上游通过显式能力关系参与候选，名称改写按上游覆盖 → 全局映射 → 原模型名的继承规则。
+10. **Caddy 配置统一全量 `POST /load`，主动健康检查使用 `/readyz`**；不再用分离的 PATCH 更新权重或 upstream。
+11. **Compose 网络分为 `edge`、`core-control`、`data`**；Caddy 管理面走 API 与 Caddy 共享的 Unix socket；core 不能访问 Caddy 管理面、Docker socket 或 PostgreSQL。
 
 ## Go / No-Go
 

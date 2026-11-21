@@ -2,6 +2,8 @@
 
 本 Runbook 描述第一期多版本核心的推荐操作顺序。所有命令都假设在部署主机上执行，并已导出 Compose 环境变量；命令默认设置 `COMPOSE_FILE=ops/compose.yaml`，或在 `ops/` 目录执行。
 
+命令还假设已设置：`PUBLIC_DOMAIN`、`PUBLIC_ORIGIN`（含 scheme）、`ADMIN_COOKIE`、`METRICS_TOKEN`、`CORE_CONTAINER`、`INSTANCE_ID`、`DEPLOYMENT_ID` 和 `DOWNSTREAM_TEST_KEY`。
+
 ## 前置检查
 
 ```bash
@@ -15,7 +17,7 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 - PostgreSQL、API、Caddy、基线核心均健康。
 - 外部 TLS 反向代理到 Caddy 的链路正常；Caddy 默认只监听 HTTP。
 - 当前没有进行中的部署。
-- 已记录当前核心版本、镜像 digest、权重、配置 revision、Caddy 配置哈希和 WAL 未确认量。
+- 已记录当前核心版本、镜像 digest、权重、配置 revision、Caddy 配置哈希和 spool 未确认量。
 - 数据库已备份，`MASTER_KEY` 和 `CORE_CONFIG_SIGNING_KEY` 已独立备份。
 - `CORE_STATE_HOST_DIR` 可写且权限为 `0700`。
 
@@ -31,7 +33,7 @@ curl -fsS https://$PUBLIC_DOMAIN/api/cores \
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
   -H "Cookie: $ADMIN_COOKIE" \
-  -H "Origin: https://$PUBLIC_ORIGIN" \
+  -H "Origin: $PUBLIC_ORIGIN" \
   -H "Content-Type: application/json" \
   -d '{
     "version": "0.2.0",
@@ -50,7 +52,7 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deploy \
   -H "Cookie: $ADMIN_COOKIE" \
-  -H "Origin: https://$PUBLIC_ORIGIN" \
+  -H "Origin: $PUBLIC_ORIGIN" \
   -H "Content-Type: application/json" \
   -d '{
     "to_version": "0.2.0",
@@ -85,7 +87,7 @@ docker compose exec -e DOWNSTREAM_TEST_KEY api sh -c '
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/shift \
   -H "Cookie: $ADMIN_COOKIE" \
-  -H "Origin: https://$PUBLIC_ORIGIN" \
+  -H "Origin: $PUBLIC_ORIGIN" \
   -H "Content-Type: application/json" \
   -d '{"weights":{"0.1.0":90,"0.2.0":10}}'
 ```
@@ -120,16 +122,16 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 
 1. 将旧版本权重设为 0；如果它是最后一个活跃实例，先把 `/v1/*` 切到 `static_response` 503，不能依赖单上游池的权重 0。
 2. 等待至少两个健康检查周期，让 Caddy 配置稳定。
-3. 轮询实例在途数和 WAL 未确认量：
+3. 轮询实例在途数和 spool 未确认量：
 
 ```bash
 curl -fsS https://$PUBLIC_DOMAIN/api/cores/instances/$INSTANCE_ID \
-  -H "Cookie: $ADMIN_COOKIE" | jq '{state,weight,inflight,spool_unacked,last_heartbeat_at}'
+  -H "Cookie: $ADMIN_COOKIE" | jq '{state,weight,inflight,spool,last_heartbeat_at}'
 ```
 
-4. 连续 3 次 `inflight == 0` 后，尽量等待 `spool_unacked == 0`。
-5. 如果 WAL 未清零但已到等待上限，停止容器并保留状态目录；控制面恢复后按 `ack.json` 重放。
-6. 确认容器已停止、Caddy 上游已移除、实例状态为 `stopped`；不要删除状态目录，直到 WAL 重放完成。
+4. 连续 3 次 `inflight == 0` 后，尽量等待 `spool.unacked_events == 0`。
+5. 如果 spool 未清零但已到等待上限，停止容器并保留状态目录；停止后用兼容 core 重启并按 `ack.json` 自行重放。
+6. 确认容器已停止、Caddy 上游已移除、实例状态为 `stopped`；不要删除状态目录，直到 spool 清零。
 
 长流可能让排水等待较久。默认最大等待 30 分钟；不要用强制排水代替正常等待。
 
@@ -138,7 +140,7 @@ curl -fsS https://$PUBLIC_DOMAIN/api/cores/instances/$INSTANCE_ID \
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/rollback \
   -H "Cookie: $ADMIN_COOKIE" \
-  -H "Origin: https://$PUBLIC_ORIGIN"
+  -H "Origin: $PUBLIC_ORIGIN"
 ```
 
 回滚步骤：
@@ -146,7 +148,7 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/ro
 1. 新版本权重降为 0。
 2. 旧版本恢复到 100（或回滚前的权重）。
 3. 等待新版本在途归零后停止。
-4. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热；接流量前先由控制面按 `ack.json` 重放该实例的 WAL。
+4. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热；由兼容 core 启动时按 `ack.json` 自行重放该实例的 spool。
 5. 记录审计和事故原因。
 
 回滚不自动回退数据库 schema；如果新版本引入了不兼容迁移，必须先完成兼容迁移或恢复备份。
@@ -158,16 +160,16 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/ro
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/instances/$INSTANCE_ID/drain \
   -H "Cookie: $ADMIN_COOKIE" \
-  -H "Origin: https://$PUBLIC_ORIGIN" \
+  -H "Origin: $PUBLIC_ORIGIN" \
   -H "Content-Type: application/json" \
   -d '{"force":true,"reason":"..."}'
 ```
 
 强制停止会中断在途流，必须记录：
 
-- 操作者、实例、当前在途数、WAL 未确认量、已等待时间。
+- 操作者、实例、当前在途数、spool 未确认量、已等待时间。
 - 受影响请求的指标和日志。
-- 状态目录位置和后续重放结果。
+- 状态目录位置和后续由兼容 core 重放的结果。
 - 后续修复项。
 
 ## 状态码改写策略
@@ -256,7 +258,7 @@ override 存在期间，控制面推送不应覆盖它；操作者必须显式�
 | 排水卡住 | 实例 `inflight`、请求日志 | 定位长流；等待或强制排水 |
 | 回滚后仍有错误 | 旧版本状态、上游健康 | 检查上游；必要时切到另一候选 |
 | 控制面重启后状态不一致 | Docker 标签、数据库实例、Caddy 上游 | 触发对账；不手工改 Caddy |
-| WAL 未确认量持续增长 | 控制面 `/internal/v1/usage/batch`、摄入在途/提交延迟、数据库 | 检查控制面/数据库；恢复后重放；必要时提高 WAL 容量 |
+| spool 未确认量持续增长 | 控制面 `/internal/v1/usage/batch`、摄入在途/提交延迟、数据库 | 检查控制面/数据库；core 自行重放；必要时提高 spool 容量 |
 | 核心无法 ready 且控制面在线 | 配置签名、实例 ID、`/internal/v1/config` | 检查 `CORE_CONFIG_SIGNING_KEY` 和实例登记；重新下发配置 |
 | 状态码改写未生效/策略告警 | `status_rewrite_policy_*`、策略文件、控制面日志 | 检查 YAML/JSON 语法、规则 schema、`never_rewrite`；无效文件会保留上一份有效策略 |
-| 动态核心未被 Compose 清理 | `docker compose ps`、`com.token-ne.role` 标签 | 按实例清理：先确认该实例 WAL 已重放，再 `POST /api/cores/prune`；`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线 |
+| 动态核心未被 Compose 清理 | `docker compose ps`、`com.token-ne.role` 标签 | 按实例清理：先确认该实例上报 `spool.unacked_events == 0`，再 `POST /api/cores/prune`；`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线 |

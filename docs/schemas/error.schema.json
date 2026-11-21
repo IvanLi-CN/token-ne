@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://token-ne.local/schemas/error.schema.json",
+  "title": "token-ne error envelopes",
+  "oneOf": [
+    { "$ref": "#/$defs/adminError" },
+    { "$ref": "#/$defs/openaiError" }
+  ],
+  "$defs": {
+    "adminError": {
+      "type": "object",
+      "required": ["error"],
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "request_id", "details"],
+          "additionalProperties": true,
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "request_id": { "type": "string", "minLength": 1 },
+            "details": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "reason"],
+                "additionalProperties": true,
+                "properties": {
+                  "path": { "type": "string" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "openaiError": {
+      "type": "object",
+      "required": ["error"],
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["message", "type", "param", "code"],
+          "additionalProperties": true,
+          "properties": {
+            "message": { "type": "string" },
+            "type": {
+              "enum": [
+                "invalid_request_error",
+                "authentication_error",
+                "permission_error",
+                "not_found_error",
+                "rate_limit_error",
+                "server_error"
+              ]
+            },
+            "param": { "type": ["string", "null"] },
+            "code": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1951 @@
+openapi: 3.1.0
+info:
+  title: token-ne API
+  version: 1.0.0
+  license:
+    name: MIT
+    identifier: MIT
+  description: |
+    token-ne 的对外 OpenAI 兼容接口与管理 API 契约。
+    下游 `/v1/*` 只承诺第一期定义的 OpenAI 风格端点；管理 API 使用会话 Cookie、
+    同源校验和统一错误信封。内部核心控制协议见 `docs/protocol.md`.
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本地或外部 TLS 代理后的入口
+
+tags:
+  - name: auth
+    description: 管理员登录、退出和当前会话
+  - name: models
+    description: 全局模型、计费和全局映射
+  - name: upstreams
+    description: 上游、模型能力和测试
+  - name: downstream-keys
+    description: 下游 API Key 生命周期
+  - name: cores
+    description: 核心版本、实例、部署、排水和 spool 摘要
+  - name: usage
+    description: 总览、时间序列、分布和请求事实
+  - name: audit
+    description: 管理操作审计
+  - name: downstream
+    description: OpenAI 兼容下游接口
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: 管理员登录
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: 退出登录
+      operationId: logout
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已退出
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前管理员
+      operationId: getCurrentAdmin
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 当前管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/models:
+    get:
+      tags: [models]
+      summary: 列出全局模型
+      operationId: listModels
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModelAdmin"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+    post:
+      tags: [models]
+      summary: 创建全局模型
+      operationId: createModel
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelCreate"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAdmin"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/models/{model_id}:
+    parameters:
+      - $ref: "#/components/parameters/ModelId"
+    get:
+      tags: [models]
+      summary: 获取全局模型
+      operationId: getModel
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 模型
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAdmin"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+    put:
+      tags: [models]
+      summary: 更新全局模型
+      operationId: updateModel
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpdate"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAdmin"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+    delete:
+      tags: [models]
+      summary: 删除全局模型
+      operationId: deleteModel
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已删除
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/upstreams:
+    get:
+      tags: [upstreams]
+      summary: 列出上游
+      operationId: listUpstreams
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 上游列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Upstream"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+    post:
+      tags: [upstreams]
+      summary: 创建上游
+      operationId: createUpstream
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpstreamInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upstream"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/upstreams/{upstream_id}:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    get:
+      tags: [upstreams]
+      summary: 获取上游及其模型能力
+      operationId: getUpstream
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 上游
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upstream"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+    put:
+      tags: [upstreams]
+      summary: 更新上游并原子替换模型能力集合
+      operationId: updateUpstream
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpstreamInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upstream"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+    delete:
+      tags: [upstreams]
+      summary: 删除上游并级联删除模型能力
+      operationId: deleteUpstream
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已删除
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/upstreams/{upstream_id}/test:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    post:
+      tags: [upstreams]
+      summary: 测试上游
+      operationId: testUpstream
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpstreamTestResult"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+
+  /api/downstream-keys:
+    get:
+      tags: [downstream-keys]
+      summary: 列出下游 Key
+      operationId: listDownstreamKeys
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Key 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DownstreamKey"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+    post:
+      tags: [downstream-keys]
+      summary: 创建下游 Key
+      operationId: createDownstreamKey
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownstreamKeyCreate"
+      responses:
+        "201":
+          description: 已创建；明文 Key 只在此响应出现一次
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownstreamKeyCreated"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/downstream-keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    put:
+      tags: [downstream-keys]
+      summary: 更新下游 Key 元数据
+      operationId: updateDownstreamKey
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownstreamKeyUpdate"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownstreamKey"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+    delete:
+      tags: [downstream-keys]
+      summary: 删除下游 Key
+      operationId: deleteDownstreamKey
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已删除
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+
+  /api/downstream-keys/{key_id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      tags: [downstream-keys]
+      summary: 轮换下游 Key；旧 Key 仅保留到显式禁用或过期
+      operationId: rotateDownstreamKey
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 新明文 Key 只在此响应出现一次
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownstreamKeyCreated"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+
+  /api/cores:
+    get:
+      tags: [cores]
+      summary: 核心版本、实例和部署状态
+      operationId: listCores
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 核心状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoresState"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/cores/versions:
+    post:
+      tags: [cores]
+      summary: 登记核心版本
+      operationId: registerCoreVersion
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoreVersionInput"
+      responses:
+        "201":
+          description: 已登记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreVersion"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/cores/instances/{instance_id}:
+    parameters:
+      - $ref: "#/components/parameters/InstanceId"
+    get:
+      tags: [cores]
+      summary: 核心实例详情
+      operationId: getCoreInstance
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 实例详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreInstance"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+
+  /api/cores/deploy:
+    post:
+      tags: [cores]
+      summary: 创建核心部署并预热新版本
+      operationId: deployCore
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoreDeployInput"
+      responses:
+        "202":
+          description: 部署已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreDeployment"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/cores/deployments/{deployment_id}/shift:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    post:
+      tags: [cores]
+      summary: 设置阶段权重
+      operationId: shiftCoreDeployment
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoreShiftInput"
+      responses:
+        "202":
+          description: 切换已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreDeployment"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/cores/deployments/{deployment_id}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    post:
+      tags: [cores]
+      summary: 回滚部署
+      operationId: rollbackCoreDeployment
+      security:
+        - cookieAuth: []
+      responses:
+        "202":
+          description: 回滚已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreDeployment"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/cores/instances/{instance_id}/drain:
+    parameters:
+      - $ref: "#/components/parameters/InstanceId"
+    post:
+      tags: [cores]
+      summary: 排水核心实例
+      operationId: drainCoreInstance
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrainInput"
+      responses:
+        "202":
+          description: 排水已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreInstance"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/cores/prune:
+    post:
+      tags: [cores]
+      summary: 清理已停止且 spool 已清零的实例
+      operationId: pruneCoreInstances
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PruneInput"
+      responses:
+        "202":
+          description: 清理已接受
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pruned]
+                properties:
+                  pruned:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+
+  /api/cores/spool:
+    get:
+      tags: [cores]
+      summary: 查看各实例 spool 状态
+      operationId: listCoreSpool
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: spool 状态
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CoreSpoolState"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/overview:
+    get:
+      tags: [usage]
+      summary: 总览
+      operationId: getOverview
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: 总览
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Overview"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/usage/timeseries:
+    get:
+      tags: [usage]
+      summary: 用量时间序列
+      operationId: getUsageTimeseries
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [5m, 1h, 1d]
+            default: 1h
+      responses:
+        "200":
+          description: 时间序列
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageTimeseries"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/usage/breakdown:
+    get:
+      tags: [usage]
+      summary: 按模型、上游或 Key 分布
+      operationId: getUsageBreakdown
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: group_by
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [model, upstream, downstream_key]
+      responses:
+        "200":
+          description: 分布
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageBreakdown"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/requests:
+    get:
+      tags: [usage]
+      summary: 请求列表
+      operationId: listRequests
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: upstream
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: 请求列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestList"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /api/requests/{request_id}:
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [usage]
+      summary: 请求详情
+      operationId: getRequest
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 请求详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestDetail"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+
+  /api/audit:
+    get:
+      tags: [audit]
+      summary: 审计列表
+      operationId: listAudit
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: 审计列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+
+  /v1/models:
+    get:
+      tags: [downstream]
+      summary: 列出可用模型
+      operationId: listOpenAIModels
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OpenAI ListModelsResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAIModelList"
+        "401":
+          $ref: "#/components/responses/OpenAIUnauthorized"
+        "403":
+          $ref: "#/components/responses/OpenAIPermissionDenied"
+
+  /v1/models/{model}:
+    parameters:
+      - name: model
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+        tags: [downstream]
+        summary: 查询单个模型
+        operationId: retrieveOpenAIModel
+        security:
+          - bearerAuth: []
+        responses:
+          "200":
+            description: OpenAI Model
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/OpenAIModel"
+          "401":
+            $ref: "#/components/responses/OpenAIUnauthorized"
+          "404":
+            $ref: "#/components/responses/OpenAINotFound"
+
+  /v1/chat/completions:
+    post:
+      tags: [downstream]
+      summary: Chat Completions 代理
+      operationId: createChatCompletion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionRequest"
+      responses:
+        "200":
+          description: OpenAI JSON 或 SSE 响应；核心只改写 model，其他字段透传
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/RequestId"
+            x-token-ne-attempts:
+              $ref: "#/components/headers/Attempts"
+            x-token-ne-upstream:
+              $ref: "#/components/headers/UpstreamName"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/OpenAIBadRequest"
+        "401":
+          $ref: "#/components/responses/OpenAIUnauthorized"
+        "403":
+          $ref: "#/components/responses/OpenAIPermissionDenied"
+        "404":
+          $ref: "#/components/responses/OpenAINotFound"
+        "413":
+          $ref: "#/components/responses/OpenAIPayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/OpenAIRateLimited"
+        "502":
+          $ref: "#/components/responses/OpenAIBadGateway"
+        "503":
+          $ref: "#/components/responses/OpenAIUnavailable"
+
+  /v1/responses:
+    post:
+      tags: [downstream]
+      summary: Responses 代理
+      operationId: createResponse
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResponsesRequest"
+      responses:
+        "200":
+          description: OpenAI JSON 或 SSE 响应；核心只改写 model，其他字段透传
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/RequestId"
+            x-token-ne-attempts:
+              $ref: "#/components/headers/Attempts"
+            x-token-ne-upstream:
+              $ref: "#/components/headers/UpstreamName"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResponsesResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/OpenAIBadRequest"
+        "401":
+          $ref: "#/components/responses/OpenAIUnauthorized"
+        "403":
+          $ref: "#/components/responses/OpenAIPermissionDenied"
+        "404":
+          $ref: "#/components/responses/OpenAINotFound"
+        "413":
+          $ref: "#/components/responses/OpenAIPayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/OpenAIRateLimited"
+        "502":
+          $ref: "#/components/responses/OpenAIBadGateway"
+        "503":
+          $ref: "#/components/responses/OpenAIUnavailable"
+
+  /v1/embeddings:
+    post:
+      tags: [downstream]
+      summary: Embeddings 代理
+      operationId: createEmbedding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbeddingsRequest"
+      responses:
+        "200":
+          description: OpenAI embeddings JSON
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/RequestId"
+            x-token-ne-attempts:
+              $ref: "#/components/headers/Attempts"
+            x-token-ne-upstream:
+              $ref: "#/components/headers/UpstreamName"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbeddingsResponse"
+        "400":
+          $ref: "#/components/responses/OpenAIBadRequest"
+        "401":
+          $ref: "#/components/responses/OpenAIUnauthorized"
+        "403":
+          $ref: "#/components/responses/OpenAIPermissionDenied"
+        "404":
+          $ref: "#/components/responses/OpenAINotFound"
+        "413":
+          $ref: "#/components/responses/OpenAIPayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/OpenAIRateLimited"
+        "502":
+          $ref: "#/components/responses/OpenAIBadGateway"
+        "503":
+          $ref: "#/components/responses/OpenAIUnavailable"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: tn_session
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    ModelId:
+      name: model_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    UpstreamId:
+      name: upstream_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InstanceId:
+      name: instance_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeploymentId:
+      name: deployment_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    From:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+
+  headers:
+    RetryAfter:
+      description: 建议下游等待的秒数或 HTTP 日期
+      schema:
+        type: string
+    RequestId:
+      description: 核心生成的关联 ID
+      schema:
+        type: string
+    Attempts:
+      description: 本次请求的上游尝试次数
+      schema:
+        type: integer
+        minimum: 1
+    UpstreamName:
+      description: 最终选择的上游名称
+      schema:
+        type: string
+
+  responses:
+    AdminBadRequest:
+      description: 请求格式错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminUnauthorized:
+      description: 未登录或会话失效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminNotFound:
+      description: 对象不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminConflict:
+      description: 状态冲突，例如存在引用或部署进行中
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    AdminValidationFailed:
+      description: 字段校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminError"
+    OpenAIUnauthorized:
+      description: 下游 API Key 无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIPermissionDenied:
+      description: Key 无权访问该模型
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAINotFound:
+      description: 模型不存在或不可见
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIBadRequest:
+      description: 请求无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIPayloadTooLarge:
+      description: 请求体超过上限
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIRateLimited:
+      description: 并发或上游限流
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIBadGateway:
+      description: 上游认证或协议失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    OpenAIUnavailable:
+      description: 重试耗尽或没有可用上游
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+
+  schemas:
+    AdminError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id, details]
+          properties:
+            code:
+              type: string
+              example: validation_failed
+            message:
+              type: string
+            request_id:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                required: [path, reason]
+                properties:
+                  path:
+                    type: string
+                  reason:
+                    type: string
+    OpenAIErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/OpenAIError"
+    OpenAIError:
+      type: object
+      required: [message, type, param, code]
+      properties:
+        message:
+          type: string
+        type:
+          type: string
+          enum:
+            - invalid_request_error
+            - authentication_error
+            - permission_error
+            - not_found_error
+            - rate_limit_error
+            - server_error
+        param:
+          type: [string, "null"]
+        code:
+          type: [string, "null"]
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    AdminUser:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+    Billing:
+      type: object
+      required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok]
+      properties:
+        input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        cached_input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        output_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+    ModelAdmin:
+      type: object
+      required: [model_id, enabled, created_at, updated_at, billing]
+      properties:
+        model_id:
+          type: string
+          maxLength: 256
+        enabled:
+          type: boolean
+        default_upstream_model:
+          type: [string, "null"]
+          maxLength: 256
+        shutdown_date:
+          type: [string, "null"]
+          format: date
+        billing:
+          $ref: "#/components/schemas/Billing"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ModelCreate:
+      type: object
+      required: [model_id, enabled, billing]
+      properties:
+        model_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        enabled:
+          type: boolean
+          default: true
+        default_upstream_model:
+          type: [string, "null"]
+          maxLength: 256
+        shutdown_date:
+          type: [string, "null"]
+          format: date
+        billing:
+          $ref: "#/components/schemas/Billing"
+    ModelUpdate:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        default_upstream_model:
+          type: [string, "null"]
+          maxLength: 256
+        shutdown_date:
+          type: [string, "null"]
+          format: date
+        billing:
+          $ref: "#/components/schemas/Billing"
+    UpstreamCapability:
+      type: object
+      required: [model_id, enabled, priority, weight]
+      properties:
+        model_id:
+          type: string
+        upstream_model_name:
+          type: [string, "null"]
+          maxLength: 256
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 10000
+    Upstream:
+      type: object
+      required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 128
+        kind:
+          type: string
+          enum: [api_key]
+        base_url:
+          type: string
+          format: uri
+        auth_style:
+          type: string
+          enum: [bearer, api_key]
+        api_key_hint:
+          type: [string, "null"]
+        enabled:
+          type: boolean
+        connect_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 600000
+        first_byte_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 3600000
+        idle_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 3600000
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpstreamCapability"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpstreamInput:
+      type: object
+      required: [name, kind, base_url, auth_style, enabled, models]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum: [api_key]
+        base_url:
+          type: string
+          format: uri
+        auth_style:
+          type: string
+          enum: [bearer, api_key]
+        api_key:
+          type: [string, "null"]
+          description: 创建时必填；更新时为空表示保留原 Key
+        enabled:
+          type: boolean
+        connect_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 600000
+        first_byte_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 3600000
+        idle_timeout_ms:
+          type: integer
+          minimum: 100
+          maximum: 3600000
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpstreamCapability"
+    UpstreamTestResult:
+      type: object
+      required: [ok, status, duration_ms]
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: [integer, "null"]
+        duration_ms:
+          type: integer
+          minimum: 0
+        error:
+          type: [string, "null"]
+    DownstreamKey:
+      type: object
+      required: [id, name, key_prefix, enabled, allowed_models, max_inflight, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 128
+        key_prefix:
+          type: string
+        enabled:
+          type: boolean
+        allowed_models:
+          type: array
+          items:
+            type: string
+        max_inflight:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+    DownstreamKeyCreate:
+      type: object
+      required: [name, allowed_models]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        allowed_models:
+          type: array
+          items:
+            type: string
+        max_inflight:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 64
+    DownstreamKeyUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        enabled:
+          type: boolean
+        allowed_models:
+          type: array
+          items:
+            type: string
+        max_inflight:
+          type: integer
+          minimum: 1
+          maximum: 10000
+    DownstreamKeyCreated:
+      allOf:
+        - $ref: "#/components/schemas/DownstreamKey"
+        - type: object
+          required: [plaintext_key]
+          properties:
+            plaintext_key:
+              type: string
+              description: 只在创建或轮换响应中出现一次
+    CoreVersion:
+      type: object
+      required: [id, version, image_ref, protocol_version, config_schema_min, config_schema_max, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        image_ref:
+          type: string
+        image_digest:
+          type: [string, "null"]
+        protocol_version:
+          type: integer
+        config_schema_min:
+          type: integer
+        config_schema_max:
+          type: integer
+        build_commit:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    CoreVersionInput:
+      type: object
+      required: [version, image_ref, protocol_version, config_schema_min, config_schema_max]
+      properties:
+        version:
+          type: string
+        image_ref:
+          type: string
+        image_digest:
+          type: [string, "null"]
+        protocol_version:
+          type: integer
+        config_schema_min:
+          type: integer
+        config_schema_max:
+          type: integer
+    CoreSpoolState:
+      type: object
+      required: [instance_id, bytes, unacked_events, dropped_total]
+      properties:
+        instance_id:
+          type: string
+          format: uuid
+        bytes:
+          type: integer
+          minimum: 0
+        unacked_events:
+          type: integer
+          minimum: 0
+        oldest_unacked_at:
+          type: [string, "null"]
+          format: date-time
+        last_ack_seq:
+          type: integer
+          minimum: 0
+        dropped_total:
+          type: integer
+          minimum: 0
+    CoreInstance:
+      type: object
+      required: [id, version, container_name, address, weight, state, inflight]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        container_name:
+          type: string
+        address:
+          type: string
+        weight:
+          type: integer
+        state:
+          type: string
+        inflight:
+          type: integer
+        config_revision_desired:
+          type: [integer, "null"]
+        config_revision_applied:
+          type: [integer, "null"]
+        last_controlled_at:
+          type: [string, "null"]
+          format: date-time
+        last_heartbeat_at:
+          type: [string, "null"]
+          format: date-time
+        spool:
+          $ref: "#/components/schemas/CoreSpoolState"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CoreDeployment:
+      type: object
+      required: [id, state, target_weights, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_version:
+          type: [string, "null"]
+        to_version:
+          type: string
+        state:
+          type: string
+        target_weights:
+          type: object
+          additionalProperties:
+            type: integer
+        error:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CoresState:
+      type: object
+      required: [versions, instances, deployments]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoreVersion"
+        instances:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoreInstance"
+        deployments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoreDeployment"
+    CoreDeployInput:
+      type: object
+      required: [to_version, replicas, initial_weight]
+      properties:
+        to_version:
+          type: string
+        replicas:
+          type: integer
+          minimum: 1
+          maximum: 10
+        initial_weight:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+    CoreShiftInput:
+      type: object
+      required: [weights]
+      properties:
+        weights:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 10000
+    DrainInput:
+      type: object
+      properties:
+        force:
+          type: boolean
+          default: false
+        reason:
+          type: [string, "null"]
+    PruneInput:
+      type: object
+      required: [instance_ids]
+      properties:
+        instance_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    Overview:
+      type: object
+      properties:
+        requests:
+          type: integer
+        success_rate:
+          type: number
+        total_tokens:
+          type: integer
+        cost_usd:
+          type: [number, "null"]
+        p95_latency_ms:
+          type: integer
+        p95_ttft_ms:
+          type: [integer, "null"]
+    UsageTimeseries:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              bucket:
+                type: string
+                format: date-time
+              requests:
+                type: integer
+              total_tokens:
+                type: integer
+              cost_usd:
+                type: [number, "null"]
+    UsageBreakdown:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              requests:
+                type: integer
+              total_tokens:
+                type: integer
+              cost_usd:
+                type: [number, "null"]
+    RequestSummary:
+      type: object
+      required: [event_id, request_id, occurred_at, endpoint, outcome, attempt_count]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        endpoint:
+          type: string
+        requested_model:
+          type: [string, "null"]
+        upstream_model:
+          type: [string, "null"]
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+        stream:
+          type: boolean
+        http_status:
+          type: [integer, "null"]
+        outcome:
+          type: string
+          enum: [success, upstream_error, local_error, client_disconnected, aborted]
+        attempt_count:
+          type: integer
+        ttft_ms:
+          type: [integer, "null"]
+        duration_ms:
+          type: integer
+    RequestList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RequestSummary"
+        next_cursor:
+          type: [string, "null"]
+    RequestDetail:
+      allOf:
+        - $ref: "#/components/schemas/RequestSummary"
+        - type: object
+          properties:
+            error_class:
+              type: [string, "null"]
+            error_code:
+              type: [string, "null"]
+            error_message:
+              type: [string, "null"]
+            input_tokens:
+              type: [integer, "null"]
+            cached_input_tokens:
+              type: [integer, "null"]
+            output_tokens:
+              type: [integer, "null"]
+            reasoning_tokens:
+              type: [integer, "null"]
+            total_tokens:
+              type: [integer, "null"]
+            cost_usd:
+              type: [number, "null"]
+            upstream_ttfb_ms:
+              type: [integer, "null"]
+            upstream_duration_ms:
+              type: [integer, "null"]
+            request_bytes:
+              type: [integer, "null"]
+            response_bytes:
+              type: [integer, "null"]
+            status_rewritten_from:
+              type: [integer, "null"]
+    AuditEvent:
+      type: object
+      required: [id, actor, action, target_type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor:
+          type: string
+        action:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: [string, "null"]
+        payload:
+          type: object
+          additionalProperties: true
+        client_ip:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    AuditList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        next_cursor:
+          type: [string, "null"]
+    OpenAIModel:
+      type: object
+      required: [id, object, created, owned_by]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: model
+        created:
+          type: integer
+          format: unixtime
+        owned_by:
+          type: string
+        shutdown_date:
+          type: [string, "null"]
+          format: date
+    OpenAIModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenAIModel"
+    ChatCompletionRequest:
+      type: object
+      required: [model]
+      properties:
+        model:
+          type: string
+        stream:
+          type: boolean
+        stream_options:
+          type: object
+          additionalProperties: true
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+    ChatCompletionResponse:
+      type: object
+      additionalProperties: true
+    ResponsesRequest:
+      type: object
+      required: [model]
+      properties:
+        model:
+          type: string
+        stream:
+          type: boolean
+      additionalProperties: true
+    ResponsesResponse:
+      type: object
+      additionalProperties: true
+    EmbeddingsRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+      additionalProperties: true
+    EmbeddingsResponse:
+      type: object
+      additionalProperties: true

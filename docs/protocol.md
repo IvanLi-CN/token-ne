@@ -228,8 +228,8 @@ Idempotency-Key: <batch_id>
 - `401`：Token 无效。
 - `404`：实例未登记。
 - `413 payload_too_large`：超过请求体上限或 1000 条事件上限。
-- `422 validation_failed`：语义、范围、引用或重复 ID 错误；`details[].path` 必须定位到 `events[<index>].<field>`。核心必须隔离/丢弃单条无效事件，重新组批发送剩余事件，推进连续确认位点，并增加 `usage_send_total{result="dropped"}` 和告警；不得让一个永久失败的批次阻塞 WAL。无法定位到单条事件时返回 `400`，核心不得推进位点。
-- `429` / `503`：背压或存储不可用，带 `Retry-After`；核心保留 WAL 并重试。
+- `422 validation_failed`：语义、范围、引用或重复 ID 错误；`details[].path` 必须定位到 `events[<index>].<field>`。核心必须隔离/丢弃单条无效事件，重新组批发送剩余事件，推进连续确认位点，并增加 `usage_send_total{result="dropped"}` 和告警；不得让一个永久失败的批次阻塞 spool。无法定位到单条事件时返回 `400`，核心不得推进位点。
+- `429` / `503`：背压或存储不可用，带 `Retry-After`；核心保留 spool 并重试。
 
 ### `PUT /internal/v1/cores/{instance_id}/heartbeat`
 
@@ -292,12 +292,16 @@ Idempotency-Key: <batch_id>
   "revision": 43,
   "issued_at": "2026-11-21T09:00:00Z",
   "features": {
+    "chat_completions": true,
+    "responses": true,
+    "embeddings": true,
     "status_rewrite": true,
     "stream_usage_injection": true
   },
   "downstream_keys": [],
+  "models": [],
   "upstreams": [],
-  "model_routes": [],
+  "upstream_models": [],
   "retry": {},
   "status_rewrite": {
     "schema_version": 1,
@@ -311,6 +315,8 @@ Idempotency-Key: <batch_id>
   "limits": {}
 }
 ```
+
+完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；`upstreams[].base_url` 不含隐式版本段，core 按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
 
 配置中的未知字段必须忽略；缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
 
@@ -326,7 +332,7 @@ Idempotency-Key: <batch_id>
 - `sent_at`、`occurred_at` 必须是 UTC RFC3339；未来时间超过 5 分钟拒绝。
 - 字符串长度：模型名 256、端点 256、错误消息 1024、名称 128。
 - 数值：token 非负且不超过 `i64`；耗时非负且不超过 24 小时；权重 0 到 10000。
-- 重复 ID：同一批次内重复 `event_id` 拒绝；配置内重复 Key/上游/路由 ID 拒绝。
+- 重复 ID：同一批次内重复 `event_id` 拒绝；配置内重复 Key/上游 UUID/`model_id`/能力关系拒绝。
 
 ### 配置
 
@@ -334,10 +340,12 @@ Idempotency-Key: <batch_id>
 - `revision` 必须大于已应用 revision；相同且请求体与签名完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。
 - `config_schema_version` 必须在核心声明的范围内。
 - `features.X` 与对应策略对象的 `enabled` 冲突时返回 `422`；控制面不得向未声明能力的核心发送依赖该能力的配置。
-- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
+- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
-- `model_routes[].upstream_id` 必须存在；`downstream_model` 非空；`priority`/`weight` 在范围内。
-- `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复。
+- `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`。
+- `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
+- 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
+- `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。
 - `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
 - `status_rewrite.schema_version` 必须是控制面支持的策略版本。
 - `status_rewrite.rules[].match.upstream_status` 只允许 `408`、`429` 和 `5xx`；`match.error_class` 只允许协议定义的错误分类；`committed` 必须为 `false`，`retry_exhausted` 必须为 `true`。
@@ -407,7 +415,7 @@ Idempotency-Key: <batch_id>
 | 422 | `validation_failed` | 字段或语义校验失败 |
 | 429 | `backpressure` | 并发或背压限制；带 `Retry-After` |
 | 500 | `internal_error` | 控制面内部错误 |
-| 503 | `storage_unavailable` | 控制面摄入存储不可用；核心保留 WAL 并重试 |
+| 503 | `storage_unavailable` | 控制面摄入存储不可用；核心保留 spool 并重试 |
 
 ## 重试与幂等
 
@@ -430,5 +438,5 @@ Idempotency-Key: <batch_id>
 - 兼容测试：v1 控制面 × v1 核心；v1 控制面 × v2 核心；v2 控制面 × v1 核心。
 - 校验负例：未知安全枚举、重复 ID、非法 URL、负数 token、超时范围、schema 不匹配。
 - 模糊测试：未知字段、未知可选枚举、截断 JSON、超大字符串。
-- 幂等测试：重复批次、重复配置 revision、控制面重启后重放。
+- 幂等测试：重复批次、重复配置 revision、控制面重启后由核心重放。
 - 升级测试：v1/v2 同时在线，Caddy 只路由兼容实例。

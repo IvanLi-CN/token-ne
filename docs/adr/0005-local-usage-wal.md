@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted; control-plane replay clause superseded by ADR 0008.
 
 ## Context
 

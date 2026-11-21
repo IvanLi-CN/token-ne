@@ -22,7 +22,8 @@ Accepted.
 - `/v1/*` 使用 `weighted_round_robin`，权重与核心实例一一对应。
 - 新版本以权重 `0` 加入，健康且配置一致后按阶段提升。
 - 当另一个上游权重为正时，权重 `0` 表示停止新请求；排水最后一个实例时先把 `/v1/*` 切到 `static_response` 503。旧版本是否可停由核心 `/internal/v1/status` 的 `inflight` 决定；Caddy 的 `num_requests` 按 dial 地址计数、没有版本维度，只作辅助诊断。
-- Caddy 配置由 Go 生成完整 JSON，通过管理 API `POST /load` 和 `/id/<id>/...` 粒度 `PATCH` 应用。
+- Caddy 配置由 Go 生成完整 JSON，任何变化（包括权重和 upstream 数组）都通过管理 API `POST /load` 原子应用；不使用分离的 `PATCH`，避免权重与 upstream 顺序错位。
+- Caddy 主动健康检查使用核心 `/readyz`；Docker liveness 继续使用 `/healthz`。排水时先把权重归零，再让 `/readyz` 返回 503。
 - `/v1/*` 设置 `flush_interval: -1`；HTTP server 保留默认无限宽限，配置重载不掐断在途流。
 - 不使用 Caddy 重试；内容感知重试由核心负责。
 - 默认只监听 HTTP，由宿主上的外部反向代理终止 TLS；只有显式 `CADDY_TLS_MODE=auto` 时才生成 443 和自动 HTTPS 配置。
@@ -39,7 +40,7 @@ Accepted.
 
 负面：
 
-- Caddy 管理 API 无内建认证，必须严格限制在内网。
+- Caddy 管理 API 无内建认证；使用 API 与 Caddy 共享的 Unix socket，不监听网络端口。
 - 权重是整数、轮询式分配，不是连续比例；对第一期足够。
 - 配置重载会重置 Caddy 内部上游计数，排水必须依赖核心自报。
 - Go 必须拥有完整 Caddy 配置，手工修改 Caddyfile 不受支持。

@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://token-ne.local/schemas/config.schema.json",
+  "title": "token-ne core configuration snapshot",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "config_schema_version",
+    "instance_id",
+    "revision",
+    "issued_at",
+    "features",
+    "models",
+    "upstreams",
+    "upstream_models",
+    "retry",
+    "status_rewrite",
+    "usage",
+    "limits"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "config_schema_version": { "type": "integer", "minimum": 1 },
+    "instance_id": { "type": "string", "format": "uuid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "features": {
+      "type": "object",
+      "required": [
+        "chat_completions",
+        "responses",
+        "embeddings",
+        "stream_usage_injection",
+        "status_rewrite"
+      ],
+      "properties": {
+        "chat_completions": { "type": "boolean" },
+        "responses": { "type": "boolean" },
+        "embeddings": { "type": "boolean" },
+        "stream_usage_injection": { "type": "boolean" },
+        "status_rewrite": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "models": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/model" }
+    },
+    "upstreams": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/upstream" }
+    },
+    "upstream_models": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/upstreamModel" }
+    },
+    "retry": { "$ref": "#/$defs/retry" },
+    "status_rewrite": { "$ref": "#/$defs/statusRewrite" },
+    "usage": { "$ref": "#/$defs/usage" },
+    "limits": { "$ref": "#/$defs/limits" }
+  },
+  "$defs": {
+    "billing": {
+      "type": "object",
+      "required": [
+        "input_usd_per_mtok",
+        "cached_input_usd_per_mtok",
+        "output_usd_per_mtok"
+      ],
+      "properties": {
+        "input_usd_per_mtok": { "type": ["number", "null"], "minimum": 0 },
+        "cached_input_usd_per_mtok": { "type": ["number", "null"], "minimum": 0 },
+        "output_usd_per_mtok": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "model": {
+      "type": "object",
+      "required": ["model_id", "enabled", "billing"],
+      "properties": {
+        "model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "enabled": { "type": "boolean" },
+        "default_upstream_model": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "shutdown_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "billing": { "$ref": "#/$defs/billing" }
+      },
+      "additionalProperties": true
+    },
+    "upstream": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "base_url",
+        "auth_style",
+        "api_key",
+        "enabled"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "base_url": { "type": "string", "format": "uri" },
+        "auth_style": { "enum": ["bearer", "api_key"] },
+        "api_key": { "type": "string", "minLength": 1 },
+        "connect_timeout_ms": { "type": "integer", "minimum": 100 },
+        "first_byte_timeout_ms": { "type": "integer", "minimum": 100 },
+        "idle_timeout_ms": { "type": "integer", "minimum": 100 },
+        "enabled": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "upstreamModel": {
+      "type": "object",
+      "required": ["upstream_id", "model_id", "enabled", "priority", "weight"],
+      "properties": {
+        "upstream_id": { "type": "string", "format": "uuid" },
+        "model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "upstream_model_name": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "enabled": { "type": "boolean" },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "weight": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      },
+      "additionalProperties": true
+    },
+    "retry": {
+      "type": "object",
+      "required": [
+        "max_attempts",
+        "retry_statuses",
+        "backoff_ms",
+        "respect_retry_after",
+        "retry_after_max_ms"
+      ],
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "retry_statuses": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 },
+          "uniqueItems": true
+        },
+        "backoff_ms": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 60000 }
+        },
+        "respect_retry_after": { "type": "boolean" },
+        "retry_after_max_ms": { "type": "integer", "minimum": 0, "maximum": 60000 }
+      },
+      "additionalProperties": true
+    },
+    "statusRewrite": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "policy_source",
+        "policy_hash",
+        "enabled",
+        "rules",
+        "never_rewrite"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "policy_source": { "enum": ["file", "db", "default"] },
+        "policy_hash": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/statusRewriteRule" }
+        },
+        "never_rewrite": {
+          "type": "object",
+          "required": ["statuses", "after_commit"],
+          "properties": {
+            "statuses": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
+            },
+            "after_commit": { "const": true }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "statusRewriteRule": {
+      "type": "object",
+      "required": ["id", "match", "response"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "match": {
+          "type": "object",
+          "required": ["committed", "retry_exhausted"],
+          "properties": {
+            "upstream_status": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
+            },
+            "error_class": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "connect_error",
+                  "dns_error",
+                  "tls_error",
+                  "first_byte_timeout",
+                  "idle_timeout",
+                  "upstream_http_error",
+                  "upstream_stream_error",
+                  "local_validation_error",
+                  "client_disconnected",
+                  "aborted",
+                  "unknown"
+                ]
+              }
+            },
+            "committed": { "const": false },
+            "retry_exhausted": { "const": true }
+          },
+          "additionalProperties": true
+        },
+        "response": {
+          "type": "object",
+          "required": ["status", "code", "retryable"],
+          "properties": {
+            "status": { "type": "integer", "minimum": 500, "maximum": 599 },
+            "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "message": { "type": "string", "maxLength": 1024 },
+            "retryable": { "type": "boolean" },
+            "preserve_retry_after": { "type": "boolean" },
+            "default_retry_after_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "usage": {
+      "type": "object",
+      "required": ["endpoint", "token", "batch_max_events", "queue_max_events", "spool"],
+      "properties": {
+        "endpoint": { "type": "string", "format": "uri" },
+        "token": { "type": "string", "minLength": 1 },
+        "batch_max_events": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "queue_max_events": { "type": "integer", "minimum": 1 },
+        "spool": {
+          "type": "object",
+          "required": [
+            "dir",
+            "max_bytes",
+            "min_free_bytes",
+            "max_age_hours",
+            "segment_bytes",
+            "fsync_interval_ms"
+          ],
+          "properties": {
+            "dir": { "type": "string" },
+            "max_bytes": { "type": "integer", "minimum": 1048576 },
+            "min_free_bytes": { "type": "integer", "minimum": 0 },
+            "max_age_hours": { "type": "integer", "minimum": 1, "maximum": 168 },
+            "segment_bytes": { "type": "integer", "minimum": 1048576 },
+            "fsync_interval_ms": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "max_request_body_bytes",
+        "max_inflight",
+        "per_key_max_inflight",
+        "precommit_buffer_bytes",
+        "nonstream_inspect_bytes"
+      ],
+      "properties": {
+        "max_request_body_bytes": { "type": "integer", "minimum": 1 },
+        "max_inflight": { "type": "integer", "minimum": 1 },
+        "per_key_max_inflight": { "type": "integer", "minimum": 1 },
+        "precommit_buffer_bytes": { "type": "integer", "minimum": 1 },
+        "nonstream_inspect_bytes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    }
+  }
+}

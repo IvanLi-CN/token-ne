@@ -28,7 +28,7 @@ flowchart LR
     Client["OpenAI 兼容客户端"] --> TLS["外部 TLS 反向代理<br/>宿主/Nginx/Traefik"]
     TLS -->|"HTTP"| Caddy["Caddy :80<br/>项目内 HTTP 入口"]
     Caddy -->|"/v1/*"| Pool["Rust 核心池<br/>v1 / v2 / ..."]
-    Caddy -->|"/api/*, /, /healthz"| API["Go 控制面 :8080"]
+    Caddy -->|"/api/*, /, /healthz, /readyz"| API["Go 控制面 :8080"]
     Pool -->|"改写、路由、重试、透传"| Upstream["OpenAI 兼容上游"]
     Pool -->|"批量用量事件"| API
     API --> PG[("PostgreSQL 19")]
@@ -40,16 +40,16 @@ flowchart LR
     Browser["管理员浏览器"] --> TLS
 ```
 
-Caddy 只负责项目内 HTTP 路由和加权转发；TLS 终止、证书和公网域名由宿主上的外部反向代理负责。Caddy 管理端口、PostgreSQL、Docker socket、核心控制接口都只在 Compose 内部网络可达。
+Caddy 只负责项目内 HTTP 路由和加权转发；TLS 终止、证书和公网域名由宿主上的外部反向代理负责。Caddy 管理面使用 `/run/caddy/admin.sock` Unix socket，只与 API 共享；PostgreSQL 和 Docker socket 只在 `data` 网络，核心控制接口只在 `core-control` 网络；core 不加入 `data`。
 
 ## 组件职责
 
 | 组件 | 语言/镜像 | 职责 | 不负责 |
 | --- | --- | --- | --- |
 | Caddy | `caddy:2.11.9-alpine` | 项目内 HTTP 入口、`/v1/*` 加权转发、健康检查、SSE 刷新、管理 API 被 Go 调用 | 不终止 TLS（默认）、不解析请求体、不做模型改写、不做内容重试 |
-| Rust 核心 | 自建镜像 | 下游认证、模型改写、上游选择、提交前重试、SSE 解析、用量提取、透传、排水、本地用量 WAL、内部运行指标 | 不直连数据库、不管理容器；内部 `/metrics` 仅供调试，不作为外部抓取合同 |
-| Go 控制面 | 自建镜像 | 管理 API、Web 静态站点、用量摄入、PostgreSQL、Caddy 协调、Docker 编排、Prometheus 指标 | 不转发 `/v1/*` 请求 |
-| PostgreSQL | `postgres:19.0-alpine` | 上游、模型路由、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
+| Rust 核心 | 自建镜像 | 下游认证、模型映射、上游候选选择、提交前重试、SSE 解析、用量提取、透传、排水、核心私有 usage spool、内部运行指标 | 不直连数据库、不管理容器、不读取控制面状态目录；内部 `/metrics` 仅供调试，不作为外部抓取合同 |
+| Go 控制面 | 自建镜像 | 管理 API、Web 静态站点、用量摄入、PostgreSQL、Caddy 协调、Docker 编排、Prometheus 指标 | 不转发 `/v1/*` 请求，不读取或重放核心 spool |
+| PostgreSQL | `postgres:19.0-alpine` | 全局模型、上游能力、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
 | Prometheus | 外部 | 抓取 Go `/metrics`、存储指标 | 不作为计费或请求事实来源 |
 | Grafana | 外部 | 展示指标 | 不直连 PostgreSQL |
 | Docker Engine | 宿主机 | 运行 Compose 服务与动态核心容器 | 不参与请求路由决策 |
@@ -86,8 +86,9 @@ Internet
 - `api` 的 8080 只在 Compose 网络内；9090 通过 `127.0.0.1:${METRICS_PORT:-9090}` 映射给外部 Prometheus，不经过 Caddy。若 Prometheus 在另一台主机，改为绑定受控私网/VPN 地址。
 - `postgres` 不发布端口。
 - 核心容器不发布端口，只加入 Compose 用户网络；Caddy 通过容器 DNS 名访问。容器名中的版本会做 DNS 安全化处理（非字母数字替换为 `-`），例如版本 `0.2.0` 实例名为 `token-ne-core-0-2-0-1`。
-- 基线核心由 Compose 声明；新增版本由 Go 通过 Docker API 创建，仍加入同一网络，并带 `com.docker.compose.project` 等标签，属于 Compose 项目成员但不是声明 service。
-- 每个核心实例挂载独立状态目录：加密配置缓存和本地用量 WAL 都在该目录；控制面挂载状态根目录，用于重放已停止实例的 WAL。
+- 基线核心由 Compose 声明；新增版本由 Go 通过 Docker API 创建，仍加入 `edge` 与 `core-control` 网络，并带 `com.docker.compose.project` 等标签，属于 Compose 项目成员但不是声明 service。
+- 每个核心实例挂载独立状态目录：加密配置缓存和核心私有 usage spool 都在该目录；控制面不挂载该目录用于读取或重放，只通过 heartbeat/status 观察 spool 摘要。
+- 网络分为 `edge`（Caddy HTTP、API、核心）、`core-control`（API、核心）、`data`（API、PostgreSQL、socket-proxy）。Caddy 管理面走 API 与 Caddy 共享的 Unix socket，不在任何网络上；核心不加入 `data`，因此无法触达 Caddy 管理面、Docker socket 或数据库。
 
 ## 请求流程
 
@@ -188,7 +189,7 @@ core/src/
   server.rs         axum 路由、认证中间件、超时、错误映射
   proxy/
     body.rs         有界请求体读取、一次性快照、模型改写
-    route.rs        模型路由、候选排序、权重选择
+    routing.rs      全局模型查找、映射继承、上游候选排序与权重选择
     upstream.rs     reqwest 客户端、URL/头构造、超时
     attempt.rs      单次尝试、状态分类、响应头处理
     retry.rs        重试判定、预算、退避
@@ -218,8 +219,8 @@ core/src/
 1. **接收与限额**：检查方法、路径、请求体大小、并发上限；生成 `request_id`（默认 UUIDv7，可复用合法的下游 `x-request-id`）。
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
-4. **路由**：按下游模型精确匹配；没有匹配时尝试 `*`；仍没有则 404。候选按 `priority` 升序，同优先级按 `weight` 加权选择首个。
-5. **改写**：把 `model` 替换为上游模型；更新 `Content-Length`；保留其他字段；流式 `chat.completions` 注入 `include_usage`。
+4. **模型与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。候选来自启用的 `upstream_models` 能力关系，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
+5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 注入 `include_usage`。
 6. **尝试**：构造上游 URL、认证头、透传头；发送请求；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
@@ -300,7 +301,8 @@ core/src/
     "chat_completions": true,
     "responses": true,
     "embeddings": true,
-    "stream_usage_injection": true
+    "stream_usage_injection": true,
+    "status_rewrite": true
   },
   "downstream_keys": [
     {
@@ -312,11 +314,24 @@ core/src/
       "max_inflight": 64
     }
   ],
+  "models": [
+    {
+      "model_id": "gpt-5",
+      "enabled": true,
+      "default_upstream_model": "gpt-5-2026-xx",
+      "shutdown_date": null,
+      "billing": {
+        "input_usd_per_mtok": 1.25,
+        "cached_input_usd_per_mtok": 0.125,
+        "output_usd_per_mtok": 10.0
+      }
+    }
+  ],
   "upstreams": [
     {
       "id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "name": "openai",
-      "base_url": "https://api.openai.com/v1",
+      "base_url": "https://api.openai.com",
       "auth_style": "bearer",
       "api_key": "sk-...",
       "connect_timeout_ms": 10000,
@@ -325,14 +340,14 @@ core/src/
       "enabled": true
     }
   ],
-  "model_routes": [
+  "upstream_models": [
     {
-      "downstream_model": "gpt-5",
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
-      "upstream_model": "gpt-5-2026-xx",
+      "model_id": "gpt-5",
+      "upstream_model_name": null,
+      "enabled": true,
       "priority": 100,
-      "weight": 100,
-      "enabled": true
+      "weight": 100
     }
   ],
   "retry": {
@@ -363,6 +378,24 @@ core/src/
         "id": "transient-upstream-status",
         "match": { "upstream_status": [408, 500, 502, 503, 504], "committed": false, "retry_exhausted": true },
         "response": { "status": 503, "code": "upstream_unavailable", "retryable": true }
+      },
+      {
+        "id": "upstream-network-failure",
+        "match": {
+          "error_class": ["connect_error", "dns_error", "tls_error", "first_byte_timeout", "idle_timeout"],
+          "committed": false,
+          "retry_exhausted": true
+        },
+        "response": { "status": 503, "code": "upstream_unavailable", "retryable": true }
+      },
+      {
+        "id": "upstream-stream-error",
+        "match": {
+          "error_class": ["upstream_stream_error"],
+          "committed": false,
+          "retry_exhausted": true
+        },
+        "response": { "status": 503, "code": "upstream_unavailable", "retryable": true }
       }
     ],
     "never_rewrite": { "statuses": [400, 401, 403, 404, 409, 422], "after_commit": true }
@@ -384,6 +417,7 @@ core/src/
   "limits": {
     "max_request_body_bytes": 33554432,
     "max_inflight": 512,
+    "per_key_max_inflight": 64,
     "precommit_buffer_bytes": 262144,
     "nonstream_inspect_bytes": 1048576
   }
@@ -450,14 +484,14 @@ sequenceDiagram
 - Go 先把该实例在 Caddy 中的权重设为 `0`。
 - 等待一个配置稳定窗口（至少 2 个健康检查周期）。
 - 轮询核心 `GET /internal/v1/status` 的 `inflight`；连续 3 次为 0 才继续。
-- 尽量等待原生 WAL 的未确认事件清零；如果控制面不可用或超时，保留状态目录，停止后由控制面重放。
-- Go 调 `POST /containers/{id}/stop?t=<grace>`；核心收到 SIGTERM 后停止接受新连接，等待在途结束，flush WAL 后退出。
+- 尽量等待核心 usage spool 的未确认事件清零；如果控制面不可用或超时，保留状态目录，停止后用兼容 core 重启并自行重放。
+- Go 调 `POST /containers/{id}/stop?t=<grace>`；核心收到 SIGTERM 后停止接受新连接，等待在途结束，flush spool 后退出。
 - 超过最大排水等待（默认 30 分钟）后强制停止，写入审计和指标；这会中断长流，必须显式记录。
-- 核心 `/healthz` 在排水中仍返回 200，避免 Caddy 误判；`/readyz` 返回 503。
+- Caddy 主动健康检查使用核心 `/readyz`；排水中 `/readyz` 返回 503，Docker liveness 继续使用 `/healthz`。
 
-### 用量 WAL 与离线重放
+### 用量 spool 与离线重放
 
-目标：控制面不可用时，核心仍能服务，并把 3 到 24 小时的用量元数据保存在本地；控制面恢复后按处理位点重放。核心不连接 PostgreSQL，数据库只由控制面操作。
+目标：控制面不可用时，核心仍能服务，并把 3 到 24 小时的用量元数据保存在本地；控制面恢复后由核心自行按处理位点重放。核心不连接 PostgreSQL，数据库只由控制面操作。
 
 存储布局：
 
@@ -479,7 +513,7 @@ $CORE_STATE_DIR/
 
 写入与确认：
 
-1. 请求终态事件进入有界内存队列；WAL 写入是异步旁路，不阻塞代理响应。
+1. 请求终态事件进入有界内存队列；spool 写入是异步旁路，不阻塞代理响应。
 2. writer 追加到活跃段；按 `fsync_interval_ms`（默认 1 秒）或批次边界执行 `fsync`。队列满时丢弃并增加计数，而不是反压请求。
 3. sender 从处理位点 `processed_seq` 之后读取事件，批量 POST 到 `/internal/v1/usage/batch`。
 4. 收到 `202` 后，把 `processed_seq`（已确认与已丢弃的最大连续 `seq`）和 `last_ack_seq` 原子写入 `ack.json`（临时文件 + rename + fsync），再删除完全处理完的段。
@@ -516,7 +550,7 @@ $CORE_STATE_DIR/
 - `spool_min_free_bytes`（默认 1 GiB 或磁盘 5%，取较大值）在追加前检查；磁盘低于阈值时进入只读/丢弃模式并告警，避免写满宿主机。
 - `spool_segment_bytes` 默认 64 MiB；单段越大，部分确认时最多多占用的空间越大；64 MiB 是吞吐和回收粒度的折中。
 - `spool_max_age_hours` 默认 24 小时；超过窗口的已确认段优先删除，未确认段按容量策略处理。
-- WAL 只保存用量元数据，容量估算按单条约 0.8 到 1.5 KiB；高流量部署需要按峰值请求量提高 `spool_max_bytes`。
+- spool 只保存用量元数据，容量估算按单条约 0.8 到 1.5 KiB；高流量部署需要按峰值请求量提高 `spool_max_bytes`。
 - 控制面必须暴露每实例的 `spool_bytes`、`spool_unacked_events`、`spool_oldest_unacked_seconds`、`spool_dropped_total`，并对“磁盘剩余低于阈值”和“最早未确认超过 3 小时”告警。
 
 #### 容量估算
@@ -525,35 +559,35 @@ $CORE_STATE_DIR/
 - 8 GiB 约可保存 600 万到 1000 万条事件。
 - 10 请求/秒约 86 万条/日，8 GiB 足够超过 24 小时。
 - 100 请求/秒约 864 万条/日，接近 24 小时；高流量部署应提高 `max_bytes` 或引入外部队列。
-- WAL 只保存用量元数据，不保存 Prompt、响应正文、请求头或上游密钥。
+- spool 只保存用量元数据，不保存 Prompt、响应正文、请求头或上游密钥。
 
-#### 控制面重放
+#### 核心自重放与恢复
 
-- API 把宿主机状态根目录挂载为 `CORE_STATE_ROOT`，但不能修改运行中实例的活跃段。
-- 控制面只重放容器已停止/删除或已明确进入排水且不再接收请求的实例目录；心跳超时只用于告警，不能单独触发重放，避免和运行中的 writer 竞争。
-- 重放按 `ack.json` 的 `processed_seq` 位点读取段，调用同一摄入路径；成功后推进 `processed_seq` 并删除已处理段。
+- spool 是 core 私有文件；API 容器不挂载状态根目录，不读取、不解析、不搬运 spool 段。
+- 运行中的 core 自己按 `ack.json` 的 `processed_seq` 重放；控制面只接收 HTTP 批次并观察 heartbeat/status。
+- 实例停止但 spool 未清零时，保留状态目录，用兼容 core 镜像重启该实例；core 启动时自动重放。
+- 控制面 prune 只在 core 上报 `spool.unacked_events == 0` 后允许；否则返回 `409 spool_not_drained`。
 - 如果实例后来重启，已推进的处理位点会阻止重复发送；已丢弃事件不会再次阻塞后续事件。
 - 宿主机整体故障会同时丢失状态目录；第一期不覆盖这种场景。需要跨宿主机持久化时，改用 Redis Streams、NATS JetStream 或对象存储，并保留相同的 `event_id` 幂等合同。
 
 #### 为什么不直接上消息队列
 
 - 单机第一期没有多消费者、跨主机或削峰需求。
-- 本地 WAL 不增加服务、不引入新的网络依赖和凭据，控制面故障时仍可写。
-- WAL 只保存小体积元数据，磁盘成本可控。
-- 如果后续需要跨主机持久化、多个控制面消费者或更严格的分区语义，再把 WAL 的 sender 替换为 MQ producer；核心事件 schema 不变。
+- 本地 spool 不增加服务、不引入新的网络依赖和凭据，控制面故障时仍可写。
+- spool 只保存小体积元数据，磁盘成本可控。
+- 如果后续需要跨主机持久化、多个控制面消费者或更严格的分区语义，再把 spool 的 sender 替换为 MQ producer；核心事件 schema 不变。
 
 ### 错误模型
 
-对外统一为 OpenAI 风格：
+下游统一为 OpenAI `ErrorResponse`，完整字段和映射见 [`errors.md`](./errors.md)：
 
 ```json
 {
   "error": {
-    "code": "model_not_found",
-    "message": "no route for model gpt-5",
-    "request_id": "req_...",
-    "retryable": false,
-    "upstream_status": null
+    "message": "model not found",
+    "type": "not_found_error",
+    "param": null,
+    "code": "model_not_found"
   }
 }
 ```
@@ -561,16 +595,16 @@ $CORE_STATE_DIR/
 | 场景 | HTTP | code |
 | --- | --- | --- |
 | 缺少/错误下游 Key | 401 | `invalid_api_key` |
-| 模型无路由 | 404 | `model_not_found` |
-| 端点不支持 | 404 | `unsupported_endpoint` |
-| 请求体过大 | 413 | `request_too_large` |
-| 并发超限 | 429 | `rate_limited` |
-| 无可用上游 | 503 | `no_upstream_available` |
-| 重试耗尽且可重试 | 503 | `upstream_unavailable`，按状态码改写策略；原始状态记录在事实中 |
+| Key 不允许该模型 | 403 | `model_not_allowed` |
+| 模型不存在或禁用 | 404 | `model_not_found` |
+| 请求体过大 | 413 | `payload_too_large` |
+| 本地并发超限 | 429 | `rate_limit_exceeded` |
+| 模型存在但没有候选 | 503 | `no_upstream_available` |
+| 重试耗尽且可重试 | 503 | `upstream_unavailable` / `upstream_rate_limited` |
 | 上游认证失败 | 502 | `upstream_auth_failed` |
-| 客户端断开 | 无响应 | 记录 `client_disconnected` |
+| 上游压缩/协议错误 | 502 | `upstream_encoding_error` / `upstream_protocol_error` |
 
-上游 4xx 在未提交时尽量原样透传状态和体；需要脱敏的错误消息只替换明显的密钥模式。
+管理 API 使用内部错误信封，带 `code`、`message`、`request_id` 和 `details[].path`。
 
 ### 错误分类
 
@@ -724,27 +758,26 @@ server/
 | GET | `/api/usage/breakdown` | 按模型/上游/Key 分布 |
 | GET | `/api/requests` | 游标分页请求列表 |
 | GET | `/api/requests/{id}` | 请求详情 |
+| GET/POST | `/api/models` | 全局模型列表/新增 |
+| GET/PUT/DELETE | `/api/models/{model_id}` | 模型详情/编辑/删除 |
 | GET/POST | `/api/upstreams` | 上游列表/新增 |
-| GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除 |
+| GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 能力集合 |
 | POST | `/api/upstreams/{id}/test` | 测试上游 |
-| GET/POST | `/api/model-routes` | 路由列表/新增 |
-| PUT/DELETE | `/api/model-routes/{id}` | 路由编辑/删除 |
 | GET/POST | `/api/downstream-keys` | Key 列表/创建（只返回一次明文） |
-| PUT/DELETE | `/api/downstream-keys/{id}` | 禁用/删除/轮换 |
+| PUT/DELETE | `/api/downstream-keys/{id}` | 更新元数据/删除 |
+| POST | `/api/downstream-keys/{id}/rotate` | 轮换并返回一次新明文 |
 | GET | `/api/cores` | 版本、实例、权重、状态 |
 | POST | `/api/cores/versions` | 登记核心版本、镜像 digest、协议/schema 范围 |
-| GET | `/api/cores/instances/{id}` | 实例详情、inflight、WAL、配置状态 |
+| GET | `/api/cores/instances/{id}` | 实例详情、inflight、spool、配置状态 |
 | POST | `/api/cores/deploy` | 部署新版本 |
 | POST | `/api/cores/deployments/{id}/shift` | 设置阶段权重 |
 | POST | `/api/cores/deployments/{id}/rollback` | 回滚 |
 | POST | `/api/cores/instances/{id}/drain` | 排水单个实例 |
-| POST | `/api/cores/prune` | 清理已停止且 WAL 已重放的实例容器和状态目录 |
-| GET | `/api/cores/spool` | 查看各实例 WAL 容量、最早未确认时间和重放状态 |
-| POST | `/api/cores/spool/replay` | 手动触发已停止实例的 WAL 重放 |
+| POST | `/api/cores/prune` | 清理已停止且 spool 已清零的实例 |
+| GET | `/api/cores/spool` | 查看各实例 spool 摘要 |
 | GET | `/api/audit` | 审计查询 |
-| PUT | `/api/prices` | 价格目录写入（最小 API） |
 
-分页使用游标：`before_occurred_at` + `before_id`，避免深分页。
+分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。没有 `model-routes`、`model-catalog` 或独立价格 API；模型与能力分别属于 `/api/models` 和上游聚合。
 
 紧急配置恢复使用本地 CLI，不新增暴露密钥的 HTTP 接口：
 
@@ -762,11 +795,11 @@ api config export --instance <instance_id> --out /var/lib/token-ne/cores/<instan
 | POST | `/internal/v1/usage/batch` | 核心 | `CORE_CONTROL_TOKEN` |
 | GET | `/internal/v1/config` | 核心 | `CORE_CONTROL_TOKEN` |
 | PUT | `/internal/v1/config` | 控制面 | `CORE_CONTROL_TOKEN` |
-| PUT | `/internal/v1/cores/{id}/heartbeat` | 核心 | `CORE_CONTROL_TOKEN`；上报 `inflight`、配置 revision、WAL 未确认数和字节数 |
+| PUT | `/internal/v1/cores/{id}/heartbeat` | 核心 | `CORE_CONTROL_TOKEN`；上报 `inflight`、配置 revision、spool 未确认数和字节数 |
 | GET | `/internal/v1/status` | 控制面 | `CORE_CONTROL_TOKEN`；供排水和状态查询 |
-| GET | `/healthz` | Caddy/Docker | 无 |
-| GET | `/readyz` | Caddy/Docker | 无 |
-| GET | `/metrics` | Prometheus | `METRICS_TOKEN`，独立端口 |
+| GET | `/healthz` | Docker liveness | 无 |
+| GET | `/readyz` | Caddy 主动健康检查 / Docker readiness | 无 |
+| GET | `/metrics` | 内部排障 | 独立端口，不作为外部抓取合同 |
 
 `/internal/*` 在 Caddy 层被显式拒绝，不能从公网到达。完整线协议、校验和版本兼容规则见 [`protocol.md`](./protocol.md)。
 
@@ -776,7 +809,7 @@ api config export --instance <instance_id> --out /var/lib/token-ne/cores/<instan
 
 ```mermaid
 flowchart LR
-    K["核心请求终态"] --> S["本地分段 WAL<br/>仅用量元数据"]
+    K["核心请求终态"] --> S["本地分段 spool<br/>仅用量元数据"]
     S -->|"HTTP 批量"| H["/internal/v1/usage/batch"]
     H --> V["严格校验"]
     V -->|"有效"| PG[("usage_events<br/>事务提交")]
@@ -785,17 +818,16 @@ flowchart LR
     Q --> S
     PG -->|"数据库不可用"| R["503 + Retry-After"]
     R --> S
-    D["已停止实例的 WAL"] -->|"控制面重放"| H
+    D["停止的实例"] -->|"兼容 core 重启"| S
 ```
 
-- 核心先写 WAL，再上报；收到 `202` 推进 `last_ack_seq`，收到可定位单条事件的 `422` 推进 `processed_seq`；段在 `max_seq <= processed_seq` 后删除。`202` 是持久接受，不是内存接受；控制面不得丢弃已返回 `202` 的事件。
-- 控制面启动时扫描 `CORE_STATE_ROOT` 下已停止、已排水完成或容器已删除实例的 WAL，按处理位点重放；运行中的实例自行重放。
-- 重放和管理员触发都走同一个摄入 handler，避免第二套写入路径。
+- 核心先写 spool，再上报；收到 `202` 推进 `last_ack_seq`，收到可定位单条事件的 `422` 推进 `processed_seq`；段在 `max_seq <= processed_seq` 后删除。`202` 是持久接受，不是内存接受；控制面不得丢弃已返回 `202` 的事件。
+- 控制面不扫描、不解析、不重放 spool；已停止实例由兼容 core 重启后自行重放。控制面只观察 heartbeat/status。
 - 请求体上限 4 MiB，最多 1000 条事件。
 - 先校验 schema、request_id、时间范围、token 和引用；`event_id` 是唯一幂等键，`request_id` 只建普通索引，客户端复用 `x-request-id` 不丢事件。
-- 在单个 PostgreSQL 事务中执行多行 `INSERT ... ON CONFLICT (event_id) DO NOTHING`，提交成功后才返回 `202`；数据库不可用返回 `503`，核心保留 WAL 重试。
+- 在单个 PostgreSQL 事务中执行多行 `INSERT ... ON CONFLICT (event_id) DO NOTHING`，提交成功后才返回 `202`；数据库不可用返回 `503`，核心保留 spool 重试。
 - `422` 必须带 `events[<index>].<field>` 路径；核心隔离/丢弃单条无效事件，重新组批发送剩余事件，推进处理位点并增加 `usage_send_total{result="dropped"}`；无法定位单条事件时返回 `400`，核心不得推进位点。
-- 费用在写入前按价格目录计算；未知价格写 `NULL`。
+- 费用在写入前按模型当前计费计算；未知价格写 `NULL`。
 - Prometheus 指标在事务提交后更新；数据库失败另有失败计数。
 
 ### Caddy 协调
@@ -804,22 +836,19 @@ flowchart LR
 flowchart TD
     DB[("期望状态")] --> B["生成完整 JSON"]
     B --> H{"配置哈希变化?"}
-    H -->|结构变化| L["POST /load"]
-    H -->|仅权重| W["PATCH /id/.../load_balancing"]
-    H -->|实例集合| U["PATCH /id/.../upstreams"]
+    H -->|任何变化| L["POST /load 完整配置"]
     L --> V["验证 /config 与 /reverse_proxy/upstreams"]
-    W --> V
-    U --> V
     V --> S[("记录 applied_hash")]
     V -->|失败| K["保留旧配置 + 告警指标"]
 ```
 
 - 只有同时满足“实例健康、`config_revision_applied == config_revision_desired`、`last_controlled_at` 非空”的实例才进入上游数组；从未被成功控制的实例权重始终为 0 且不写入 Caddy。
-- 使用 PostgreSQL advisory lock 保证只有一个协调器。
+- 使用 PostgreSQL advisory lock 保证只有一个协调器；部署状态机在应用内再加互斥，禁止并发部署。
 - 生成配置时保留稳定的 `@id`：`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa`、`token-ne-deny-internal`。
-- 结构性变化（TLS、路由、健康检查）走 `POST /load`；仅权重变化走粒度 `PATCH`，请求体更小，但 Caddy 仍会重建并替换 `http` app，同样触发配置重载。
+- 任何变化（TLS、路由、健康检查、upstream 数组、权重）都生成完整 JSON 并走 `POST /load`；不再使用分离的 `PATCH`，避免权重与 upstream 顺序错位。Caddy 会重建并替换 `http` app，因此每次应用都按同一稳定窗口处理。
 - 每次应用后校验 `GET /config/` 的关键片段和 `/reverse_proxy/upstreams`；失败则回退到上一份已知配置并告警。
 - Caddy 启动使用 `--resume` 恢复自动保存配置；Go 启动后立即对账，修正过期上游。
+- Caddy 与 API 共享 `caddy_admin` volume；两个容器使用同一 UID/GID 或共享组，socket 权限 `0660`，其他容器不挂载该 volume。
 - 不重启 Caddy 来应用配置。
 
 ### Docker 编排
@@ -839,7 +868,7 @@ flowchart TD
 - 宿主机或 Docker daemon 重启后，`restart=no` 的动态实例不会自行恢复；接管时必须重新启动它们，再等待 ready 后加入 Caddy。
 - 创建容器：
   - 镜像使用版本登记中的 digest 或不可变 tag。
-  - 加入 `CORE_NETWORK`。
+  - 加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络。
   - 不发布端口。
   - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。
   - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。
@@ -848,7 +877,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 镜像拉取支持显式 API 触发；生产环境禁止 `latest`。
-- 清理入口：单实例使用 `POST /api/cores/prune`，删除已停止且 WAL 已重放完成的实例容器和状态目录；`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。不要在未重放 WAL 前删除状态目录。
+- 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且核心上报 `spool.unacked_events == 0` 的实例容器和状态目录；`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。不要在 spool 未清零前删除状态目录。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -859,14 +888,14 @@ flowchart TD
 - `docker compose up` 不会为动态版本创建或修复容器；它们只由 Go 控制面创建。
 - `docker compose down --remove-orphans` 会删除项目内不在 Compose 文件中的容器，包括动态核心。
 - 不带 `--remove-orphans` 的 `docker compose down` 只处理声明服务，可能留下动态核心。
-- `POST /api/cores/prune` 是控制面清理入口；执行前必须确认对应实例的 WAL 已重放。
+- `POST /api/cores/prune` 是控制面清理入口；执行前必须确认对应实例上报 `spool.unacked_events == 0`。
 - 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它，清理必须显式进行。
 
 如果要求动态核心必须是 Compose 声明 service，需要引入 Compose CLI adapter：Go 生成 override 文件并调用 `docker compose up/scale`。这会把容器生命周期、文件状态和并发锁耦合在一起，第一期不采用。
 
 ### 配置分发
 
-- 任何上游、模型路由、下游 Key、重试参数变化都会递增 `config_revision`。
+- 任何模型、上游、上游能力、下游 Key、重试参数变化都会递增 `config_revision`。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -892,7 +921,7 @@ Go 生成的默认 HTTP 配置保留以下结构（省略可选 TLS 细节）：
 
 ```json
 {
-  "admin": { "listen": "0.0.0.0:2019" },
+  "admin": { "listen": "unix//run/caddy/admin.sock" },
   "apps": {
     "http": {
       "grace_period": "0s",
@@ -925,7 +954,7 @@ Go 生成的默认 HTTP 配置保留以下结构（省略可选 TLS 细节）：
                   },
                   "health_checks": {
                     "active": {
-                      "uri": "/healthz",
+                      "uri": "/readyz",
                       "interval": "5s",
                       "timeout": "2s",
                       "passes": 2,
@@ -967,7 +996,7 @@ Go 生成的默认 HTTP 配置保留以下结构（省略可选 TLS 细节）：
 - 只有 `CADDY_TLS_MODE=auto` 时，Go 才增加 `:443` 监听、`automatic_https` 和 `apps.tls.automation.policies`；上图为默认 HTTP 简化示意。
 - `flush_interval: -1` 让 SSE 立即刷新。
 - `grace_period: "0s"` 表示无限宽限；不要设置为短值，否则重载可能等不到长流结束。
-- 健康检查只探测核心 `/healthz`，不探测上游。
+- Caddy 主动健康检查探测核心 `/readyz`，不探测上游；Docker liveness 仍使用 `/healthz`。
 - `/internal/*` 在任何其他路由之前终止。
 - 第一期不使用 Caddy 重试；重试由核心负责，避免 POST 体重放问题。
 
@@ -978,7 +1007,7 @@ Go 生成的默认 HTTP 配置保留以下结构（省略可选 TLS 细节）：
 - 每个阶段默认停留 60 秒；管理员可以手动推进或暂停。
 - 推进条件：新版本健康、配置 revision 一致、最近窗口错误率低于阈值、p95 延迟不超过基线的 1.5 倍。
 - 自动中止：连续 2 分钟错误率超过 5% 或健康检查失败，回退到上一阶段并记录审计。
-- 权重更新通过 `PATCH /id/token-ne-v1-proxy/load_balancing` 完成；Caddy 对任何管理 API 配置变更都会重建并替换 `http` app，权重变更同样触发配置重载，只是请求体更小。
+- 权重更新也生成完整 JSON 并走 `POST /load`；Caddy 对任何管理 API 配置变更都会重建并替换 `http` app，因此权重和 upstream 顺序必须在同一份配置中原子更新。
 
 ### 版本部署状态机
 
@@ -1044,26 +1073,28 @@ create table upstreams (
   updated_at timestamptz not null default now()
 );
 
-create table model_routes (
-  id uuid primary key,
-  downstream_model text not null,
-  upstream_id uuid not null references upstreams(id) on delete restrict,
-  upstream_model text,
-  priority int not null default 100,
-  weight int not null default 100,
+create table models (
+  model_id text primary key,
   enabled boolean not null default true,
+  default_upstream_model text,
+  shutdown_date date,
+  input_usd_per_mtok numeric(14,6),
+  cached_input_usd_per_mtok numeric(14,6),
+  output_usd_per_mtok numeric(14,6),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (downstream_model, upstream_id)
+  updated_at timestamptz not null default now()
 );
 
-create table model_prices (
-  id uuid primary key,
-  model_pattern text not null,
-  input_usd_per_mtok numeric(14,6) not null,
-  cached_input_usd_per_mtok numeric(14,6),
-  output_usd_per_mtok numeric(14,6) not null,
-  effective_from timestamptz not null default now()
+create table upstream_models (
+  upstream_id uuid not null references upstreams(id) on delete cascade,
+  model_id text not null references models(model_id) on delete restrict,
+  upstream_model_name text,
+  enabled boolean not null default true,
+  priority int not null default 100 check (priority >= 0),
+  weight int not null default 100 check (weight >= 0 and weight <= 10000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (upstream_id, model_id)
 );
 
 create table core_versions (
@@ -1194,7 +1225,8 @@ create unique index status_rewrite_policies_one_active
 ### 约束
 
 - `event_id` 唯一，是唯一幂等键；`request_id` 只用于关联，建普通索引，允许客户端复用 `x-request-id`；重复投递使用 `ON CONFLICT (event_id) DO NOTHING`。
-- `model_routes` 删除上游时使用 `restrict`，由 API 显式处理引用。
+- `models` 删除时由 `upstream_models` 的 `restrict` 阻止，必须显式清理能力关系；删除上游时 `on delete cascade` 清理其能力关系。
+- `upstream_models` 的 `(upstream_id, model_id)` 是主键，重复能力关系直接拒绝。
 - `downstream_api_keys` 只存哈希和前缀，不允许恢复明文。
 - 上游密钥加密字段不参与全文索引、日志或调试导出。
 - 时间字段统一 `timestamptz`，写入 UTC；展示按浏览器时区。
@@ -1344,7 +1376,7 @@ X-Token-Ne-Request-Id: 0193f0c2-7b1a-7c3e-9f00-000000000006
 }
 ```
 
-Caddy 健康检查只使用 `/healthz`；`/readyz` 表示配置已加载且未排水；`/internal/v1/status` 用于控制和排水。
+Caddy 主动健康检查使用 `/readyz`；`/readyz` 表示配置已加载且未排水，排水时返回 503。Docker liveness 使用 `/healthz`；`/internal/v1/status` 用于控制和排水。
 
 ## 部署
 
@@ -1366,7 +1398,7 @@ services:
       timeout: 3s
       retries: 20
     networks:
-      - internal
+      - data
 
   socket-proxy:
     image: tecnativa/docker-socket-proxy:3.4
@@ -1383,7 +1415,7 @@ services:
     expose:
       - "2375"
     networks:
-      - internal
+      - data
 
   api:
     build: ../server
@@ -1394,16 +1426,15 @@ services:
       DATABASE_URL: postgres://token_ne:${POSTGRES_PASSWORD}@postgres:5432/token_ne?sslmode=disable
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
-      CADDY_ADMIN_URL: http://caddy:2019
+      CADDY_ADMIN_URL: unix:///run/caddy/admin.sock
       CADDY_TLS_MODE: ${CADDY_TLS_MODE:-off}
       CADDY_HTTP_PORT: ${CADDY_HTTP_PORT:-8080}
       DOCKER_HOST: tcp://socket-proxy:2375
-      CORE_NETWORK: token_ne_internal
+      CORE_NETWORKS: token_ne_edge,token_ne_core_control
       CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN}
       CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
       CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
       CORE_CACHE_KEY: ${CORE_CACHE_KEY}
-      CORE_STATE_ROOT: /var/lib/token-ne/cores
       CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY}
@@ -1417,15 +1448,17 @@ services:
     ports:
       - "127.0.0.1:${METRICS_PORT:-9090}:9090"
     volumes:
-      - ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}:/var/lib/token-ne/cores
       - ../config:/etc/token-ne:ro
+      - caddy_admin:/run/caddy
     healthcheck:
       test: ["CMD", "/app/api", "healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
     networks:
-      - internal
+      - edge
+      - core-control
+      - data
 
   caddy:
     image: caddy:2.11.9-alpine
@@ -1437,6 +1470,7 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_admin:/run/caddy
       - ./caddy/bootstrap.json:/etc/caddy/bootstrap.json:ro
     command:
       - sh
@@ -1448,7 +1482,7 @@ services:
           exec caddy run --config /etc/caddy/bootstrap.json
         fi
     networks:
-      - internal
+      - edge
 
   core:
     image: ${CORE_IMAGE:-ghcr.io/example/token-ne-core:dev}
@@ -1482,26 +1516,32 @@ services:
       timeout: 2s
       retries: 20
     networks:
-      - internal
+      - edge
+      - core-control
 
 volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  caddy_admin:
 
 networks:
-  internal:
-    name: token_ne_internal
+  edge:
+    name: token_ne_edge
+  core-control:
+    name: token_ne_core_control
+  data:
+    name: token_ne_data
 ```
 
 说明：
 
 - `socket-proxy` 是推荐的收敛方式；`CONTAINERS=1` 配合 `POST=1` 覆盖创建与删除接口，`ALLOW_START`、`ALLOW_STOP`、`ALLOW_RESTARTS` 控制容器状态操作。如果暂时直接挂载 socket，风险更高，必须保证 API 不暴露公网。
 - `core` 是基线实例；Go 启动后通过标签接管，并在后续版本创建额外容器。
-- Go 创建的容器不发布端口，加入 `CORE_NETWORK`，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 可以清理，`docker compose up` 不会重建它们。
+- Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 可以清理，`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载最小 `bootstrap.json`（只含管理 API 监听）作为初始配置；Go 启动后立即装载完整配置并对账。
 - Caddy 默认只映射 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 到容器 `:80`；外部 TLS 反向代理负责公网 443。只有 `CADDY_TLS_MODE=auto` 才需要额外的 443 映射。
-- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 WAL；API 挂载到容器内 `CORE_STATE_ROOT` 用于重放，核心挂载自己的子目录。生产环境应使用绝对路径，目录权限 `0700`。
+- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。
 - 不建议在 Compose 中为每个版本写死 service；那会导致每次升级修改部署文件并重建整个项目。
 
 ### 环境变量
@@ -1511,6 +1551,7 @@ networks:
 | `POSTGRES_PASSWORD` | 数据库密码 | 是 |
 | `PUBLIC_ORIGIN` | 浏览器访问入口，用于同源校验 | 是 |
 | `PUBLIC_DOMAIN` | Caddy host matcher 使用的公开域名；默认 HTTP 模式也可用 | 否 |
+| `CADDY_ADMIN_URL` | Caddy 管理 API 地址，默认 `unix:///run/caddy/admin.sock` | 否 |
 | `CADDY_TLS_MODE` | `off`（默认）或 `auto`；`auto` 时生成 443 与自动 HTTPS | 否 |
 | `CADDY_HTTP_PORT` | 宿主机 loopback 映射端口，默认 `8080` | 否 |
 | `ACME_EMAIL` | 仅 `CADDY_TLS_MODE=auto` 时需要 | 否 |
@@ -1524,7 +1565,7 @@ networks:
 | `CORE_CONFIG_OVERRIDE` | 手动 override 文件路径，默认状态目录下 `config.override.json` | 否 |
 | `CORE_CACHE_KEY` | 核心配置缓存加密密钥 | 是 |
 | `CORE_STATE_HOST_DIR` | 宿主机上的核心状态根目录，生产环境用绝对路径 | 是 |
-| `CORE_STATE_ROOT` | API 容器内的状态根目录，默认 `/var/lib/token-ne/cores` | 是 |
+| `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
@@ -1532,7 +1573,6 @@ networks:
 | `CORE_IMAGE` | 基线核心镜像 | 是 |
 | `CORE_VERSION` | 基线核心版本 | 是 |
 | `COMPOSE_PROJECT_NAME` | Compose 项目名，用于网络名 | 是 |
-| `CORE_NETWORK` | 核心容器加入的网络，默认 `token_ne_internal` | 是 |
 | `RETENTION_DAYS` | 用量事实保留天数 | 否，默认 30 |
 | `LOG_LEVEL` | 日志级别 | 否，默认 `info` |
 | `ALLOW_PRIVATE_UPSTREAMS` | 是否允许上游指向私网 | 否，默认 `false` |
@@ -1557,27 +1597,27 @@ networks:
 
 ### 升级流程
 
-1. **预检**：数据库备份；确认当前权重、实例健康、无进行中的部署；记录当前镜像 digest、配置 revision 和 WAL 未确认量。
+1. **预检**：数据库备份；确认当前权重、实例健康、无进行中的部署；记录当前镜像 digest、配置 revision 和 spool 未确认量。
 2. **登记版本**：控制面登记新版本、镜像 digest、协议版本和配置 schema 范围。
 3. **预热**：创建至少 1 个新版本实例，权重 0；等待 `/readyz` 和配置 revision 一致。
 4. **冒烟**：从 API 容器直接请求新实例，使用 `x-token-ne-probe: 1`；该请求照常生成用量事件，不使用特殊跳过逻辑；响应头仅作为日志/审计标记。
 5. **切换**：按 `0 → 10 → 50 → 100` 推进；每阶段至少 60 秒；观察错误率、p95 延迟、TTFT 和上游错误。
-6. **排水**：旧版本权重归零；等待 `inflight == 0`；尽量等待 WAL 未确认事件清零；停止容器；保留版本记录、镜像 digest 和状态目录。若 WAL 未清零，停止后由控制面重放。
+6. **排水**：旧版本权重归零；等待 `inflight == 0`；尽量等待 spool 未确认事件清零；停止容器；保留版本记录、镜像 digest 和状态目录。若 spool 未清零，停止后用兼容 core 重启并自行重放。
 7. **完成**：更新部署状态；记录审计和指标。
 
 ### 回滚流程
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热后再接流量；控制面先重放该实例的 WAL。
+3. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热后再接流量；由兼容 core 启动时自行重放该实例的 spool。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
 
 仅在新版本长期无法完成排水时使用：
 
-- 记录操作者、实例、当前 `inflight`、WAL 未确认量、已等待时间。
-- 把容器停止超时设为较短值；停止后客户端会收到中断。状态目录必须保留，供控制面重放。
+- 记录操作者、实例、当前 `inflight`、spool 未确认量、已等待时间。
+- 把容器停止超时设为较短值；停止后客户端会收到中断。状态目录必须保留，供兼容 core 重启后重放。
 - 在审计中标记 `forced=true`；Prometheus 增加 `token_ne_core_forced_drain_total`。
 - 排查长流来源，不允许把强制排水当作常规升级步骤。
 
@@ -1585,18 +1625,18 @@ networks:
 
 | 故障 | 数据面影响 | 控制面影响 | 恢复 |
 | --- | --- | --- | --- |
-| PostgreSQL 不可用 | 核心继续用缓存配置服务；用量写本地 WAL | 管理 API 读写出错、摄入暂停 | 恢复数据库；控制面重放 WAL；WAL 超过 24 小时才丢弃并计数 |
-| Go API 不可用 | 核心继续服务；用量写本地 WAL | 无法改配置、部署、查询 | 重启 API；启动后对账并重放 WAL |
+| PostgreSQL 不可用 | 核心继续用缓存配置服务；用量写本地 spool | 管理 API 读写出错、摄入暂停 | 恢复数据库；核心自行重放 spool；spool 超过 24 小时才丢弃并计数 |
+| Go API 不可用 | 核心继续服务；用量写本地 spool | 无法改配置、部署、查询 | 重启 API；启动后对账，核心继续自行重放 spool |
 | Caddy 不可用 | 外部 TLS 代理到 Caddy 的请求失败 | 无法应用配置 | 重启 Caddy；`--resume` 恢复；Go 对账 |
-| 单个核心崩溃 | Caddy 健康检查摘除；在途请求失败 | 实例标记 failed | Go 重建实例并复用状态目录；控制面重放未确认 WAL；客户端重试 |
-| 所有核心不可用 | `/v1/*` 返回 502/503 | 管理界面可用 | 部署新实例；检查镜像/配置 |
-| 上游不可用 | 核心按候选重试；重试耗尽后按策略改写成 503，原始状态记录在请求事实中 | 指标和请求记录可见 | 修复上游或切换路由 |
+| 单个核心崩溃 | Caddy 健康检查摘除；在途请求失败 | 实例标记 failed | Go 重建实例并复用状态目录；兼容 core 启动后自行重放未确认 spool；客户端重试 |
+| 所有核心不可用 | `/v1/*` 返回 503 | 管理界面可用 | 部署新实例；检查镜像/配置 |
+| 上游不可用 | 核心按候选重试；重试耗尽后按策略改写成 503，原始状态记录在请求事实中 | 指标和请求记录可见 | 修复上游或调整候选 |
 | Docker API 不可用 | 现有核心继续运行 | 无法部署/排水 | 恢复 socket proxy；对账 |
 | 配置推送失败 | 核心用旧配置；新请求可能路由到旧模型 | 部署阻塞 | 修复网络/Token；重试推送 |
-| 用量 WAL 满 | 代理不受影响 | 控制面可见 `spool_dropped_total` 和最早未确认时间 | 提高容量、恢复控制面、降低请求量；评估是否引入外部队列 |
+| 用量 spool 满 | 代理不受影响 | 控制面可见 `spool_dropped_total` 和最早未确认时间 | 提高容量、恢复控制面、降低请求量；评估是否引入外部队列 |
 | 配置缓存缺失或损坏 | 核心无法 ready，不接流量 | 实例无法加入上游 | 控制面在线时重新下发配置；紧急时用 override 并记录审计 |
 | 配置签名无效（`warn`） | 核心继续启动 | 指标/日志告警 | 检查配置来源；必要时改 `enforce`；不要忽略持续告警 |
-| 宿主机整体故障 | 服务与本地 WAL 一起丢失 | 需要从备份恢复 | 第一期不保证；跨主机持久化需外部队列/对象存储 |
+| 宿主机整体故障 | 服务与本地 spool 一起丢失 | 需要从备份恢复 | 第一期不保证；跨主机持久化需外部队列/对象存储 |
 | 时钟漂移 | 事件时间偏差 | 图表时间偏移 | 使用 NTP；以 `received_at` 辅助排序 |
 
 ## 安全边界
@@ -1605,10 +1645,10 @@ networks:
 - **管理面**：管理员会话 + 同源校验；登录限速；无 RBAC。
 - **内部 API**：`CORE_CONTROL_TOKEN`；常量时间比较；只在 Compose 网络。
 - **核心指标**：`CORE_METRICS_LISTEN=9091` 只在内网；不发布宿主端口，Caddy 不路由；外部 Prometheus 不直接抓取。
-- **Caddy 管理 API**：无内建认证，只绑定内部网络；不发布端口；只有 API 容器调用。
+- **Caddy 管理 API**：无内建认证；只通过 API 与 Caddy 共享的 `/run/caddy/admin.sock` Unix socket 访问，不监听网络端口；只有 API 容器调用。
 - **Docker socket**：通过 socket proxy 收敛；仍然高权限，控制面被攻破等价于宿主机风险。后续拆独立 `core-controller`。
 - **密钥**：上游密钥 AES-256-GCM；下游 Key 只存 SHA-256；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
-- **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 WAL，不含原始请求/响应正文、请求头或上游密钥明文。
+- **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 spool，不含原始请求/响应正文、请求头或上游密钥明文。
 - **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。
 - **请求体**：默认不持久化；错误消息最多 1 KiB；不记录 Authorization。
 - **审计**：关键写操作记录 actor、动作、目标、变更摘要（脱敏）和来源 IP。
@@ -1666,7 +1706,7 @@ networks:
 
 ### 日志
 
-- JSON 结构化日志，包含 `request_id`、`core_version`、`instance`、`route`、`upstream`、`status`、`duration_ms`、`ttft_ms`、`attempts`。
+- JSON 结构化日志，包含 `request_id`、`core_version`、`instance`、`model`、`upstream`、`status`、`duration_ms`、`ttft_ms`、`attempts`。
 - 不记录请求/响应正文、Authorization、上游密钥。
 - Caddy 访问日志开启，保留 7 天；不记录 Authorization。
 - 控制面审计日志写入 PostgreSQL，普通运行日志输出到 stdout。
@@ -1674,7 +1714,7 @@ networks:
 ### Grafana
 
 - `ops/grafana/dashboards/token-ne-overview.json`：请求量、成功率、p95 延迟、TTFT、token、费用、重试、上游错误、状态码改写次数和策略来源。
-- `ops/grafana/dashboards/token-ne-cores.json`：版本、实例、权重、在途数、配置 revision/age/source/override、签名告警、WAL 字节/未确认数/最早未确认时间、排水状态。
+- `ops/grafana/dashboards/token-ne-cores.json`：版本、实例、权重、在途数、配置 revision/age/source/override、签名告警、spool 字节/未确认数/最早未确认时间、排水状态。
 - `ops/prometheus/scrape.example.yml`：单抓取目标示例。
 - 仪表盘通过 Grafana 导入，不放入 Compose。
 
@@ -1682,19 +1722,19 @@ networks:
 
 ### 核心
 
-- 单元测试：SSE 解析、首语义增量识别、错误分类、模型改写、路由排序、重试预算、URL 拼接、密钥校验。
+- 单元测试：SSE 解析、首语义增量识别、错误分类、模型映射继承、上游候选排序、重试预算、URL 拼接、密钥校验。
 - 集成测试：mock 上游注入 503、429、首字节超时、SSE 错误事件、提交后断开、慢流；验证不重复输出。
 - 状态码改写矩阵：429/5xx/网络失败重试耗尽后为 503 + `Retry-After`；400/404 保持；已提交 SSE 不改写；`x-token-ne-no-status-rewrite: 1` 跳过。
 - 属性测试：随机 SSE 分片不改变透传字节；JSON 改写不改变其他字段。
-- WAL 测试：控制面停机、`SIGKILL`、重启、重复上报、段轮转、磁盘写满、确认位点恢复；验证只丢未确认窗口、重放幂等。
+- spool 测试：控制面停机、`SIGKILL`、重启、重复上报、段轮转、磁盘写满、确认位点恢复；验证只丢未确认窗口、重放幂等。
 - 配置测试：无控制面且无缓存时 readiness 失败；有缓存时可启动；实例 ID/schema 不匹配时拒绝；签名无效在 `warn` 模式下继续并告警，在 `enforce` 模式下拒绝；手动 override 可启动且产生告警。
-- 压测：50 条并发 SSE 流 10 分钟；观察 RSS、连接数、TTFT、WAL 增长。
+- 压测：50 条并发 SSE 流 10 分钟；观察 RSS、连接数、TTFT、spool 增长。
 
 ### 控制面
 
 - 单元测试：Caddy 配置生成、权重计算、部署状态机、费用计算、Key 哈希、上游 URL 校验。
-- 集成测试：PostgreSQL 容器中跑迁移和用量幂等；mock Caddy 管理 API 验证默认 HTTP 配置、`POST /load` 与 `PATCH` 路径；mock Docker API 验证创建/接管/排水/标签清理。
-- 契约测试：核心配置 schema、用量事件 schema、错误码。
+- 集成测试：PostgreSQL 容器中跑迁移和用量幂等；mock Caddy 管理 API 验证完整 `POST /load`、`/readyz` 健康检查和权重/upstream 原子更新；mock Docker API 验证创建/接管/排水/标签清理。
+- 契约测试：OpenAPI 管理/下游接口、核心配置 schema、用量事件 schema、heartbeat/status schema、错误码和 golden fixtures。
 - 前端：Vitest + Testing Library；关键页面 Playwright 冒烟。
 
 ### 端到端
@@ -1704,17 +1744,18 @@ networks:
 - 503 重试成功；提交后断开不重试。
 - 默认 Caddy HTTP 模式经外部代理访问；未启用 TLS 时不监听 443。
 - 部署 v2、权重切换、长流排水、回滚。
-- 控制面停机，继续产生用量；恢复后重放且不重复。
+- 控制面停机，继续产生用量；恢复后由 core 重放且不重复。
+- `/v1/models` 和 `/v1/models/{model}` 通过官方 schema 校验。
 - 控制面重启后对账。
 - Prometheus 抓取和 Grafana 数据源冒烟（可选）。
 
 ### CI 门禁
 
 - Rust：`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`。
-- Go：`go vet ./...`、`go test ./...`、迁移校验。
+- Go：`go vet ./...`、`go test ./...`、迁移校验、OpenAPI/schema fixture 契约测试。
 - Web：`bun install --frozen-lockfile`、`tsc -b`、Biome、Vitest、Vite build。
 - 镜像：构建 API 和核心镜像；运行 Compose 冒烟。
-- 文档：链接检查、Mermaid 渲染检查（可选）。
+- 文档：OpenAPI lint、JSON Schema fixture 校验、链接检查、Mermaid 渲染检查（可选）。
 
 ## 目录结构
 
@@ -1747,17 +1788,26 @@ token-ne/
   docs/
     prd.md
     architecture.md
+    protocol.md
+    api.md
+    errors.md
+    spool.md
+    upstream-http.md
+    schemas/
+    fixtures/
     feasibility.md
     tech-selection.md
     adr/
     runbooks/
+  openapi.yaml
+  DESIGN.md
 ```
 
 ## 阶段边界
 
 第一期只实现本文描述的能力。以下能力在 schema 和接口上预留扩展点，但不实现：
 
-- 上游 `kind` 从 `api_key` 扩展到 `oauth_account`；模型路由仍指向 `upstream_id`。
+- 上游 `kind` 从 `api_key` 扩展到 `oauth_account`；上游能力关系仍指向 `model_id`。
 - 核心能力协商和配置 schema 版本已经存在，可支持不同版本并行。
 - 用量事件包含 `upstream_id` 和 `core_version`，可支持后续号池和成本归属。
 - Caddy 配置使用稳定 `@id`，可增加更多路由和策略。

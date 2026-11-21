@@ -22,7 +22,7 @@ Compose 负责声明控制面、数据库、Caddy、网络和基线核心；Go �
 
 - 核心容器至少带 `com.token-ne.role=core`、`version`、`instance`；仅部署流程创建的实例带 `deployment`，Compose 基线实例没有该标签，接管以 role 和 instance 为准。
 - 同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 和 `com.docker.compose.config-hash` 标签，使动态容器能被 Compose 项目级查询发现；缺少 config-hash 时 `docker compose ps` 和 `down --remove-orphans` 看不到容器。它们仍然不是 Compose 文件声明的 service。
-- 容器加入 `CORE_NETWORK`，不发布端口；Caddy 通过容器 DNS 名访问。
+- 容器加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络，不发布端口；Caddy 通过容器 DNS 名访问，核心不加入 `admin` 或 `data`。
 - Go 启动时按标签接管现有容器；数据库和 Docker 状态双向对账。
 - Go 管理的实例使用 `restart=no`，避免排水后的容器被自动拉起；代价是宿主机或 Docker daemon 重启后这些实例不会自行恢复，控制面接管时必须重新启动。
 - 生产镜像使用不可变 tag 或 digest。

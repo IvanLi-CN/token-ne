@@ -1,0 +1,80 @@
+# 错误契约
+
+## 下游 OpenAI 错误
+
+`/v1/*` 错误使用官方 `ErrorResponse`：
+
+```json
+{
+  "error": {
+    "message": "model not found",
+    "type": "not_found_error",
+    "param": null,
+    "code": "model_not_found"
+  }
+}
+```
+
+`message`、`type`、`param`、`code` 始终输出；`param` 和 `code` 未知时为 `null`。所有响应带 `x-request-id`。
+
+| HTTP | type | code | 场景 |
+| --- | --- | --- | --- |
+| 400 | `invalid_request_error` | `invalid_request` | JSON、路径、方法或必需字段错误 |
+| 401 | `authentication_error` | `invalid_api_key` | 缺失、错误或禁用的下游 Key |
+| 403 | `permission_error` | `model_not_allowed` | Key 的 `allowed_models` 不允许该模型 |
+| 404 | `not_found_error` | `model_not_found` | 模型不存在、禁用或不可见 |
+| 413 | `invalid_request_error` | `payload_too_large` | 请求体超过上限 |
+| 429 | `rate_limit_error` | `rate_limit_exceeded` | 本地并发或背压限制 |
+| 502 | `server_error` | `upstream_auth_failed` | 上游 401/403 |
+| 502 | `server_error` | `upstream_encoding_error` | 上游返回非 identity 压缩 |
+| 502 | `server_error` | `upstream_protocol_error` | 上游响应无法按协议解析且不能透传 |
+| 503 | `rate_limit_error` | `upstream_rate_limited` | 重试耗尽的 429 |
+| 503 | `server_error` | `upstream_unavailable` | 重试耗尽的 5xx/网络错误 |
+| 503 | `server_error` | `no_upstream_available` | 模型存在但没有启用候选 |
+| 500 | `server_error` | `internal_error` | 核心内部错误 |
+
+### 重试耗尽后的改写
+
+- 可重试的 429 改写为 `503 upstream_rate_limited`。
+- 可重试的 5xx、连接、DNS、TLS、首字节/空闲超时、提交前 SSE 错误改写为 `503 upstream_unavailable`。
+- 返回 `Retry-After`、`x-token-ne-upstream-status`、`x-token-ne-retryable: true`。
+- 原始上游状态写入 usage event 的 `status_rewritten_from`。
+- 已提交的流不改写状态码。
+
+### 上游 4xx
+
+- 上游 `400`、`404`、`409`、`422` 默认透传状态和 OpenAI 错误体，并附加 `x-request-id`。
+- 上游 `401`/`403` 不向上游泄漏凭据语义，映射为 `502 upstream_auth_failed`。
+- 上游 4xx 体不是 OpenAI 错误对象时，不透传伪造结构，返回 `502 upstream_protocol_error`。
+
+## 管理 API 错误
+
+管理 API 使用内部信封：
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "upstream base_url must be https",
+    "request_id": "req_...",
+    "details": [
+      { "path": "base_url", "reason": "scheme must be https" }
+    ]
+  }
+}
+```
+
+| HTTP | code | 场景 |
+| --- | --- | --- |
+| 400 | `malformed_request` | JSON、Content-Type、路径参数错误 |
+| 401 | `unauthorized` | 未登录或会话失效 |
+| 403 | `forbidden` | 同源/CSRF 校验失败 |
+| 404 | `not_found` | 对象不存在 |
+| 409 | `conflict` | 引用未清理、版本冲突、部署进行中 |
+| 409 | `spool_not_drained` | prune 时实例未上报 spool 清零 |
+| 413 | `payload_too_large` | 请求体过大 |
+| 422 | `validation_failed` | 字段、范围、引用或重复 ID 错误 |
+| 500 | `internal_error` | 未预期错误 |
+| 503 | `storage_unavailable` | PostgreSQL 或依赖不可用 |
+
+管理 API 的 `details[].path` 必须定位到具体字段；没有字段路径的冲突使用 `details: []`。
