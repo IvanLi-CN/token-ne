@@ -61,13 +61,12 @@ export default function OverviewPage() {
     queryFn: ({ signal }) => usageApi.overview(rangeWindow(range), signal),
     ...polling,
   });
+  const window = rangeWindow(range);
+  const hours = (Date.parse(window.to) - Date.parse(window.from)) / 3_600_000;
+  const interval = hours > 72 ? "1d" : hours > 6 ? "1h" : "5m";
   const series = useQuery({
     queryKey: [...queryKeys.overview(range), "series"],
-    queryFn: ({ signal }) => {
-      const window = rangeWindow(range);
-      const hours = (Date.parse(window.to) - Date.parse(window.from)) / 3_600_000;
-      return usageApi.series(window, hours > 72 ? "1d" : hours > 6 ? "1h" : "5m", signal);
-    },
+    queryFn: ({ signal }) => usageApi.series(window, interval, signal),
     ...polling,
   });
   const cores = useQuery({
@@ -133,7 +132,7 @@ export default function OverviewPage() {
               <EmptyState title="当前范围没有趋势数据">可切换时间范围后重试。</EmptyState>
             ) : (
               <Suspense fallback={<Spinner label="正在加载趋势图" />}>
-                <UsageTrend points={series.data} />
+                <UsageTrend points={series.data} window={window} interval={interval} />
               </Suspense>
             )}
           </div>

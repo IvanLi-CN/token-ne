@@ -160,6 +160,7 @@ export default function KeysPage() {
             caption="下游 Key 列表"
             rows={keys.data ?? []}
             rowKey={(item) => item.id}
+            rowLabel={(item) => item.name}
             loading={keys.isPending}
             error={errorMessage(keys.error)}
             onRetry={() => void keys.refetch()}
@@ -235,7 +236,11 @@ export default function KeysPage() {
                     <DangerAction
                       label={item.enabled ? "禁用" : "启用"}
                       title={`${item.enabled ? "禁用" : "启用"} ${item.name}？`}
-                      description="禁用后使用该 Key 的新请求将认证失败。"
+                      description={
+                        item.enabled
+                          ? "禁用后使用该 Key 的新请求将认证失败。"
+                          : "启用后该 Key 恢复认证，可按已配置的模型权限继续使用。"
+                      }
                       action={async () => {
                         await keysApi.update(item.id, { enabled: !item.enabled });
                         await refresh();

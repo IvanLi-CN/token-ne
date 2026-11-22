@@ -130,11 +130,19 @@ export default function CoresPage() {
       key: "deploy",
       header: "操作",
       cell: (row) => (
-        <BlockedButton
-          label="开始预热"
-          reason={inProgress ? "已有部署正在进行。" : undefined}
-          onClick={(event) => open({ kind: "deploy", version: row }, event)}
-        />
+        <div className="flex items-start gap-2">
+          <BlockedButton
+            label="开始部署"
+            reason={inProgress ? "已有部署正在进行。" : undefined}
+            onClick={(event) => open({ kind: "deploy", version: row }, event)}
+          />
+          <Button
+            variant="secondary"
+            onClick={(event) => open({ kind: "pull", version: row }, event)}
+          >
+            拉取镜像
+          </Button>
+        </div>
       ),
     },
   ];
@@ -256,19 +264,27 @@ export default function CoresPage() {
     },
     {
       key: "weights",
-      header: "目标权重",
-      cell: (row) => (
-        <ul className="space-y-1 text-xs">
-          {Object.entries(row.target_weights).map(([target, weight]) => (
-            <li key={target}>
-              <code title={target}>
-                {instancesById.get(target)?.container_name ?? versionsById.get(target) ?? target}
-              </code>{" "}
-              · {displayNumber(weight)}
-            </li>
-          ))}
-        </ul>
-      ),
+      header: "权重：目标 → 下一阶段",
+      cell: (row) => {
+        const next = row.next_weights ?? {};
+        const targets = [...new Set([...Object.keys(row.target_weights), ...Object.keys(next)])];
+        if (targets.length === 0) return "—";
+        return (
+          <ul className="space-y-1 text-xs">
+            {targets.map((target) => (
+              <li key={target}>
+                <code title={target}>
+                  {instancesById.get(target)?.container_name ?? versionsById.get(target) ?? target}
+                </code>{" "}
+                ·{" "}
+                <span className="tabular-nums">
+                  {displayNumber(row.target_weights[target])} → {displayNumber(next[target])}
+                </span>
+              </li>
+            ))}
+          </ul>
+        );
+      },
     },
     {
       key: "error",
@@ -337,6 +353,8 @@ export default function CoresPage() {
       if (!row) return "目标实例已不存在。";
       if (active.kind === "prune") return pruneBlock(row, unacked(row, spoolById.get(row.id)));
       if (!stoppable.has(row.state)) return "实例已不能排水。";
+      if (active.kind === "force" && row.state !== "draining")
+        return "实例已不在排水状态，无法强制排水。请关闭并重新检查。";
     }
     if ("deployment" in active) {
       const row = data.deployments.find((entry) => entry.id === active.deployment.id);
@@ -369,7 +387,7 @@ export default function CoresPage() {
               <div className="panel-heading">
                 <div>
                   <h2 id="core-deployments">部署进度</h2>
-                  <p className="muted">阶段、目标权重与阻塞原因。</p>
+                  <p className="muted">阶段、当前与下一阶段权重、阻塞原因。</p>
                 </div>
                 <StatusBadge tone={inProgress ? "warning" : "neutral"}>
                   {inProgress ? "部署进行中" : "当前没有进行中的部署"}
@@ -382,7 +400,7 @@ export default function CoresPage() {
                   columns={deployments}
                   rowKey={(row) => row.id}
                   emptyTitle="暂无部署记录"
-                  emptyDescription="登记版本后可开始预热。"
+                  emptyDescription="登记版本后可开始部署。"
                 />
               </div>
             </section>

@@ -21,6 +21,7 @@ type Deployment struct {
 	State       string         `json:"state"`
 	Target      map[string]int `json:"target_weights"`
 	Next        map[string]int `json:"next_weights,omitempty"`
+	AutoAdvance bool           `json:"auto_advance"`
 	Error       *string        `json:"error"`
 	Created     time.Time      `json:"created_at"`
 	Updated     time.Time      `json:"updated_at"`
@@ -32,6 +33,23 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	if req.Replicas < 1 || req.Replicas > 10 || req.InitialWeight != 0 {
 		return Deployment{}, ErrInvalid
 	}
+	autoAdvance := true
+	if req.AutoAdvance != nil {
+		autoAdvance = *req.AutoAdvance
+	}
+	// A registry pull can take minutes, so the target image is resolved and made
+	// available before the deployment transaction opens.
+	target, e := r.versionImage(ctx, req.Version)
+	if e != nil {
+		return Deployment{}, e
+	}
+	if target.Protocol != Protocol || target.SchemaMin > Schema || target.SchemaMax < Schema {
+		return Deployment{}, ErrCompatibility
+	}
+	image, e := r.prepareVersionImage(ctx, target)
+	if e != nil {
+		return Deployment{}, e
+	}
 	tx, e := r.database().Begin(ctx)
 	if e != nil {
 		return Deployment{}, e
@@ -40,9 +58,9 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	if _, e = tx.Exec(ctx, `select pg_advisory_xact_lock(4927816043)`); e != nil {
 		return Deployment{}, e
 	}
-	var id, versionID, image string
+	var id, versionID string
 	var protocol, min, max int
-	e = tx.QueryRow(ctx, `select id::text,image_ref,protocol_version,config_schema_min,config_schema_max from core_versions where version=$1 for share`, req.Version).Scan(&versionID, &image, &protocol, &min, &max)
+	e = tx.QueryRow(ctx, `select id::text,protocol_version,config_schema_min,config_schema_max from core_versions where version=$1 for share`, req.Version).Scan(&versionID, &protocol, &min, &max)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Deployment{}, ErrUnknown
 	}
@@ -104,7 +122,7 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 			return Deployment{}, e
 		}
 	}
-	p := progress{Stage: -1, From: fromWeights, To: weights, Started: now, Minimum: 60, Deadline: 1800}
+	p := progress{Stage: -1, From: fromWeights, To: weights, Started: now, Minimum: 60, Deadline: 1800, AutoAdvance: &autoAdvance}
 	raw, _ := json.Marshal(p)
 	if _, e = tx.Exec(ctx, `update core_deployments set progress=$2 where id=$1`, id, raw); e != nil {
 		return Deployment{}, e
@@ -133,12 +151,17 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 		return Deployment{}, e
 	}
 
-	if e = r.Audit(ctx, actor, "core.deploy", "core_deployment", id, map[string]any{"to_version": req.Version, "replicas": req.Replicas, "initial_weight": 0}); e != nil {
+	if e = r.Audit(ctx, actor, "core.deploy", "core_deployment", id, map[string]any{"to_version": req.Version, "replicas": req.Replicas, "initial_weight": 0, "auto_advance": autoAdvance}); e != nil {
 		return Deployment{}, e
 	}
 	var updated Deployment
-	e = r.database().QueryRow(ctx, `select id::text,from_version_id::text,(select version from core_versions where id=to_version_id),state,target_weights,error,created_at,updated_at from core_deployments where id=$1`, id).Scan(&updated.ID, &updated.FromVersion, &updated.ToVersion, &updated.State, &updated.Target, &updated.Error, &updated.Created, &updated.Updated)
-	return updated, e
+	var stored []byte
+	e = r.database().QueryRow(ctx, `select id::text,from_version_id::text,(select version from core_versions where id=to_version_id),state,target_weights,progress,error,created_at,updated_at from core_deployments where id=$1`, id).Scan(&updated.ID, &updated.FromVersion, &updated.ToVersion, &updated.State, &updated.Target, &stored, &updated.Error, &updated.Created, &updated.Updated)
+	if e != nil {
+		return Deployment{}, e
+	}
+	setNextWeights(&updated, stored)
+	return updated, nil
 }
 
 func (r *Runtime) failDeploy(ctx context.Context, id string, containers []string, cause error) error {
@@ -228,6 +251,15 @@ func (r *Runtime) advance(ctx context.Context) error {
 		}
 		return r.finishDrain(ctx, id, p.Deadline)
 	}
+	if state == "ready" {
+		// Warm instances become eligible at stage 0. With auto-advance the
+		// control plane enters the first weight stage itself once the same
+		// minimum dwell a manual shift would wait has elapsed.
+		if !p.autoAdvance() || !p.canAdvance(time.Now()) {
+			return nil
+		}
+		return r.applyStage(ctx, id, &p)
+	}
 	if state != "shifting" && state != "draining_old" {
 		return nil
 	}
@@ -237,26 +269,30 @@ func (r *Runtime) advance(ctx context.Context) error {
 	if p.Stage >= len(stages)-1 {
 		return r.finishDrain(ctx, id, p.Deadline)
 	}
+	return r.applyStage(ctx, id, &p)
+}
+
+// applyStage applies the next weight stage of a ready or shifting deployment and
+// persists the state transition. Applying weights can fail admission; the
+// deployment then rolls back to the recorded baseline while the warmed instances
+// and their state directories are retained for inspection.
+func (r *Runtime) applyStage(ctx context.Context, id string, p *progress) error {
 	next := p.Stage + 1
-	fraction := stages[next]
-	weights := map[string]int{}
-	for key, weight := range p.From {
-		weights[key] = weight * (100 - fraction) / 100
+	if next <= 0 || next >= len(stages) {
+		return ErrConflict
 	}
-	for key, weight := range p.To {
-		weights[key] = weight * fraction / 100
-	}
-	if e = r.applyWeights(ctx, id, weights); e != nil {
+	weights := p.weights(next)
+	if e := r.applyWeights(ctx, id, weights); e != nil {
 		return errors.Join(e, r.Rollback(ctx, id, "system"))
 	}
 	p.Stage = next
 	p.Started = time.Now().UTC()
-	raw, _ = json.Marshal(p)
-	state = "shifting"
-	if fraction == 100 {
+	raw, _ := json.Marshal(p)
+	state := "shifting"
+	if stages[next] == 100 {
 		state = "draining_old"
 	}
-	_, e = r.database().Exec(ctx, `update core_deployments set state=$2,target_weights=$3,progress=$4,updated_at=now() where id=$1`, id, state, weights, raw)
+	_, e := r.database().Exec(ctx, `update core_deployments set state=$2,target_weights=$3,progress=$4,updated_at=now() where id=$1`, id, state, weights, raw)
 	return e
 }
 
@@ -363,18 +399,7 @@ func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) 
 			return ErrInvalid
 		}
 	}
-	if e = r.applyWeights(ctx, id, expected); e != nil {
-		return errors.Join(e, r.Rollback(ctx, id, "system"))
-	}
-	p.Stage++
-	p.Started = time.Now().UTC()
-	raw, _ = json.Marshal(p)
-	state = "shifting"
-	if p.Stage == len(stages)-1 {
-		state = "draining_old"
-	}
-	_, e = r.database().Exec(ctx, `update core_deployments set state=$2,target_weights=$3,progress=$4,updated_at=now() where id=$1`, id, state, expected, raw)
-	return e
+	return r.applyStage(ctx, id, &p)
 }
 
 func (r *Runtime) Rollback(ctx context.Context, id, actor string) error {
@@ -614,15 +639,21 @@ func getDeployment(ctx context.Context, r *Runtime, id string) (Deployment, erro
 	return d, nil
 }
 
-// setNextWeights exposes the stage the next shift will apply. The shift API
-// validates submitted weights against this exact stage, so clients must not
-// have to reconstruct the stage progression themselves.
+// setNextWeights hydrates deployment responses from the stored progress record.
+// It exposes the stage the next shift will apply; the shift API validates
+// submitted weights against this exact stage, so clients must not have to
+// reconstruct the stage progression themselves. It also reports the stored
+// auto-advance policy for every state.
 func setNextWeights(d *Deployment, raw []byte) {
+	var p progress
+	if json.Unmarshal(raw, &p) != nil {
+		return
+	}
+	d.AutoAdvance = p.autoAdvance()
 	if d.State != "ready" && d.State != "shifting" {
 		return
 	}
-	var p progress
-	if json.Unmarshal(raw, &p) != nil || p.Stage < 0 || p.Stage+1 >= len(stages) {
+	if p.Stage < 0 || p.Stage+1 >= len(stages) {
 		return
 	}
 	d.Next = p.weights(p.Stage + 1)

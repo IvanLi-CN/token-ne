@@ -8,17 +8,55 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { Window } from "./time-range";
 import { displayMoney, displayNumber, displayTime, type UsagePoint } from "./usage";
 
 const metrics = { requests: "请求量", total_tokens: "Token 用量", cost_usd: "费用" } as const;
 type Metric = keyof typeof metrics;
 const metricKeys = Object.keys(metrics) as Metric[];
+const intervalMs = { "5m": 300_000, "1h": 3_600_000, "1d": 86_400_000 } as const;
+export type UsageInterval = keyof typeof intervalMs;
 
-export default function UsageTrend({ points }: { points: UsagePoint[] }) {
+// The API only returns non-empty buckets; fill the requested window so idle gaps read as zero.
+export function fillUsageBuckets(
+  points: UsagePoint[],
+  window: Window,
+  interval: UsageInterval,
+): UsagePoint[] {
+  const stride = intervalMs[interval];
+  const start = Math.floor(Date.parse(window.from) / stride) * stride;
+  const end = Date.parse(window.to);
+  const byBucket = new Map(
+    points.map((point) => [Math.floor(Date.parse(point.bucket) / stride) * stride, point]),
+  );
+  const filled: UsagePoint[] = [];
+  for (let bucket = start; bucket < end; bucket += stride) {
+    filled.push(
+      byBucket.get(bucket) ?? {
+        bucket: new Date(bucket).toISOString(),
+        requests: 0,
+        total_tokens: 0,
+        cost_usd: 0,
+      },
+    );
+  }
+  return filled;
+}
+
+export default function UsageTrend({
+  points,
+  window,
+  interval,
+}: {
+  points: UsagePoint[];
+  window: Window;
+  interval: UsageInterval;
+}) {
   const [metric, setMetric] = useState<Metric>("requests");
   const format = metric === "cost_usd" ? displayMoney : displayNumber;
   const color = metric === "cost_usd" ? "var(--accent)" : "var(--primary)";
-  const samples = points.map((point) => ({ ...point, timestamp: Date.parse(point.bucket) }));
+  const filled = fillUsageBuckets(points, window, interval);
+  const samples = filled.map((point) => ({ ...point, timestamp: Date.parse(point.bucket) }));
   return (
     <div className="min-w-0 space-y-3">
       <fieldset className="segmented-control range-control">
@@ -102,7 +140,7 @@ export default function UsageTrend({ points }: { points: UsagePoint[] }) {
               </tr>
             </thead>
             <tbody>
-              {points.map((point) => (
+              {filled.map((point) => (
                 <tr key={point.bucket}>
                   <td>{displayTime(point.bucket)}</td>
                   <td>{format(point[metric])}</td>

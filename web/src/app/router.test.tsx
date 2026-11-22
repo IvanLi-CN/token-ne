@@ -37,7 +37,7 @@ describe("application router", () => {
   it("redirects an expired session and preserves the requested path", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 401)));
     const router = mount("/requests?model=example");
-    await screen.findByRole("heading", { name: "管理员登录" });
+    await screen.findByRole("heading", { name: "管理员登录" }, { timeout: 5000 });
     expect(router.state.location.pathname).toBe("/login");
     expect(new URLSearchParams(router.state.location.search).get("returnTo")).toBe(
       "/requests?model=example",

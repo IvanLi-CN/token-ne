@@ -93,17 +93,19 @@ describe("models management", () => {
       "全局模型",
       "example",
       ["输入价格", "缓存输入价格", "输出价格", "全局映射", "停用日期", "能力数"],
+      "example",
     ],
     [
       UpstreamsPage,
       "上游列表",
       "Primary",
       ["Base URL", "认证 / 密钥", "状态", "能力数量", "最近测试（本次会话）"],
+      "Primary",
     ],
-    [KeysPage, "下游 Key 列表", "Application", ["允许模型", "并发上限", "最后使用"]],
+    [KeysPage, "下游 Key 列表", "Application", ["允许模型", "并发上限", "最后使用"], "Application"],
   ] as const)(
     "renders every management field and a single usable action set below 720px: %s",
-    async (Page, caption, name, labels) => {
+    async (Page, caption, name, labels, group) => {
       let narrow = true;
       let listener: (() => void) | undefined;
       vi.stubGlobal(
@@ -118,11 +120,12 @@ describe("models management", () => {
       );
       mock();
       mount(Page);
-      await screen.findByText(name);
+      await screen.findAllByText(name);
       const cards = screen.getByRole("region", { name: caption });
       expect(cards.querySelectorAll("dl")).toHaveLength(1);
       for (const label of labels)
         expect(within(cards).getByText(label, { selector: "dt" })).toBeTruthy();
+      if (group) expect(screen.getByRole("group", { name: group })).toBeTruthy();
       expect(within(cards).getAllByRole("button", { name: "编辑" })).toHaveLength(1);
       expect(screen.queryByRole("table")).toBeNull();
       fireEvent.click(within(cards).getByRole("button", { name: "编辑" }));
@@ -183,6 +186,30 @@ describe("models management", () => {
         output_usd_per_mtok: null,
       },
     });
+  });
+  it("describes enabling a model instead of always warning about disabling", async () => {
+    mock((url) =>
+      url === "/api/models" ? response({ data: [{ ...model, enabled: false }] }) : undefined,
+    );
+    mount(ModelsPage);
+    fireEvent.click(within(await screen.findByRole("table")).getByRole("button", { name: "启用" }));
+    const dialog = await screen.findByRole("dialog", { name: "启用 example？" });
+    expect(within(dialog).getByText(/启用后该模型重新对外提供/)).toBeTruthy();
+  });
+  it("returns focus to the form after cancelling the discard prompt", async () => {
+    mock();
+    mount(ModelsPage);
+    await screen.findAllByText("example");
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const field = await screen.findByLabelText("模型 ID");
+    fireEvent.change(field, { target: { value: "example-changed" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    const prompt = await screen.findByRole("dialog", { name: "放弃未保存修改？" });
+    fireEvent.click(within(prompt).getByRole("button", { name: "取消" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "放弃未保存修改？" })).toBeNull(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(field));
   });
   it("keeps a concurrent delete conflict visible in the confirmation", async () => {
     const fetch = mock((url, init) =>
@@ -379,6 +406,15 @@ describe("upstreams management", () => {
 });
 
 describe("downstream keys", () => {
+  it("describes enabling a key instead of always warning about disabling", async () => {
+    mock((url) =>
+      url === "/api/downstream-keys" ? response({ data: [{ ...key, enabled: false }] }) : undefined,
+    );
+    mount(KeysPage);
+    fireEvent.click(await screen.findByRole("button", { name: "启用" }));
+    const dialog = await screen.findByRole("dialog", { name: "启用 Application？" });
+    expect(within(dialog).getByText(/启用后该 Key 恢复认证/)).toBeTruthy();
+  });
   it("requires confirmation before disabling and deleting a key", async () => {
     const fetch = mock((_url, init) =>
       init.method === "DELETE"

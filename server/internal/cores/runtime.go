@@ -31,6 +31,7 @@ type Runtime struct {
 	Networks              []string
 	StateHostDir          string
 	CoreURL               string
+	CoreImage             string
 	Token                 string
 	SigningKey            string
 	SignatureMode         string
@@ -40,19 +41,37 @@ type Runtime struct {
 	lifecycle             sync.Mutex
 }
 
+// Target is the client-supplied part of a core version registration. The image
+// reference is derived from Runtime.CoreImage, never from the client.
 type Target struct {
 	Version   string  `json:"version"`
-	Image     string  `json:"image_ref"`
 	Digest    *string `json:"image_digest"`
 	Protocol  int     `json:"protocol_version"`
 	SchemaMin int     `json:"config_schema_min"`
 	SchemaMax int     `json:"config_schema_max"`
 	Commit    *string `json:"build_commit"`
 }
+
+// VersionView is the registered core version as the admin API exposes it.
+type VersionView struct {
+	ID          string    `json:"id"`
+	Version     string    `json:"version"`
+	ImageRef    string    `json:"image_ref"`
+	ImageDigest *string   `json:"image_digest"`
+	Protocol    int       `json:"protocol_version"`
+	SchemaMin   int       `json:"config_schema_min"`
+	SchemaMax   int       `json:"config_schema_max"`
+	Commit      *string   `json:"build_commit"`
+	Created     time.Time `json:"created_at"`
+}
+
 type DeploymentRequest struct {
 	Version       string `json:"to_version"`
 	Replicas      int    `json:"replicas"`
 	InitialWeight int    `json:"initial_weight"`
+	// AutoAdvance starts the weight progression once the new instances are
+	// ready. Absent means true.
+	AutoAdvance *bool `json:"auto_advance"`
 }
 type ShiftRequest struct {
 	Weights map[string]int `json:"weights"`
@@ -74,33 +93,55 @@ func (r *Runtime) Audit(ctx context.Context, actor, action, kind, id string, pay
 	return e
 }
 
-func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (map[string]any, error) {
-	if strings.TrimSpace(v.Version) == "" || len(v.Version) > 128 || v.Image == "" || v.Protocol != Protocol ||
-		v.SchemaMin < 1 || v.SchemaMin > Schema || v.SchemaMax < Schema ||
-		strings.Contains(strings.ToLower(v.Image), ":latest") || v.Digest != nil && !strings.HasPrefix(*v.Digest, "sha256:") {
-		return nil, ErrInvalid
+// RegisterVersion records a version against the control plane's image
+// repository. The client supplies compatibility metadata and an optional digest;
+// the image reference itself is computed here.
+func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (VersionView, error) {
+	if v.Protocol != Protocol || v.SchemaMin < 1 || v.SchemaMin > Schema || v.SchemaMax < Schema {
+		return VersionView{}, ErrInvalid
+	}
+	image, e := VersionImageRef(r.CoreImage, v.Version, v.Digest)
+	if e != nil {
+		return VersionView{}, ErrInvalid
 	}
 	id := uuid.NewString()
-	var result map[string]any
 	var versionID string
 	var imageDigest any = v.Digest
-	if v.Digest != nil {
-		v.Image = strings.TrimSuffix(v.Image, "@"+*v.Digest) + "@" + *v.Digest
-	}
-	var e error
 	e = r.database().QueryRow(ctx, `insert into core_versions(id,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max,build_commit)
  values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(version) do update set version=excluded.version
  where core_versions.image_ref=excluded.image_ref and core_versions.image_digest is not distinct from excluded.image_digest
  and core_versions.protocol_version=excluded.protocol_version and core_versions.config_schema_min=excluded.config_schema_min and core_versions.config_schema_max=excluded.config_schema_max
- returning id::text`, id, v.Version, v.Image, imageDigest, v.Protocol, v.SchemaMin, v.SchemaMax, v.Commit).Scan(&versionID)
+ returning id::text`, id, v.Version, image, imageDigest, v.Protocol, v.SchemaMin, v.SchemaMax, v.Commit).Scan(&versionID)
 	if errors.Is(e, pgx.ErrNoRows) {
-		return nil, ErrConflict
+		return VersionView{}, ErrConflict
 	}
 	if e != nil {
-		return nil, e
+		return VersionView{}, e
 	}
-	result = map[string]any{"id": versionID, "version": v.Version, "image_ref": v.Image, "image_digest": imageDigest, "protocol_version": v.Protocol, "config_schema_min": v.SchemaMin, "config_schema_max": v.SchemaMax, "build_commit": v.Commit, "created_at": time.Now().UTC()}
-	return result, nil
+	return VersionView{ID: versionID, Version: v.Version, ImageRef: image, ImageDigest: v.Digest, Protocol: v.Protocol,
+		SchemaMin: v.SchemaMin, SchemaMax: v.SchemaMax, Commit: v.Commit, Created: time.Now().UTC()}, nil
+}
+
+// versionImageRow is the registered image identity and compatibility range a
+// deployment needs before it touches deployment state.
+type versionImageRow struct {
+	ID        string
+	Version   string
+	Image     string
+	Digest    *string
+	Protocol  int
+	SchemaMin int
+	SchemaMax int
+}
+
+func (r *Runtime) versionImage(ctx context.Context, version string) (versionImageRow, error) {
+	var v versionImageRow
+	e := r.database().QueryRow(ctx, `select id::text,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max from core_versions where version=$1`, version).
+		Scan(&v.ID, &v.Version, &v.Image, &v.Digest, &v.Protocol, &v.SchemaMin, &v.SchemaMax)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return v, ErrUnknown
+	}
+	return v, e
 }
 
 type instanceRow struct {
@@ -489,9 +530,15 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		c, exists := byInstance[id]
 		if !exists {
 			if state != "failed" && state != "stopped" && state != "pruned" && state != "pruning" {
-				var image string
-				if e = tx.QueryRow(ctx, `select image_ref from core_versions where id=$1`, row.versionID).Scan(&image); e != nil {
+				var digest *string
+				if e = tx.QueryRow(ctx, `select image_digest from core_versions where id=$1`, row.versionID).Scan(&digest); e != nil {
 					return e
+				}
+				// Derive from the current repository so an operator can change
+				// CORE_IMAGE_REPOSITORY without rewriting every version row.
+				image, refErr := VersionImageRef(r.CoreImage, version, digest)
+				if refErr != nil {
+					return refErr
 				}
 				if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e

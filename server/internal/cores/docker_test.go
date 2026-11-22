@@ -3,6 +3,7 @@ package cores
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
@@ -115,5 +116,56 @@ func TestEnsureStateDirRunsHelper(t *testing.T) {
 	cmd := create["Cmd"].([]any)
 	if !strings.Contains(cmd[2].(string), id) || !strings.Contains(cmd[2].(string), "chown 10001:10001") {
 		t.Fatalf("helper command: %#v", cmd)
+	}
+}
+
+func TestEnsureStateDirRejectsUnsafeInvocation(t *testing.T) {
+	engine := &Engine{HTTP: http.DefaultClient, Base: "http://127.0.0.1:1", StateInitImage: "busybox:1.37"}
+	for _, tc := range []struct{ hostDir, instance string }{
+		{"relative/state", uuid.NewString()},
+		{"/srv/cores", "not-a-uuid"},
+		{"/srv/cores", ""},
+		{"", uuid.NewString()},
+	} {
+		if e := engine.EnsureStateDir(context.Background(), tc.hostDir, tc.instance); !errors.Is(e, ErrInvalid) {
+			t.Fatalf("guard %q %q: %v", tc.hostDir, tc.instance, e)
+		}
+	}
+	engine.StateInitImage = ""
+	if e := engine.EnsureStateDir(context.Background(), "/srv/cores", uuid.NewString()); !errors.Is(e, ErrInvalid) {
+		t.Fatalf("missing helper image: %v", e)
+	}
+}
+
+func TestEnsureStateDirPropagatesHelperFailure(t *testing.T) {
+	createFailure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer createFailure.Close()
+	engine := &Engine{HTTP: createFailure.Client(), Base: createFailure.URL, StateInitImage: "busybox:1.37"}
+	if e := engine.EnsureStateDir(context.Background(), "/srv/cores", uuid.NewString()); e == nil {
+		t.Fatal("container create failure ignored")
+	}
+
+	helperFailure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/containers/create"):
+			w.WriteHeader(201)
+			_, _ = w.Write([]byte(`{"Id":"helper"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/containers/helper/start":
+			w.WriteHeader(204)
+		case r.Method == http.MethodPost && r.URL.Path == "/containers/helper/wait":
+			_, _ = w.Write([]byte(`{"StatusCode":1}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/containers/helper":
+			w.WriteHeader(204)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer helperFailure.Close()
+	engine = &Engine{HTTP: helperFailure.Client(), Base: helperFailure.URL, StateInitImage: "busybox:1.37"}
+	e := engine.EnsureStateDir(context.Background(), "/srv/cores", uuid.NewString())
+	if e == nil || !strings.Contains(e.Error(), "exited with status 1") {
+		t.Fatalf("helper exit status ignored: %v", e)
 	}
 }

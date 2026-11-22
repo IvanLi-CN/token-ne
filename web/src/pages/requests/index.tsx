@@ -35,7 +35,7 @@ export default function RequestsPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const model = String(form.get("model")).trim();
-    const upstream = String(form.get("upstream")).trim();
+    const upstream = String(form.get("upstream")).trim().toLowerCase();
     const status = String(form.get("status")).trim();
     if (upstream && !uuid.test(upstream)) {
       setFilterError("上游标识必须是 UUID。");

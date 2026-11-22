@@ -139,7 +139,21 @@ export function Editor({
             {children}
           </div>
           <ConfirmDialog
-            trigger={<span />}
+            trigger={
+              <button
+                type="button"
+                tabIndex={-1}
+                className="visually-hidden"
+                onFocus={() =>
+                  document
+                    .getElementById(id)
+                    ?.querySelector<HTMLElement>("input, select, textarea, button")
+                    ?.focus()
+                }
+              >
+                返回表单
+              </button>
+            }
             title="放弃未保存修改？"
             description="离开后表单中的修改将丢失。"
             open={discard || blocker.state === "blocked"}

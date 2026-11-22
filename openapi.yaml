@@ -599,6 +599,7 @@ paths:
     post:
       tags: [cores]
       summary: 登记核心版本
+      description: 控制面按 CORE_IMAGE_REPOSITORY 与版本号派生镜像引用；客户端不再提供 image_ref。
       operationId: registerCoreVersion
       security:
         - cookieAuth: []
@@ -631,6 +632,38 @@ paths:
           $ref: "#/components/responses/AdminConflict"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+
+  /api/cores/versions/{version_id}/pull:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    post:
+      tags: [cores]
+      summary: 拉取版本镜像
+      description: 从仓库匿名拉取该版本的镜像并回写解析到的 digest；用于旧版本或手动刷新，回滚不会触发拉取。
+      operationId: pullCoreVersionImage
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 镜像已就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoreVersion"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
 
   /api/cores/instances/{instance_id}:
     parameters:
@@ -1324,6 +1357,13 @@ components:
       schema:
         type: string
         format: uuid
+    VersionId:
+      name: version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     From:
       name: from
       in: query
@@ -1812,8 +1852,10 @@ components:
           type: string
         image_ref:
           type: string
+          description: 服务端派生的镜像引用（<repository>:<version> 或 <repository>@<digest>）。
         image_digest:
           type: [string, "null"]
+          description: 最近一次拉取解析到的仓库 digest。
         protocol_version:
           type: integer
         config_schema_min:
@@ -1827,14 +1869,14 @@ components:
           format: date-time
     CoreVersionInput:
       type: object
-      required: [version, image_ref, protocol_version, config_schema_min, config_schema_max]
+      required: [version, protocol_version, config_schema_min, config_schema_max]
       properties:
         version:
           type: string
-        image_ref:
-          type: string
+          description: 版本号同时作为镜像 tag；服务端据此派生镜像引用。
         image_digest:
           type: [string, "null"]
+          description: 可选；提供时改用 <repository>@<digest>，由服务端校验 sha256 格式。
         protocol_version:
           type: integer
         config_schema_min:
@@ -1922,6 +1964,9 @@ components:
           description: Weights the next shift will apply; present while ready or shifting.
           additionalProperties:
             type: integer
+        auto_advance:
+          type: boolean
+          description: 实例就绪后是否自动进入首阶段权重；false 时保持 ready 等待手动切换。
         error:
           type: [string, "null"]
         created_at:
@@ -1961,6 +2006,10 @@ components:
           minimum: 0
           maximum: 10000
           default: 0
+        auto_advance:
+          type: boolean
+          default: true
+          description: 新实例就绪并驻留最短阶段时长后自动推进到首阶段权重。
     CoreShiftInput:
       type: object
       required: [weights]

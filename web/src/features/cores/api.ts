@@ -41,14 +41,28 @@ export type Deployment = {
   state: string;
   target_weights: Record<string, number>;
   next_weights?: Record<string, number> | null;
+  auto_advance?: boolean;
   error?: string | null;
   updated_at: string;
 };
 type CoresState = { versions: Version[]; instances: Instance[]; deployments: Deployment[] };
-type VersionInput = Omit<Version, "id" | "state">;
+export type VersionInput = {
+  version: string;
+  image_digest?: string | null;
+  protocol_version: number;
+  config_schema_min: number;
+  config_schema_max: number;
+};
+export type DeployInput = {
+  to_version: string;
+  replicas: number;
+  initial_weight: 0;
+  auto_advance: boolean;
+};
 export type Command =
   | { kind: "register"; body: VersionInput }
-  | { kind: "deploy"; body: { to_version: string; replicas: number; initial_weight: 0 } }
+  | { kind: "deploy"; body: DeployInput }
+  | { kind: "pull"; id: string }
   | { kind: "shift"; id: string; body: { weights: Record<string, number> } }
   | { kind: "rollback"; id: string }
   | { kind: "drain"; id: string; body: { force: boolean; reason?: string } }
@@ -60,12 +74,22 @@ async function post<T>(path: `/${string}`, body?: unknown) {
   return apiRequest<T>(path, { method: "POST", body });
 }
 
+async function pull(id: string) {
+  const result = await post<Version>(`/cores/versions/${encodeURIComponent(id)}/pull`);
+  if (!result?.id || result.id !== id) throw invalid();
+  return result;
+}
+
 async function command(action: Command): Promise<string> {
   switch (action.kind) {
     case "register": {
       const result = await post<Version>("/cores/versions", action.body);
       if (!result?.id || result.version !== action.body.version) throw invalid();
       return `已登记版本 ${result.version}`;
+    }
+    case "pull": {
+      const result = await pull(action.id);
+      return `已拉取版本 ${result.version} 的镜像${result.image_digest ? ` · ${result.image_digest}` : ""}`;
     }
     case "deploy":
     case "shift":
@@ -115,6 +139,7 @@ export const coresApi = {
   },
   spool: (signal: AbortSignal) =>
     apiRequest<{ data: Spool[] }>("/cores/spool", { signal }).then(requireRows),
+  pull,
   command,
 };
 

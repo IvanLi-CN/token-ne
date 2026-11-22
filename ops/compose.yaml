@@ -57,6 +57,7 @@ services:
       CORE_ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:?set an absolute CORE_STATE_HOST_DIR}
       CORE_STATE_INIT_IMAGE: ${CORE_STATE_INIT_IMAGE:-busybox:1.37}
+      CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
       ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in the deployment environment}
@@ -96,6 +97,8 @@ services:
   caddy:
     image: caddy:2.11.9-alpine
     user: "65532:65532"
+    cap_drop:
+      - ALL
     cap_add:
       - NET_BIND_SERVICE
     depends_on:

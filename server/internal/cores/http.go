@@ -33,6 +33,7 @@ func (h *HTTP) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/cores", httpapi.ProtectRoute(h.list))
 	mux.HandleFunc("GET /api/cores/spool", httpapi.ProtectRoute(h.spool))
 	mux.HandleFunc("POST /api/cores/versions", httpapi.ProtectRoute(h.version))
+	mux.HandleFunc("POST /api/cores/versions/{version_id}/pull", httpapi.ProtectRoute(h.pullVersion))
 	mux.HandleFunc("POST /api/cores/deploy", httpapi.ProtectRoute(h.deploy))
 	mux.HandleFunc("POST /api/cores/deployments/{deployment_id}/shift", httpapi.ProtectRoute(h.shift))
 	mux.HandleFunc("POST /api/cores/deployments/{deployment_id}/rollback", httpapi.ProtectRoute(h.rollback))
@@ -282,18 +283,15 @@ func (h *HTTP) list(w http.ResponseWriter, r *http.Request) {
 		writeAdminError(w, 503, "storage_unavailable", "database unavailable")
 		return
 	}
-	versions := []map[string]any{}
+	versions := []VersionView{}
 	for rows.Next() {
-		var id, version, image string
-		var digest, commit *string
-		var protocol, min, max int
-		var created time.Time
-		if e = rows.Scan(&id, &version, &image, &digest, &protocol, &min, &max, &commit, &created); e != nil {
+		var version VersionView
+		if e = rows.Scan(&version.ID, &version.Version, &version.ImageRef, &version.ImageDigest, &version.Protocol, &version.SchemaMin, &version.SchemaMax, &version.Commit, &version.Created); e != nil {
 			rows.Close()
 			writeAdminError(w, 503, "storage_unavailable", "database unavailable")
 			return
 		}
-		versions = append(versions, map[string]any{"id": id, "version": version, "image_ref": image, "image_digest": digest, "protocol_version": protocol, "config_schema_min": min, "config_schema_max": max, "build_commit": commit, "created_at": created})
+		versions = append(versions, version)
 	}
 	rows.Close()
 	if e = rows.Err(); e != nil {
@@ -325,11 +323,38 @@ func (h *HTTP) version(w http.ResponseWriter, r *http.Request) {
 		mapAdmin(w, e)
 		return
 	}
-	if e = h.Runtime.Audit(ctx, actor, "core.version.register", "core_version", result["id"].(string), map[string]any{"version": input.Version}); e != nil {
+	if e = h.Runtime.Audit(ctx, actor, "core.version.register", "core_version", result.ID, map[string]any{"version": input.Version}); e != nil {
 		mapAdmin(w, e)
 		return
 	}
 	writeAdminJSON(w, 201, result)
+}
+
+// pullVersion refreshes a registered version image. Old versions keep their
+// stored reference, so an explicit pull is how an operator restores an image the
+// host no longer carries.
+func (h *HTTP) pullVersion(w http.ResponseWriter, r *http.Request) {
+	actor, _ := httpapi.AdminActor(r)
+	ctx, cancel := imagePullContext(w, r)
+	defer cancel()
+	result, e := h.Runtime.PullVersion(ctx, r.PathValue("version_id"))
+	if e != nil {
+		mapAdmin(w, e)
+		return
+	}
+	if e = h.Runtime.Audit(ctx, actor, "core.version.pull", "core_version", result.ID, map[string]any{"version": result.Version, "image_ref": result.ImageRef, "image_digest": result.ImageDigest}); e != nil {
+		mapAdmin(w, e)
+		return
+	}
+	writeAdminJSON(w, 200, result)
+}
+
+// imagePullContext bounds and extends an admin request that may pull an image.
+// The server-wide write deadline is far shorter than a registry pull, so the
+// handler raises it before the pull starts.
+func imagePullContext(w http.ResponseWriter, r *http.Request) (context.Context, context.CancelFunc) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(imagePullTimeout + time.Minute))
+	return context.WithTimeout(r.Context(), imagePullTimeout)
 }
 func (h *HTTP) deploy(w http.ResponseWriter, r *http.Request) {
 	var input DeploymentRequest
@@ -337,7 +362,7 @@ func (h *HTTP) deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := httpapi.AdminActor(r)
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := imagePullContext(w, r)
 	defer cancel()
 	result, e := h.Runtime.Deploy(ctx, actor, input)
 	if e != nil {

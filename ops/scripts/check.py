@@ -42,6 +42,7 @@ def check():
     require(services['caddy']['ports'] == ['127.0.0.1:${CADDY_HTTP_PORT:-8080}:80'], 'Caddy must bind loopback HTTP only')
     require(services['caddy'].get('user') == '65532:65532', 'Caddy must share the API UID')
     require(services['caddy'].get('cap_add') == ['NET_BIND_SERVICE'], 'Caddy needs only NET_BIND_SERVICE')
+    require(services['caddy'].get('cap_drop') == ['ALL'], 'Caddy must drop all capabilities before adding NET_BIND_SERVICE')
     require(services['api']['ports'] == ['127.0.0.1:${METRICS_PORT:-9090}:9090'], 'API may only publish loopback metrics')
     require(services['api']['environment']['CADDY_ADMIN_URL'] == 'unix:///run/caddy/admin.sock', 'API admin must use Unix socket')
     for name, service in services.items():
@@ -97,8 +98,19 @@ def check():
     dashboard = json.loads((ROOT / 'ops/grafana/dashboards/token-ne-overview.json').read_text())
     require(len(dashboard['panels']) >= 7, 'dashboard panels missing')
     scan_env()
-    print('PASS: YAML/JSON, network/port isolation, Caddy routes/admin, policy, monitoring and tracked env placeholders')
+    check_build_context()
+    print('PASS: YAML/JSON, network/port isolation, Caddy routes/admin/capabilities, policy, monitoring, build context and tracked env placeholders')
     print('NOT RUN: Docker Compose runtime/E2E, live metrics and Grafana rendering')
+
+
+def check_build_context():
+    patterns = [line.strip() for line in (ROOT / '.dockerignore').read_text().splitlines()]
+    patterns = [line for line in patterns if line and not line.startswith('#')]
+    for required in ('.env*', 'ops/.env', 'ops/state/', '*.log'):
+        require(required in patterns, f'.dockerignore must exclude {required} from the build context')
+    for exception in ('!web/dist', '!web/dist/**'):
+        require(exception in patterns, f'.dockerignore must keep {exception}')
+        require(patterns.index(exception) > patterns.index('**/dist'), f'{exception} must re-include the web build output')
 
 
 def scan_env():

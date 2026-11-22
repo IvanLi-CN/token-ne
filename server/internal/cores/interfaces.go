@@ -32,6 +32,8 @@ type Docker interface {
 	Remove(context.Context, string, bool) error
 	List(context.Context) ([]Container, error)
 	Inspect(context.Context, string) (Container, error)
+	InspectImage(context.Context, string) (Image, error)
+	PullImage(context.Context, string) (Image, error)
 }
 
 func shouldRestart(state, actual string) bool {

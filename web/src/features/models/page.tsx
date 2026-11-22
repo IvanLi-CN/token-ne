@@ -181,6 +181,7 @@ export default function ModelsPage() {
               (model) => filter === "all" || model.enabled === (filter === "enabled"),
             )}
             rowKey={(model) => model.model_id}
+            rowLabel={(model) => model.model_id}
             loading={models.isPending}
             error={errorMessage(models.error)}
             onRetry={() => void models.refetch()}
@@ -250,7 +251,11 @@ export default function ModelsPage() {
                     <DangerAction
                       label={model.enabled ? "禁用" : "启用"}
                       title={`${model.enabled ? "禁用" : "启用"} ${model.model_id}？`}
-                      description="禁用后该模型隐藏，推理请求返回 404。"
+                      description={
+                        model.enabled
+                          ? "禁用后该模型隐藏，推理请求返回 404。"
+                          : "启用后该模型重新对外提供，推理请求按已配置的上游能力路由。"
+                      }
                       action={async () => {
                         await modelsApi.update(model.model_id, { enabled: !model.enabled });
                         await refresh();

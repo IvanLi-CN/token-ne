@@ -280,6 +280,7 @@ export default function UpstreamsPage() {
             caption="上游列表"
             rows={upstreams.data ?? []}
             rowKey={(upstream) => upstream.id}
+            rowLabel={(upstream) => upstream.name}
             loading={upstreams.isPending}
             error={errorMessage(upstreams.error)}
             onRetry={() => void upstreams.refetch()}

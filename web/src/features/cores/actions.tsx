@@ -8,13 +8,14 @@ import { type Command, coresApi, type Deployment, type Instance, type Version } 
 
 export type Action =
   | { kind: "register" }
-  | { kind: "deploy"; version: Version }
+  | { kind: "pull" | "deploy"; version: Version }
   | { kind: "shift" | "rollback"; deployment: Deployment }
   | { kind: "drain" | "force" | "prune"; instance: Instance };
 
 const copy = {
-  register: ["登记版本", "登记镜像及其协议和配置兼容范围。"],
-  deploy: ["开始预热", "启动指定版本的实例，初始流量权重为 0。"],
+  register: ["登记版本", "登记版本及其协议和配置兼容范围；镜像由控制面按内置仓库解析。"],
+  pull: ["拉取镜像", "从镜像仓库拉取该版本的镜像并刷新登记的 digest；用于旧版本或手动刷新。"],
+  deploy: ["开始部署", "启动指定版本的实例，初始流量权重为 0；自动推进时按阶段切换。"],
   shift: ["切换权重", "预填下一阶段的目标权重；控制面验证阶段和权重。"],
   rollback: ["回滚部署", "流量将恢复到部署前的版本和权重。"],
   drain: [
@@ -42,17 +43,18 @@ function buildCommand(action: Action, fields: FormData): Command {
     case "register": {
       const body = {
         version: read("version"),
-        image_ref: read("image_ref"),
         image_digest: read("image_digest") || null,
         protocol_version: Number(read("protocol_version")),
         config_schema_min: Number(read("config_schema_min")),
         config_schema_max: Number(read("config_schema_max")),
       };
-      if (!body.version || !body.image_ref) throw new Error("请输入版本和镜像。");
+      if (!body.version) throw new Error("请输入版本。");
       if (body.config_schema_min > body.config_schema_max)
         throw new Error("配置 schema 下限不能高于上限。");
       return { kind: "register", body };
     }
+    case "pull":
+      return { kind: "pull", id: action.version.id };
     case "deploy":
       return {
         kind: "deploy",
@@ -60,6 +62,7 @@ function buildCommand(action: Action, fields: FormData): Command {
           to_version: action.version.version,
           replicas: Number(read("replicas")),
           initial_weight: 0,
+          auto_advance: fields.get("auto_advance") === "on",
         },
       };
     case "shift":
@@ -199,10 +202,6 @@ export function CoreActionDialog({
                     版本
                     <Input id="core-version" name="version" required />
                   </label>
-                  <label className="grid gap-1 text-sm" htmlFor="core-image_ref">
-                    镜像引用
-                    <Input id="core-image_ref" name="image_ref" required />
-                  </label>
                   <label className="grid gap-1 text-sm" htmlFor="core-image_digest">
                     镜像 digest
                     <Input id="core-image_digest" name="image_digest" placeholder="sha256:…" />
@@ -215,7 +214,13 @@ export function CoreActionDialog({
                 </>
               )}
               {action.kind === "deploy" && (
-                <NumberField label="副本数" name="replicas" value={1} min={1} max={10} />
+                <>
+                  <NumberField label="副本数" name="replicas" value={1} min={1} max={10} />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="auto_advance" defaultChecked />
+                    自动推进权重
+                  </label>
+                </>
               )}
               {action.kind === "shift" &&
                 Object.entries(action.deployment.target_weights).map(([key, value]) => (

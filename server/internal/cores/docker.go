@@ -41,6 +41,25 @@ type Container struct {
 	} `json:"NetworkSettings"`
 }
 
+// Image is the Docker Engine image inspect subset the control plane needs. The
+// registry digest is not part of a local image identity: it is recorded per
+// repository when the image was pulled.
+type Image struct {
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	RepoDigests []string `json:"RepoDigests"`
+}
+
+// RepositoryDigest returns the digest Docker recorded for repo, if any.
+func (i Image) RepositoryDigest(repo string) (string, bool) {
+	for _, entry := range i.RepoDigests {
+		if name, digest, ok := strings.Cut(entry, "@"); ok && name == repo && imageDigestPattern.MatchString(digest) {
+			return digest, true
+		}
+	}
+	return "", false
+}
+
 type ContainerSpec struct {
 	Instance, Version, Deployment, Name, Image, Project    string
 	Networks                                               []string
@@ -51,7 +70,10 @@ type ContainerSpec struct {
 }
 
 type Engine struct {
-	HTTP           *http.Client
+	HTTP *http.Client
+	// PullHTTP carries the long pull timeout; HTTP keeps the short deadline used
+	// by every other Engine call.
+	PullHTTP       *http.Client
 	Base           string
 	StateInitImage string
 }
@@ -74,7 +96,10 @@ func NewEngine(dockerHost string) (*Engine, error) {
 		}
 		return (&net.Dialer{}).DialContext(ctx, "tcp", u.Host)
 	}}
-	return &Engine{HTTP: &http.Client{Transport: tr, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, Base: "http://docker/v1.44", StateInitImage: "busybox:1.37"}, nil
+	redirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	base := &http.Client{Transport: tr, Timeout: 15 * time.Second, CheckRedirect: redirect}
+	pull := &http.Client{Transport: tr, Timeout: imagePullTimeout, CheckRedirect: redirect}
+	return &Engine{HTTP: base, PullHTTP: pull, Base: "http://docker/v1.44", StateInitImage: "busybox:1.37"}, nil
 }
 
 // EnsureStateDir creates the per-instance host directory with the core UID.
@@ -316,4 +341,83 @@ func (c *Container) UnmarshalJSON(raw []byte) error {
 func (e *Engine) Health(ctx context.Context, id string) (string, error) {
 	c, err := e.Inspect(ctx, id)
 	return c.Health, err
+}
+
+// InspectImage resolves a reference against the local engine. A missing image is
+// an error, so callers can tell presence from absence.
+func (e *Engine) InspectImage(ctx context.Context, ref string) (Image, error) {
+	parsed, err := ParseImageReference(ref)
+	if err != nil {
+		return Image{}, err
+	}
+	var image Image
+	err = e.call(ctx, http.MethodGet, "/images/"+parsed.String()+"/json", nil, &image)
+	return image, err
+}
+
+// PullImage pulls ref anonymously and returns the inspected image so callers can
+// read the resolved registry digest. The control plane intentionally sends no
+// registry credentials: private registries are a deployment-host concern.
+func (e *Engine) PullImage(ctx context.Context, ref string) (Image, error) {
+	parsed, err := ParseImageReference(ref)
+	if err != nil {
+		return Image{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, imagePullTimeout)
+	defer cancel()
+	query := url.Values{}
+	if parsed.Digest != "" {
+		query.Set("fromImage", parsed.Repository+"@"+parsed.Digest)
+	} else {
+		query.Set("fromImage", parsed.Repository)
+		if parsed.Tag != "" {
+			query.Set("tag", parsed.Tag)
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.Base+"/images/create?"+query.Encode(), nil)
+	if err != nil {
+		return Image{}, err
+	}
+	client := e.PullHTTP
+	if client == nil {
+		client = e.HTTP
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return Image{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		return Image{}, fmt.Errorf("Docker Engine pull %s: HTTP %d", parsed.String(), res.StatusCode)
+	}
+	if err = consumePull(res.Body); err != nil {
+		return Image{}, err
+	}
+	return e.InspectImage(ctx, parsed.String())
+}
+
+// consumePull drains Docker's progress stream and surfaces the first error
+// record. Progress lines carry no value for the control plane.
+func consumePull(body io.Reader) error {
+	decoder := json.NewDecoder(io.LimitReader(body, 8<<20))
+	for {
+		var record struct {
+			Error       string `json:"error"`
+			ErrorDetail *struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := decoder.Decode(&record); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if record.Error != "" {
+			return fmt.Errorf("image pull failed: %s", record.Error)
+		}
+		if record.ErrorDetail != nil && record.ErrorDetail.Message != "" {
+			return fmt.Errorf("image pull failed: %s", record.ErrorDetail.Message)
+		}
+	}
 }

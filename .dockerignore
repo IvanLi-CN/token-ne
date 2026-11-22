@@ -5,5 +5,9 @@
 **/coverage
 **/.vite
 .DS_Store
+.env*
+ops/.env
+ops/state/
+*.log
 !web/dist
 !web/dist/**
