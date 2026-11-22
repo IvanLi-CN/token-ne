@@ -178,7 +178,7 @@ func (a *API) testUpstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base, _ := url.Parse(u.BaseURL)
-	base.Path = strings.TrimRight(base.Path, "/") + "/models"
+	base.Path = strings.TrimRight(base.Path, "/") + "/v1/models"
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(u.Connect+u.FirstByte)*time.Millisecond)
 	defer cancel()
 	req, e := http.NewRequestWithContext(ctx, "GET", base.String(), nil)
