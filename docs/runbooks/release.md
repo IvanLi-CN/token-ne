@@ -62,7 +62,7 @@ curl -fsS https://$PUBLIC_DOMAIN/api/version
 1. 正常 dispatch。镜像会先推送到 GHCR，此时两个 package 默认是 private。
 2. `publish` job 的匿名 `docker pull` 会失败，workflow 在创建 GitHub Release 前停止。
 3. 在 GitHub package settings 中分别把 `token-ne-core` 和 `token-ne-api` 的 visibility 改为 public。
-4. 重新运行同一 release workflow；同一 SHA/tag 会走 same-identity recovery，匿名拉取通过后才创建 GitHub Release。
+4. 在原 workflow run 上选择 **Re-run all jobs**；同一 SHA/tag 会走 same-identity recovery，匿名拉取通过后才创建 GitHub Release。
 
 ## 失败恢复
 

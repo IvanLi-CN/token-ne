@@ -52,6 +52,7 @@ def canonical_version(
     reachable_tags: list[str],
     source_tags: list[str],
     all_tags: list[str],
+    run_attempt: int = 1,
 ) -> dict[str, object]:
     source_versions = sorted(
         version for tag in source_tags if (version := parse_final_tag(tag)) is not None
@@ -62,10 +63,22 @@ def canonical_version(
         version = source_versions[0]
         if target not in SYMBOLIC and parse_version(target) != version:
             raise PolicyError("exact target does not match the existing source tag")
+        if run_attempt <= 1:
+            raise PolicyError(
+                "source already has a final release tag; re-run the original workflow"
+            )
+        reachable_versions = [
+            candidate
+            for tag in reachable_tags
+            if (candidate := parse_final_tag(tag)) is not None
+        ]
+        baseline = max(reachable_versions, default=(0, 0, 0))
+        if version < baseline:
+            raise PolicyError("existing source tag is below the trusted baseline")
         return {
             "version": format_version(version),
             "tag": f"v{format_version(version)}",
-            "baseline": format_version(version),
+            "baseline": format_version(baseline),
             "recovery": True,
         }
 
@@ -107,6 +120,7 @@ def cli(argv: list[str]) -> int:
     resolve.add_argument("--target", required=True)
     resolve.add_argument("--source", default="HEAD")
     resolve.add_argument("--repo", default=".")
+    resolve.add_argument("--run-attempt", type=int, default=1)
     args = parser.parse_args(argv)
     if args.command != "resolve":
         return 2
@@ -116,7 +130,9 @@ def cli(argv: list[str]) -> int:
         reachable = git(repo, "tag", "--merged", source, "--list", "v*").splitlines()
         at_source = git(repo, "tag", "--points-at", source, "--list", "v*").splitlines()
         all_tags = git(repo, "tag", "--list", "v*").splitlines()
-        result = canonical_version(args.target, reachable, at_source, all_tags)
+        result = canonical_version(
+            args.target, reachable, at_source, all_tags, run_attempt=args.run_attempt
+        )
         result["source"] = source
         print(json.dumps(result, sort_keys=True))
         return 0

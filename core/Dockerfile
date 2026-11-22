@@ -19,9 +19,11 @@ FROM debian:bookworm-slim
 ARG APP_VERSION=0.1.0
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
+ARG OCI_SOURCE=https://github.com/IvanLi-CN/token-ne
 LABEL org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.revision=$GIT_COMMIT \
-      org.opencontainers.image.created=$BUILD_TIMESTAMP
+      org.opencontainers.image.created=$BUILD_TIMESTAMP \
+      org.opencontainers.image.source=$OCI_SOURCE
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*

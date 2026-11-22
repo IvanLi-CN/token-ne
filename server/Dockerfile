@@ -22,9 +22,11 @@ FROM gcr.io/distroless/static-debian12:nonroot
 ARG APP_VERSION=0.0.0-dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
+ARG OCI_SOURCE=https://github.com/IvanLi-CN/token-ne
 LABEL org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.revision=$GIT_COMMIT \
-      org.opencontainers.image.created=$BUILD_TIMESTAMP
+      org.opencontainers.image.created=$BUILD_TIMESTAMP \
+      org.opencontainers.image.source=$OCI_SOURCE
 COPY --from=builder /out/api /app/api
 EXPOSE 8080 9090
 ENTRYPOINT ["/app/api"]

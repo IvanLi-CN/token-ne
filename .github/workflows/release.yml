@@ -38,7 +38,7 @@ jobs:
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          result=$(python3 ops/release/version_policy.py resolve --target "$TARGET" --source "$GITHUB_SHA" --repo .)
+          result=$(python3 ops/release/version_policy.py resolve --target "$TARGET" --source "$GITHUB_SHA" --repo . --run-attempt "${GITHUB_RUN_ATTEMPT:-1}")
           echo "$result"
           echo "version=$(jq -r .version <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "tag=$(jq -r .tag <<<"$result")" >> "$GITHUB_OUTPUT"
@@ -60,9 +60,12 @@ jobs:
           else
             test "$(git rev-parse origin/main)" = "${SOURCE}"
           fi
+          suite=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+            --jq '[.workflow_runs[] | select(.event == "push")] | sort_by(.run_started_at) | last | .check_suite_id')
+          test -n "$suite" && test "$suite" != "null" || { echo "no ci run for ${GITHUB_SHA}" >&2; exit 1; }
           runs=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100")
           for name in core core-smoke server e2e-tools web contracts release-policy; do
-            state=$(jq -r --arg name "$name" '[.[].check_runs[] | select(.name == $name and .app.slug == "github-actions")] | sort_by(.started_at) | last | if . == null then "missing" else "\(.status):\(.conclusion // "")" end' <<<"$runs")
+            state=$(jq -r --arg name "$name" --arg suite "$suite" '[.[].check_runs[] | select(.name == $name and .check_suite.id == ($suite | tonumber))] | sort_by(.started_at) | last | if . == null then "missing" else "\(.status):\(.conclusion // "")" end' <<<"$runs")
             test "$state" = "completed:success" || { echo "CI check ${name}: ${state}" >&2; exit 1; }
           done
 
@@ -159,7 +162,7 @@ jobs:
           SOURCE: ${{ needs.resolve.outputs.source }}
         run: |
           set -euo pipefail
-          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+          if probe=$(docker buildx imagetools inspect "$IMAGE" 2>&1); then
             docker pull "$IMAGE"
             revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")
             version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")
@@ -168,8 +171,11 @@ jobs:
             repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
             echo "digest=${repo_digest##*@}" >> "$GITHUB_OUTPUT"
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif grep -Eqi 'manifest unknown|not found|no such manifest|name unknown' <<<"$probe"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$probe" >&2
+            exit 1
           fi
       - name: Build and push core
         id: build
@@ -185,6 +191,7 @@ jobs:
             APP_VERSION=${{ needs.resolve.outputs.version }}
             GIT_COMMIT=${{ needs.resolve.outputs.source }}
             BUILD_TIMESTAMP=${{ needs.resolve.outputs.built_at }}
+            OCI_SOURCE=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=token-ne-core
           cache-to: type=gha,mode=max,scope=token-ne-core
       - name: Save digest
@@ -239,7 +246,7 @@ jobs:
           SOURCE: ${{ needs.resolve.outputs.source }}
         run: |
           set -euo pipefail
-          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+          if probe=$(docker buildx imagetools inspect "$IMAGE" 2>&1); then
             docker pull "$IMAGE"
             revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")
             version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")
@@ -248,8 +255,11 @@ jobs:
             repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
             echo "digest=${repo_digest##*@}" >> "$GITHUB_OUTPUT"
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif grep -Eqi 'manifest unknown|not found|no such manifest|name unknown' <<<"$probe"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$probe" >&2
+            exit 1
           fi
       - name: Build and push API
         id: build
@@ -265,6 +275,7 @@ jobs:
             APP_VERSION=${{ needs.resolve.outputs.version }}
             GIT_COMMIT=${{ needs.resolve.outputs.source }}
             BUILD_TIMESTAMP=${{ needs.resolve.outputs.built_at }}
+            OCI_SOURCE=https://github.com/${{ github.repository }}
             CORE_IMAGE_REPOSITORY=${{ steps.image.outputs.core_name }}
           cache-from: type=gha,scope=token-ne-api
           cache-to: type=gha,mode=max,scope=token-ne-api

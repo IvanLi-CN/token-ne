@@ -34,11 +34,23 @@ class VersionPolicyTest(unittest.TestCase):
         self.assertEqual(result["version"], "1.2.4")
 
     def test_existing_source_tag_recovers_same_identity(self):
-        result = canonical_version("patch", ["v1.2.3"], ["v1.2.3"], ["v1.2.3"])
+        result = canonical_version("patch", ["v1.2.3"], ["v1.2.3"], ["v1.2.3"], run_attempt=2)
         self.assertEqual(result["version"], "1.2.3")
         self.assertTrue(result["recovery"])
         with self.assertRaises(PolicyError):
-            canonical_version("1.2.4", ["v1.2.3"], ["v1.2.3"], ["v1.2.3"])
+            canonical_version(
+                "1.2.4", ["v1.2.3"], ["v1.2.3"], ["v1.2.3"], run_attempt=2
+            )
+
+    def test_new_dispatch_cannot_silently_reuse_an_existing_release(self):
+        with self.assertRaises(PolicyError):
+            canonical_version("patch", ["v1.2.3"], ["v1.2.3"], ["v1.2.3"], run_attempt=1)
+
+    def test_recovery_cannot_regress_below_baseline(self):
+        with self.assertRaises(PolicyError):
+            canonical_version(
+                "patch", ["v1.2.3", "v2.0.0"], ["v1.2.3"], ["v1.2.3", "v2.0.0"], run_attempt=2
+            )
 
     def test_tag_owned_by_another_source_fails(self):
         with self.assertRaises(PolicyError):

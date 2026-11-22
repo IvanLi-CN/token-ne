@@ -39,5 +39,5 @@ Accepted.
 - 发布只需要 owner 选择一个 target；版本、tag、镜像和 Release 由 workflow 统一绑定。
 - 发布构建不需要修改 `main` 或版本文件，保持 PR-only 分支保护。
 - 失败发布只能对同一 tag/SHA 重试，不能自动生成下一个版本。
-- 需要 GHCR package 写权限、可创建 `v*` tag 的 workflow 权限，以及 tag protection 的 owner 配置。
-- 开发构建和发布构建的版本显示需要区分：开发为 `<manifest>+dev.<short-sha>`，发布为精确 `X.Y.Z`。
+- 需要 GHCR package 写权限和可创建 `v*` tag 的 workflow 权限；当前仓库没有 tag protection，若以后添加 ruleset，必须允许 release workflow 创建 tag。
+- 开发构建报告各自 manifest 的默认版本；只有发布构建报告精确 `X.Y.Z`。产品版本不要求开发构建与 release 版本相同。

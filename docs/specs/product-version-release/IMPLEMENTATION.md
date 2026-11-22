@@ -47,7 +47,7 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 - `server/internal/httpapi` 增加公开 `GET /api/version`。
 - `web/vite.config.ts` 注入 `VITE_APP_VERSION`，构建时生成 `web/dist/version.json`。
 - Web 版本展示读取 `GET /api/version`，不直接使用 `web/package.json`。
-- 开发构建显示 `<manifest>+dev.<short-sha>`；发布构建显示精确 `X.Y.Z`。
+- 开发构建报告 manifest 默认版本；发布构建显示精确 `X.Y.Z`。
 
 ### CI efficiency
 
