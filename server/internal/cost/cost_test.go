@@ -26,4 +26,12 @@ func TestCalculateUnknownAndFree(t *testing.T) {
 	if ok {
 		t.Fatal("cached token count greater than input should not be priced")
 	}
+	cost, ok = Calculate(Prices{&a, &b, &c}, nil, nil, &output)
+	if !ok || cost != nil {
+		t.Fatalf("missing input tokens: %v %v", cost, ok)
+	}
+	cost, ok = Calculate(Prices{&a, &b, &c}, &input, nil, nil)
+	if !ok || cost != nil {
+		t.Fatalf("missing output tokens: %v %v", cost, ok)
+	}
 }
