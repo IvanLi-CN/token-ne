@@ -9,6 +9,11 @@ export interface AdminUser {
   id: string;
   username: string;
 }
+export interface RuntimeVersion {
+  version: string;
+  commit: string;
+  built_at: string;
+}
 export interface LoginRequest {
   username: string;
   password: string;
@@ -83,6 +88,23 @@ function validAdmin(user: AdminUser): AdminUser {
     throw new ApiError(502, "invalid_response", "管理员响应格式无效");
   return user;
 }
+function validRuntimeVersion(value: RuntimeVersion): RuntimeVersion {
+  if (
+    !value ||
+    typeof value.version !== "string" ||
+    typeof value.commit !== "string" ||
+    typeof value.built_at !== "string"
+  )
+    throw new ApiError(502, "invalid_response", "版本响应格式无效");
+  return value;
+}
+export const versionApi = {
+  get: (signal?: AbortSignal) =>
+    apiRequest<RuntimeVersion>("/version", {
+      signal,
+      redirectOnUnauthorized: false,
+    }).then(validRuntimeVersion),
+};
 export const authApi = {
   me: (signal?: AbortSignal) =>
     apiRequest<AdminUser>("/auth/me", { signal, redirectOnUnauthorized: false }).then(validAdmin),

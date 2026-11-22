@@ -12,6 +12,7 @@ import {
 } from "react-router";
 import { CommandPanel } from "../components/command-panel";
 import { Button, Spinner } from "../components/primitives";
+import { VersionBadge } from "../components/version-badge";
 import { type AdminUser, authApi } from "../lib/api";
 import { useAdaptiveState } from "./adaptive-state";
 import { useTheme } from "./theme";
@@ -166,6 +167,7 @@ export function AppShell() {
       </main>
       <footer className="system-footer">
         <span>token-ne · 控制面</span>
+        <VersionBadge />
         <span className="admin-name">{user.username}</span>
         <span>已固定 {pinned.length} 个页面</span>
         <Button variant="secondary" onClick={reset}>

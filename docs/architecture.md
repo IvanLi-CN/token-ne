@@ -1626,6 +1626,17 @@ networks:
 - API 镜像不包含 Node/Bun；前端和后端作为同一镜像发布，避免版本错配。
 - 静态资源使用内容哈希；`index.html` 不缓存。
 
+## 构建与发布
+
+- 发布入口是 `.github/workflows/release.yml` 的 `workflow_dispatch.target`，只接受 `patch`、`minor`、`major` 或完整 `X.Y.Z`。
+- canonical version 由 trusted final tag baseline 解析；没有 final tag 时虚拟 baseline 为 `0.0.0`。
+- 发布在固定 `main` SHA 上创建不可变 `vX.Y.Z` tag；同 SHA 的已有 tag 只允许 same-identity recovery。
+- core、API 和内嵌 Web 共用 canonical version；core 通过 `APP_VERSION` 构建注入，API 通过 `-ldflags` 注入，Web 通过 `VITE_APP_VERSION` 注入。
+- Web 独立构建并生成 `web/dist/version.json`；API 镜像只复制该 artifact，不在 Docker 内重新构建前端。
+- 生产镜像使用精确 `X.Y.Z` 标签：`token-ne-core:X.Y.Z` 与 `token-ne-api:X.Y.Z`；不使用 `latest` 或 `-sha` 后缀。
+- 发布 workflow 在镜像成功后才创建 GitHub Release；失败只对同一 tag/SHA 重试。
+- 设计合同见 [`specs/product-version-release/SPEC.md`](./specs/product-version-release/SPEC.md)，操作步骤见 [`runbooks/release.md`](./runbooks/release.md)。
+
 ## 升级与回滚
 
 ### 升级流程

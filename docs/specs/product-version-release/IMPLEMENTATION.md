@@ -4,15 +4,24 @@
 
 ## Current Status
 
-- Implementation: 未开始
+- Implementation: 已实现，待首次发布验证
 - Lifecycle: active
-- Catalog note: None
+- Catalog note: release workflow 已完成，但尚未产生真实 tag、镜像或 GitHub Release
 
 ## Implementation Coverage
 
-- Requirement coverage: 尚未实现。
-- Verification commands: 尚未建立。
-- Rollout facts: 尚未发布任何镜像或 tag。
+- Requirement coverage:
+  - `REQ-PVR-001`、`REQ-PVR-002`、`REQ-PVR-003`、`REQ-PVR-008`: `ops/release/version_policy.py`、`.github/workflows/release.yml`
+  - `REQ-PVR-004`、`REQ-PVR-009`: `core/build.rs`、`server/internal/version`、`core/Dockerfile`、`server/Dockerfile`
+  - `REQ-PVR-005`、`REQ-PVR-006`、`REQ-PVR-010`: release workflow 的 web/core/API job 与 Docker build args
+  - `REQ-PVR-007`: `server/internal/httpapi/version.go`、`web/src/components/version-badge.tsx`
+- Verification commands:
+  - `python3 -m unittest discover -s ops/release -p 'test_*.py'`
+  - `cd core && APP_VERSION=9.9.9 cargo test`
+  - `cd server && go test ./...`
+  - `cd web && bun run typecheck && bun run lint && bun run test && VITE_APP_VERSION=9.9.9 bun run build`
+  - `bun --no-install <skills>/bin/spec_contract_check.ts --path docs/specs/product-version-release/SPEC.md`
+- Rollout facts: 尚未发布任何镜像或 tag；首次真实发布仍需要 GHCR、tag protection 与 owner 触发。
 
 ## Planned Implementation
 
@@ -69,14 +78,16 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 | `server/internal/httpapi/router.go` | 注册 `GET /api/version` |
 | `server/internal/httpapi/version.go` | 版本响应 |
 | `server/internal/httpapi/version_test.go` | 版本响应测试 |
-| `web/vite.config.ts` | 注入 `VITE_APP_VERSION` |
-| `web/src/features/...` | 页脚/设置页版本展示 |
-| `web/src/pages/...` | 版本展示测试 |
+| `web/vite.config.ts` | 注入 `VITE_APP_VERSION` 并生成 `dist/version.json` |
+| `web/src/components/version-badge.tsx` | 页脚运行时版本展示 |
+| `web/src/components/version-badge.test.tsx` | 版本展示测试 |
+| `docs/api.md` | 运行时版本接口说明 |
+| `openapi.yaml` | `/api/version` 契约 |
 | `docs/tech-selection.md` | 镜像标签改为精确 `X.Y.Z` |
 | `docs/architecture.md` | 发布和版本传递边界 |
 | `docs/runbooks/release.md` | 手动发布与恢复 runbook |
 | `GLOSSARY.md` | release target、canonical/effective version、release identity |
-| `docs/README.md` | 新 Spec 与 ADR 索引 |
+| `docs/README.md` | 新 Spec 与 Runbook 索引 |
 
 ## Coverage / rollout summary
 
@@ -85,9 +96,10 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 
 ## Remaining Gaps
 
-- 所有需求尚未实现。
 - GHCR package 权限、tag protection 和 `GITHUB_TOKEN` 权限属于 owner 侧前置条件。
 - Release workflow 的远端实际运行需要首次发布时验证。
+- 生产环境部署仍需手工更新 Compose 镜像标签；本期不自动部署。
+- 首次真实发布后才能验证 GitHub Release notes 与镜像 digest 的实际呈现。
 
 ## Related Changes
 

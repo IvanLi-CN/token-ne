@@ -15,6 +15,7 @@
 - [Web 设计规格](../DESIGN.md)：页面、状态、交互和视觉边界。
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
 - [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、镜像身份和恢复边界。
+- [产品版本发布 Runbook](./runbooks/release.md)：手动 target、镜像验证、失败恢复和禁止事项。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。
 - [状态码改写策略示例](./examples/status-rewrite.yaml)：第一版 YAML 规则文件示例。
 

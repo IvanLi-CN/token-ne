@@ -65,6 +65,7 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m := http.NewServeMux()
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	m.HandleFunc("GET /readyz", a.ready)
+	m.HandleFunc("GET /api/version", a.version)
 	m.HandleFunc("POST /api/auth/login", a.login)
 	m.HandleFunc("POST /api/auth/logout", a.protect(a.logout))
 	m.HandleFunc("GET /api/auth/me", a.protect(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, currentAdmin(r)) }))

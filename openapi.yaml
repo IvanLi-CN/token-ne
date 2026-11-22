@@ -14,6 +14,8 @@ servers:
     description: 本地或外部 TLS 代理后的入口
 
 tags:
+  - name: system
+    description: 控制面运行时版本
   - name: auth
     description: 管理员登录、退出和当前会话
   - name: models
@@ -101,6 +103,26 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
+  /api/version:
+    get:
+      tags: [system]
+      summary: 控制面运行时版本
+      operationId: getRuntimeVersion
+      security: []
+      responses:
+        "200":
+          description: 当前 API 镜像的版本与构建信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeVersion"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1578,6 +1600,19 @@ components:
           format: uuid
         username:
           type: string
+    RuntimeVersion:
+      type: object
+      required: [version, commit, built_at]
+      properties:
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: 7bf2870
+        built_at:
+          type: string
+          format: date-time
     Billing:
       type: object
       required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok]

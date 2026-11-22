@@ -30,4 +30,4 @@
 
 |Topic|Lifecycle|Implementation|Spec|Successor|Notes|
 |---|---|---|---|---|---|
-|product-version-release|active|未开始|`product-version-release/SPEC.md`|-|target-only 手动发布、统一版本与镜像身份|
+|product-version-release|active|已实现，待首次发布验证|`product-version-release/SPEC.md`|-|target-only 手动发布、统一版本与镜像身份|
