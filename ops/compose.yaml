@@ -33,7 +33,9 @@ services:
       - data
 
   api:
-    build: ../server
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     depends_on:
       socket-proxy:
         condition: service_started
@@ -54,6 +56,9 @@ services:
       CORE_CACHE_KEY: ${CORE_CACHE_KEY:?set CORE_CACHE_KEY in the deployment environment}
       CORE_ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:?set an absolute CORE_STATE_HOST_DIR}
+      CORE_STATE_INIT_IMAGE: ${CORE_STATE_INIT_IMAGE:-busybox:1.37}
+      CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
+      ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in the deployment environment}
       ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in the deployment environment}
@@ -78,11 +83,29 @@ services:
       - core-control
       - data
 
+  caddy-init:
+    image: busybox:1.37
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_admin:/run/caddy
+    command: ["sh", "-c", "chown -R 65532:65532 /data /config /run/caddy"]
+
   caddy:
     image: caddy:2.11.9-alpine
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     depends_on:
       api:
         condition: service_healthy
+      caddy-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${CADDY_HTTP_PORT:-8080}:80"
     volumes:
@@ -103,7 +126,7 @@ services:
       - edge
 
   core:
-    image: ${CORE_IMAGE:-token-ne-core:dev}
+    image: ${CORE_IMAGE:-token-ne-core:0.1.0}
     build:
       context: ..
       dockerfile: core/Dockerfile
@@ -111,7 +134,7 @@ services:
       api:
         condition: service_healthy
     environment:
-      CORE_VERSION: ${CORE_VERSION:-dev}
+      CORE_VERSION: ${CORE_VERSION:-0.1.0}
       CORE_INSTANCE_ID: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
       CORE_CONTROL_PLANE_URL: http://api:8080
       CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN:?set CORE_CONTROL_TOKEN in the deployment environment}
@@ -130,7 +153,7 @@ services:
       - ${CORE_STATE_HOST_DIR:?set an absolute CORE_STATE_HOST_DIR}/0193f0c2-7b1a-7c3e-9f00-0000000000b1:/var/lib/token-ne/state
     labels:
       com.token-ne.role: core
-      com.token-ne.version: ${CORE_VERSION:-dev}
+      com.token-ne.version: ${CORE_VERSION:-0.1.0}
       com.token-ne.instance: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
     healthcheck:
       test: ["CMD", "/app/core", "healthcheck"]

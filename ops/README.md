@@ -15,7 +15,7 @@
 
 网络名固定为 `token_ne_edge`、`token_ne_core_control`、`token_ne_data`，动态核心使用相同网络。不要在同一 Docker daemon 上并行部署使用相同网络名的独立项目。核心不能加入 `data`，不能挂载数据库、Docker socket 或 Caddy 管理目录；API 不挂载核心状态目录。socket-proxy 即使只读挂载 Docker socket，允许的 Docker API 写操作仍有宿主级权限，不能发布其端口。
 
-Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后将 `/v1/*` 转发到基线核心、`/api/*` 与健康路径转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
+Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。API 与 Caddy 都固定为 UID/GID `65532:65532`；`caddy-init` 在启动前把三个 Caddy 卷 chown 给该 UID，避免 Caddy 重建 socket 后权限回退。Caddy 先丢弃全部 capabilities，仅加回 `NET_BIND_SERVICE` 以绑定容器内 80。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后将 `/v1/*` 转发到基线核心、`/api/*` 与健康路径转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
 
 ## 环境变量
 
@@ -35,12 +35,26 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `CORE_CONFIG_SIGNATURE_MODE` | `off` / `warn`（默认）/ `enforce`；签名不替代内部令牌认证 |
 | `METRICS_TOKEN` | 必需，独立随机抓取令牌；与 Prometheus credentials 文件内容一致 |
 | `CORE_STATE_HOST_DIR` | 必需，宿主绝对目录，权限 `0700`；每个 core 仅挂载自己的实例子目录 |
-| `CORE_IMAGE`、`CORE_VERSION` | 开发默认 `token-ne-core:dev` / `dev`；生产显式设置真实版本与不可变镜像或 digest，本地 build 保留为开发入口 |
+| `CORE_STATE_INIT_IMAGE` | 可选，默认 `busybox:1.37`；为动态实例创建状态子目录的一次性容器镜像。控制面不拉取该镜像，必须已在部署宿主预拉取；默认的 busybox 由 `caddy-init` 服务预先拉取，换用其他镜像前先 `docker pull` |
+| `CORE_IMAGE_REPOSITORY` | 可选，默认 `ghcr.io/ivanli-cn/token-ne-core`；核心镜像仓库，动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>`。新版本部署由控制面自动拉取该镜像 |
+| `CORE_IMAGE`、`CORE_VERSION` | 默认 `token-ne-core:0.1.0` / `0.1.0`；只描述 Compose 声明的基线 core，本地 build 保留为开发入口；动态实例的镜像由 `CORE_IMAGE_REPOSITORY` 与版本决定 |
 | `COMPOSE_PROJECT_NAME` | 示例为 `token-ne`；动态容器的项目标签必须与之相符，固定网络名不会随项目名变化 |
 | `CADDY_HTTP_PORT`、`METRICS_PORT` | 默认 `8080` / `9090`，均仅绑定 loopback |
 | `CADDY_TLS_MODE` | 默认 `off`，生产基线依赖外部 TLS 反向代理 |
 
 Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS`、`STATUS_REWRITE_CONFIG` 与核心内部监听地址，不需要在 `.env` 再配置。基线实例 ID 为 `0193f0c2-7b1a-7c3e-9f00-0000000000b1`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
+
+## API 镜像与 Web 构建
+
+API 镜像不负责下载前端依赖。发布前先在 `web/` 执行 `bun install --frozen-lockfile && bun run build`，生成的 `web/dist` 会由 API 构建上下文嵌入镜像。`.dockerignore` 必须保留 `!web/dist` 与 `!web/dist/**` 例外；缺失时镜像构建会在 `COPY web/dist` 处失败，而不是产出一个只有占位页的镜像。Compose 的 `api.build.context` 是仓库根目录，Dockerfile 为 `server/Dockerfile`。`.dockerignore` 同时排除 `.env*`、`ops/.env`、`ops/state/` 与 `*.log`，构建上下文不携带部署密钥、本地状态或日志。
+
+## 核心镜像与拉取
+
+核心只有一个镜像仓库，由 `CORE_IMAGE_REPOSITORY` 指定；每个版本的镜像就是该仓库加版本标签，或直接引用 digest（`<repo>:<version>` / `<repo>@<digest>`）。控制面不构建镜像，只在部署时通过 Docker Engine 拉取。当前仓库公开，控制面匿名拉取，不需要凭据；私有仓库认证属于部署宿主的后续配置，本期未实现，不要指望控制面持有 registry 凭据。
+
+- 新版本部署：创建实例前自动拉取目标镜像；这是正常发布路径，发布默认自动推进（`auto_advance` 默认 `true`），新实例 ready 后自动进入 10%，再按 0/10/50/100 推进。
+- 旧版本或手动刷新：显式调用 `POST /api/cores/versions/{version_id}/pull`。
+- 回滚：不自动拉取镜像；宿主机上缺少该镜像时回滚失败，必须先恢复镜像或先显式拉取。
 
 ## 离线检查
 
@@ -54,7 +68,7 @@ python3 -m json.tool ops/caddy/bootstrap.json >/dev/null
 python3 ops/scripts/check.py
 ```
 
-`check.py` 同时检查服务/网络/端口隔离、Unix 管理面、路由顺序与终止、SSE 刷新、固定 ID、监控示例和策略安全边界；状态码策略必须与 `docs/examples/status-rewrite.yaml` 一致。它通过 `git ls-files` 检查当前跟踪的 env 文件，拒绝真实 env 文件及示例中敏感变量的非占位值，错误输出仅包含路径与行号，不打印值。该检查是特定 env 约束，不是所有代码、Git 历史或运行日志的通用秘密检测器；提交前仍需审阅完整 diff。
+`check.py` 同时检查服务/网络/端口隔离、Caddy 管理面与 capabilities、路由顺序与终止、SSE 刷新、固定 ID、监控示例、策略安全边界和 `.dockerignore` 的必需排除项；状态码策略必须与 `docs/examples/status-rewrite.yaml` 一致。它通过 `git ls-files` 检查当前跟踪的 env 文件，拒绝真实 env 文件及示例中敏感变量的非占位值，错误输出仅包含路径与行号，不打印值。该检查是特定 env 约束，不是所有代码、Git 历史或运行日志的通用秘密检测器；提交前仍需审阅完整 diff。
 
 只有在授权的部署环境确认 Docker daemon 可用后，才执行下面的 Compose 校验；展开结果可能含密钥，不保存输出。离线检查不等价于 Caddy 二进制 schema 校验、Compose E2E、TLS/SSE 验证或 Grafana 实际渲染。
 
@@ -67,6 +81,7 @@ docker compose --env-file ops/.env -f ops/compose.yaml config --quiet
 
 - [ ] 运行全部离线检查，审阅待提交变更，确认没有实际密钥、env 文件、明文 override 或用量状态入库。
 - [ ] 生产镜像与版本已锁定，数据库备份可恢复，`MASTER_KEY`、缓存/签名密钥与策略文件已独立备份；确认迁移兼容性。
+- [ ] 宿主已预拉取 `CORE_STATE_INIT_IMAGE`（非默认值时）与回滚可能用到的旧版本核心镜像；`CORE_IMAGE_REPOSITORY` 指向实际仓库，且控制面能在部署时拉取新版本镜像。
 - [ ] 配置真实 HTTPS origin 与域名；外部 TLS 反向代理已运行并保留 Host、关闭响应缓冲；宿主防火墙未暴露 API、PostgreSQL、核心、socket-proxy、Caddy 管理面和指标端口。
 - [ ] 用宿主绝对路径预建核心状态根目录与基线实例子目录，权限 `0700`，并确认目标容器用户可写；env 与 Prometheus credentials 文件权限 `0600` 且不入库。
 - [ ] 在允许 Docker 的目标主机执行 `docker info` 与 Compose config 检查；随后按 PostgreSQL 健康 → API 迁移/管理员引导与健康 → Caddy 配置加载 → 核心配置拉取/受控确认的顺序启动；socket-proxy 先于 API 启动。

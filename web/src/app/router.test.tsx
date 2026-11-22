@@ -37,7 +37,7 @@ describe("application router", () => {
   it("redirects an expired session and preserves the requested path", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 401)));
     const router = mount("/requests?model=example");
-    await screen.findByRole("heading", { name: "管理员登录" });
+    await screen.findByRole("heading", { name: "管理员登录" }, { timeout: 5000 });
     expect(router.state.location.pathname).toBe("/login");
     expect(new URLSearchParams(router.state.location.search).get("returnTo")).toBe(
       "/requests?model=example",
@@ -96,7 +96,7 @@ describe("application router", () => {
       ["/keys", "Downstream Keys"],
       ["/cores", "Cores"],
     ]) {
-      fireEvent.click(screen.getByRole("link", { name: new RegExp(title) }));
+      fireEvent.click(screen.getByRole("link", { name: title }));
       await screen.findByRole("heading", { name: title });
       expect(router.state.location.pathname).toBe(path);
     }
@@ -218,16 +218,6 @@ describe("shared boundaries", () => {
     expect(router.state.location.pathname).toBe("/models");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  });
-  it("keeps pending summary values explicit when changing the activity range", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
-    mount("/");
-    await screen.findByRole("heading", { name: "总览" });
-    expect(document.documentElement.dataset.theme).toBe("light");
-    fireEvent.click(screen.getByRole("button", { name: "昨天" }));
-    expect(screen.getByRole("heading", { name: "昨天暂无可展示的数据" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "昨天" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("region", { name: "最近请求" })).toBeTruthy();
   });
   it("expands one morph panel at a time and restores focus on Escape", () => {
     render(

@@ -64,6 +64,14 @@ func main() {
 		slog.Error("Docker API configuration failed", "error", err)
 		os.Exit(1)
 	}
+	if image := os.Getenv("CORE_STATE_INIT_IMAGE"); image != "" {
+		docker.StateInitImage = image
+	}
+	coreImage, err := cores.ResolveCoreImageRepository(os.Getenv(cores.CoreImageRepositoryEnv))
+	if err != nil {
+		slog.Error("core image repository configuration failed", "error", err)
+		os.Exit(1)
+	}
 	caddySettings := caddy.Settings{Socket: os.Getenv("CADDY_ADMIN_URL"), Domain: os.Getenv("PUBLIC_DOMAIN"),
 		TLSMode: os.Getenv("CADDY_TLS_MODE"), APIAddress: "api:8080"}
 	if len(caddySettings.Socket) > 6 && caddySettings.Socket[:7] == "unix://" {
@@ -82,7 +90,7 @@ func main() {
 		BaseURL: "http://api:8080", PolicyPath: policyPath}
 	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy,
 		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
-		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", Token: controlToken,
+		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", CoreImage: coreImage, Token: controlToken,
 		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
 		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS")}
 	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}

@@ -109,11 +109,17 @@ func (t *fakeTx) QueryRow(c context.Context, q string, a ...any) pgx.Row {
 }
 
 type fakeDocker struct {
-	starts, stops, removes int
-	containers             []Container
+	starts, stops, removes, pulls, inspects int
+	ensureErr, inspectErr, pullErr          error
+	inspectFailures                         int
+	image                                   Image
+	created                                 []ContainerSpec
+	containers                              []Container
 }
 
-func (d *fakeDocker) Create(context.Context, ContainerSpec) (Container, error) {
+func (d *fakeDocker) EnsureStateDir(context.Context, string, string) error { return d.ensureErr }
+func (d *fakeDocker) Create(_ context.Context, s ContainerSpec) (Container, error) {
+	d.created = append(d.created, s)
 	return Container{ID: "created"}, nil
 }
 func (d *fakeDocker) Start(context.Context, string) error                { d.starts++; return nil }
@@ -121,22 +127,49 @@ func (d *fakeDocker) Stop(context.Context, string, time.Duration) error  { d.sto
 func (d *fakeDocker) Remove(context.Context, string, bool) error         { d.removes++; return nil }
 func (d *fakeDocker) List(context.Context) ([]Container, error)          { return d.containers, nil }
 func (d *fakeDocker) Inspect(context.Context, string) (Container, error) { return Container{}, nil }
-
-type fakePeer struct {
-	status  Status
-	pushes  int
-	pushErr error
+func (d *fakeDocker) InspectImage(context.Context, string) (Image, error) {
+	d.inspects++
+	if d.inspectErr != nil {
+		return Image{}, d.inspectErr
+	}
+	if d.inspectFailures > 0 {
+		d.inspectFailures--
+		return Image{}, errors.New("No such image")
+	}
+	return d.image, nil
+}
+func (d *fakeDocker) PullImage(context.Context, string) (Image, error) {
+	d.pulls++
+	if d.pullErr != nil {
+		return Image{}, d.pullErr
+	}
+	return d.image, nil
 }
 
-func (p *fakePeer) Meta(context.Context, string) (Meta, error) {
+type fakePeer struct {
+	status   Status
+	pushes   int
+	pushErr  error
+	meta     map[string]string // core address → version
+	statuses map[string]Status // instance ID → status
+}
+
+func (p *fakePeer) Meta(_ context.Context, address string) (Meta, error) {
 	m := BrokerMeta()
-	m.Version = p.status.Version
+	if version, ok := p.meta[address]; ok {
+		m.Version = version
+	} else {
+		m.Version = p.status.Version
+	}
 	return m, nil
 }
 func (p *fakePeer) Live(context.Context, string) bool  { return true }
 func (p *fakePeer) Ready(context.Context, string) bool { return true }
 func (p *fakePeer) Status(_ context.Context, _ string, id string) (Status, error) {
-	s := p.status
+	s, ok := p.statuses[id]
+	if !ok {
+		s = p.status
+	}
 	s.Instance = id
 	return s, nil
 }
@@ -213,6 +246,31 @@ func TestDeploymentStagesAndRollbackWeights(t *testing.T) {
 	}
 	if !reflect.DeepEqual(restarted.weights(0), map[string]int{"old": 100, "new": 0}) {
 		t.Fatal("rollback lost baseline")
+	}
+}
+
+func TestDeploymentNextWeights(t *testing.T) {
+	p := progress{Stage: 0, From: map[string]int{"old": 100}, To: map[string]int{"new": 100}}
+	raw, _ := json.Marshal(p)
+	d := Deployment{State: "ready"}
+	setNextWeights(&d, raw)
+	if !reflect.DeepEqual(d.Next, map[string]int{"old": 90, "new": 10}) {
+		t.Fatalf("ready next weights: %#v", d.Next)
+	}
+	if !d.AutoAdvance {
+		t.Fatal("stored auto-advance policy not reported")
+	}
+	p.Stage = 1
+	raw, _ = json.Marshal(p)
+	d = Deployment{State: "shifting"}
+	setNextWeights(&d, raw)
+	if !reflect.DeepEqual(d.Next, map[string]int{"old": 50, "new": 50}) {
+		t.Fatalf("shifting next weights: %#v", d.Next)
+	}
+	d = Deployment{State: "failed"}
+	setNextWeights(&d, raw)
+	if d.Next != nil {
+		t.Fatalf("terminal deployment exposed next weights: %#v", d.Next)
 	}
 }
 
@@ -422,11 +480,203 @@ func TestRollbackRestoresOldAndZerosNew(t *testing.T) {
 	}
 	peer := &fakePeer{status: oldStatus}
 	traffic := &fakeTraffic{}
-	r := Runtime{Pool: db, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	docker := &fakeDocker{}
+	r := Runtime{Pool: db, Docker: docker, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
 	if e := r.Rollback(context.Background(), uuid.NewString(), "operator"); e != nil {
 		t.Fatal(e)
 	}
 	if old.Weight != 100 || fresh.Weight != 0 || traffic.calls == 0 {
 		t.Fatal("rollback traffic not restored")
+	}
+	// Rollback reuses the images that are already present; it never refreshes a
+	// registry tag, because the baseline must be reproducible.
+	if docker.pulls != 0 || docker.inspects != 0 || len(docker.created) != 0 {
+		t.Fatalf("rollback touched images: pulls=%d inspects=%d created=%d", docker.pulls, docker.inspects, len(docker.created))
+	}
+}
+
+func TestDeployEnsuresTargetImage(t *testing.T) {
+	repo := "ghcr.io/ivanli-cn/token-ne-core"
+	digest := testDigest("3")
+	for _, tc := range []struct {
+		name string
+		auto *bool
+		want bool
+	}{
+		{"default auto advance", nil, true},
+		{"explicitly disabled", ptr(false), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			created := time.Now().UTC()
+			var stored []byte
+			db := &fakeDB{}
+			db.row = func(q string, _ []any) fakeRow {
+				switch {
+				case strings.Contains(q, "from core_versions where version=$1 for share"):
+					return fakeRow{values: []any{"version-id", 1, 1, 1}}
+				case strings.Contains(q, "from core_versions where version=$1"):
+					return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 1, 1}}
+				case strings.Contains(q, "from core_deployments where state not in"):
+					return fakeRow{err: pgx.ErrNoRows}
+				case strings.Contains(q, "from core_deployments where id=$1"):
+					return fakeRow{values: []any{"deployment-id", nil, "0.2.0", "warming", map[string]int{}, stored, nil, created, created}}
+				}
+				return fakeRow{err: pgx.ErrNoRows}
+			}
+			db.exec = func(q string, a []any) error {
+				if q == `update core_deployments set progress=$2 where id=$1` {
+					stored, _ = a[1].([]byte)
+				}
+				return nil
+			}
+			docker := &fakeDocker{image: Image{RepoDigests: []string{repo + "@" + digest}}}
+			r := Runtime{Pool: db, Docker: docker, CoreImage: repo, Project: "project", Networks: []string{"edge", "core-control"}, StateHostDir: "/srv/cores", CoreURL: "http://api:8080", Token: "token"}
+			deployment, e := r.Deploy(context.Background(), "operator", DeploymentRequest{Version: "0.2.0", Replicas: 1, AutoAdvance: tc.auto})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if docker.pulls != 1 || len(docker.created) != 1 || docker.starts != 1 {
+				t.Fatalf("image work: pulls=%d created=%d starts=%d", docker.pulls, len(docker.created), docker.starts)
+			}
+			if docker.created[0].Image != repo+"@"+digest {
+				t.Fatalf("container image: %q", docker.created[0].Image)
+			}
+			if !strings.Contains(strings.Join(db.writes, "\n"), "update core_versions set image_ref=$3,image_digest=$2 where id=$1") {
+				t.Fatalf("resolved digest not persisted: %v", db.writes)
+			}
+			if deployment.AutoAdvance != tc.want {
+				t.Fatalf("auto advance: %t", deployment.AutoAdvance)
+			}
+		})
+	}
+}
+
+func TestAutoAdvanceReadyToShifting(t *testing.T) {
+	base := validStatus()
+	oldStatus := validStatus()
+	oldStatus.Version = "0.1.0"
+	newStatus := validStatus()
+	newStatus.Version = "1.0.0"
+	now := time.Now()
+	if !(progress{}).autoAdvance() {
+		t.Fatal("missing auto-advance policy did not default to true")
+	}
+	for _, tc := range []struct {
+		name    string
+		auto    *bool
+		started time.Time
+		advance bool
+	}{
+		{"auto advance", ptr(true), now.Add(-2 * time.Minute), true},
+		{"disabled", ptr(false), now.Add(-2 * time.Minute), false},
+		{"minimum stage not elapsed", ptr(true), now.Add(-10 * time.Second), false},
+		{"legacy record", nil, now.Add(-2 * time.Minute), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := instanceRow{ID: "old", Version: "0.1.0", State: "running", Address: "old:8080", Weight: 100, ContainerID: ptr("old"), Heartbeat: &now, Desired: ptr(int64(1)), Applied: ptr(int64(1))}
+			fresh := instanceRow{ID: "new", Version: "1.0.0", State: "running", Address: "new:8080", Weight: 0, ContainerID: ptr("new"), Heartbeat: &now, Desired: ptr(int64(1)), Applied: ptr(int64(1))}
+			p := progress{Stage: 0, From: map[string]int{"old": 100}, To: map[string]int{"new": 100}, Started: tc.started, Minimum: 60, Deadline: 1800, AutoAdvance: tc.auto}
+			raw, _ := json.Marshal(p)
+			var shifted []any
+			db := &fakeDB{row: func(q string, _ []any) fakeRow {
+				switch {
+				case strings.Contains(q, "from core_deployments where state not in"):
+					return fakeRow{values: []any{"deployment-id", "ready", raw}}
+				case strings.Contains(q, "exists"):
+					return fakeRow{values: []any{false}}
+				}
+				return fakeRow{err: pgx.ErrNoRows}
+			}, rows: func(string, []any) [][]any { return [][]any{instanceValues(old), instanceValues(fresh)} }}
+			db.exec = func(q string, a []any) error {
+				if strings.Contains(q, "set weight=$2") {
+					switch a[0] {
+					case "old":
+						old.Weight = a[1].(int)
+					case "new":
+						fresh.Weight = a[1].(int)
+					}
+				}
+				if strings.Contains(q, "update core_deployments set state=$2,target_weights=$3,progress=$4") {
+					shifted = append([]any{}, a...)
+				}
+				return nil
+			}
+			traffic := &fakeTraffic{}
+			peer := &fakePeer{
+				meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version},
+				statuses: map[string]Status{"old": oldStatus, "new": newStatus},
+			}
+			r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: base.Config.Hash}}}
+			if e := r.advance(context.Background()); e != nil {
+				t.Fatal(e)
+			}
+			if !tc.advance {
+				if len(shifted) != 0 || old.Weight != 100 || fresh.Weight != 0 || traffic.calls != 0 {
+					t.Fatalf("ready deployment advanced: %#v old=%d new=%d", shifted, old.Weight, fresh.Weight)
+				}
+				return
+			}
+			if len(shifted) == 0 || shifted[1] != "shifting" {
+				t.Fatalf("deployment state write: %#v", shifted)
+			}
+			weights := shifted[2].(map[string]int)
+			if weights["old"] != 90 || weights["new"] != 10 || old.Weight != 90 || fresh.Weight != 10 {
+				t.Fatalf("stage weights: %#v old=%d new=%d", weights, old.Weight, fresh.Weight)
+			}
+			if traffic.calls == 0 {
+				t.Fatal("traffic not applied")
+			}
+		})
+	}
+}
+
+func TestShiftScopesWeightsToDeploymentInstances(t *testing.T) {
+	oldStatus := validStatus()
+	oldStatus.Version = "0.1.0"
+	newStatus := validStatus()
+	newStatus.Version = "1.0.0"
+	now := time.Now()
+	old := instanceRow{ID: "old", Version: "0.1.0", State: "running", Address: "old:8080", Weight: 100, ContainerID: ptr("old"), Heartbeat: &now, Desired: ptr(int64(1)), Applied: ptr(int64(1))}
+	fresh := instanceRow{ID: "new", Version: "1.0.0", State: "running", Address: "new:8080", Weight: 0, ContainerID: ptr("new"), Heartbeat: &now, Desired: ptr(int64(1)), Applied: ptr(int64(1))}
+	// Another instance runs the new version outside this deployment. It must not
+	// absorb any of the submitted version weight.
+	other := instanceRow{ID: "other", Version: "1.0.0", State: "running", Address: "other:8080", Weight: 0, ContainerID: ptr("other"), Heartbeat: &now, Desired: ptr(int64(1)), Applied: ptr(int64(1))}
+	p := progress{Stage: 0, From: map[string]int{"old": 100}, To: map[string]int{"new": 100}, Started: now.Add(-2 * time.Minute), Minimum: 60, Deadline: 1800}
+	raw, _ := json.Marshal(p)
+	db := &fakeDB{row: func(q string, _ []any) fakeRow {
+		switch {
+		case strings.Contains(q, "select state,progress from core_deployments"):
+			return fakeRow{values: []any{"shifting", raw}}
+		case strings.Contains(q, "exists"):
+			return fakeRow{values: []any{false}}
+		}
+		return fakeRow{err: pgx.ErrNoRows}
+	}, rows: func(string, []any) [][]any {
+		return [][]any{instanceValues(old), instanceValues(fresh), instanceValues(other)}
+	}}
+	db.exec = func(q string, a []any) error {
+		if strings.Contains(q, "set weight=$2") {
+			switch a[0] {
+			case "old":
+				old.Weight = a[1].(int)
+			case "new":
+				fresh.Weight = a[1].(int)
+			case "other":
+				other.Weight = a[1].(int)
+			}
+		}
+		return nil
+	}
+	traffic := &fakeTraffic{}
+	peer := &fakePeer{
+		meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version, "other:8080": newStatus.Version},
+		statuses: map[string]Status{"old": oldStatus, "new": newStatus, "other": newStatus},
+	}
+	r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	if e := r.Shift(context.Background(), uuid.NewString(), map[string]int{"0.1.0": 90, "1.0.0": 10}); e != nil {
+		t.Fatal(e)
+	}
+	if old.Weight != 90 || fresh.Weight != 10 || other.Weight != 0 {
+		t.Fatalf("scoped weights: old=%d new=%d other=%d", old.Weight, fresh.Weight, other.Weight)
 	}
 }

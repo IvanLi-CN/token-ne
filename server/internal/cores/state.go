@@ -13,6 +13,14 @@ type progress struct {
 	Started  time.Time      `json:"stage_started_at"`
 	Minimum  int            `json:"minimum_stage_seconds"`
 	Deadline int            `json:"drain_deadline_seconds"`
+	// AutoAdvance moves the rollout from ready to the first weight stage without
+	// an operator shift. A missing value means true: deployments recorded before
+	// the field existed follow the current default.
+	AutoAdvance *bool `json:"auto_advance"`
+}
+
+func (p progress) autoAdvance() bool {
+	return p.AutoAdvance == nil || *p.AutoAdvance
 }
 
 func (p progress) canAdvance(now time.Time) bool {
@@ -53,6 +61,8 @@ func canPrune(i instanceRow) bool {
 }
 
 func (r *Runtime) observeDrains(ctx context.Context) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	instances, e := r.instances(ctx)
 	if e != nil {
 		return e

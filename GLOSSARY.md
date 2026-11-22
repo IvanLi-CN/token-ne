@@ -12,6 +12,14 @@ _Avoid_: Proxy, agent, worker
 负责管理 API、Web、用量摄入、Caddy 协调、核心编排和配置分发的服务端。
 _Avoid_: Backend, admin server
 
+**Core image repository**:
+存放全部核心版本镜像的单一仓库；每个版本的镜像由该仓库加版本标签或 digest 组成，控制面不按版本使用不同仓库，也不构建镜像。
+_Avoid_: Registry mirror, per-version image prefix
+
+**Core state directory**:
+每个核心实例在宿主机上独占的持久目录，保存该实例的加密配置缓存与用量 spool；只有该实例挂载它。
+_Avoid_: Data volume, shared state directory
+
 **Downstream**:
 调用 token-ne 的客户端或下游 API Key 身份。
 _Avoid_: Client, tenant, user
@@ -47,3 +55,19 @@ _Avoid_: Model route, supported model list, catalog entry
 **Effective model name**:
 对某个上游实际发送的模型名：上游级覆盖优先，其次全局映射，最后回退公开模型名。
 _Avoid_: Default target, resolved route
+
+**Applied weights**:
+已经应用并正在决定流量分配的实例权重集合。
+_Avoid_: Current weights, live weights
+
+**Next-stage weights**:
+部署下一次推进将要应用的实例权重集合。
+_Avoid_: Target weights, planned weights
+
+**Usage bucket**:
+用量时间序列中按固定时间窗口聚合的请求数、token 数与费用。
+_Avoid_: Sample, data point, rollup row
+
+**Force drain**:
+常规排水等待超限后强制停止实例的操作；会中断在途流，只作为例外使用并留下审计记录。
+_Avoid_: Kill, hard stop

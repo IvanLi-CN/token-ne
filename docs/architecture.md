@@ -86,7 +86,7 @@ Internet
 - `api` 的 8080 只在 Compose 网络内；9090 通过 `127.0.0.1:${METRICS_PORT:-9090}` 映射给外部 Prometheus，不经过 Caddy。若 Prometheus 在另一台主机，改为绑定受控私网/VPN 地址。
 - `postgres` 不发布端口。
 - 核心容器不发布端口，只加入 Compose 用户网络；Caddy 通过容器 DNS 名访问。容器名中的版本会做 DNS 安全化处理（非字母数字替换为 `-`），例如版本 `0.2.0` 实例名为 `token-ne-core-0-2-0-1`。
-- 基线核心由 Compose 声明；新增版本由 Go 通过 Docker API 创建，仍加入 `edge` 与 `core-control` 网络，并带 `com.docker.compose.project` 等标签，属于 Compose 项目成员但不是声明 service。
+- 基线核心由 Compose 声明；新增版本由 Go 通过 Docker API 创建，镜像来自 `CORE_IMAGE_REPOSITORY` 加版本或 digest，仍加入 `edge` 与 `core-control` 网络，并带 `com.docker.compose.project` 等标签，属于 Compose 项目成员但不是声明 service。
 - 每个核心实例挂载独立状态目录：加密配置缓存和核心私有 usage spool 都在该目录；控制面不挂载该目录用于读取或重放，只通过 heartbeat/status 观察 spool 摘要。
 - 网络分为 `edge`（Caddy HTTP、API、核心）、`core-control`（API、核心）、`data`（API、PostgreSQL、socket-proxy）。Caddy 管理面走 API 与 Caddy 共享的 Unix socket，不在任何网络上；核心不加入 `data`，因此无法触达 Caddy 管理面、Docker socket 或数据库。
 
@@ -771,9 +771,10 @@ server/
 | PUT/DELETE | `/api/downstream-keys/{id}` | 更新元数据/删除 |
 | POST | `/api/downstream-keys/{id}/rotate` | 轮换并返回一次新明文 |
 | GET | `/api/cores` | 版本、实例、权重、状态 |
-| POST | `/api/cores/versions` | 登记核心版本、镜像 digest、协议/schema 范围 |
+| POST | `/api/cores/versions` | 登记核心版本、协议/schema 范围；镜像由核心镜像仓库加版本或 digest 推导 |
+| POST | `/api/cores/versions/{version_id}/pull` | 显式拉取并刷新该版本镜像（旧版本或手动刷新） |
 | GET | `/api/cores/instances/{id}` | 实例详情、inflight、spool、配置状态 |
-| POST | `/api/cores/deploy` | 部署新版本 |
+| POST | `/api/cores/deploy` | 部署新版本；默认自动推进阶段 |
 | POST | `/api/cores/deployments/{id}/shift` | 设置阶段权重 |
 | POST | `/api/cores/deployments/{id}/rollback` | 回滚 |
 | POST | `/api/cores/instances/{id}/drain` | 排水单个实例 |
@@ -852,7 +853,7 @@ flowchart TD
 - 任何变化（TLS、路由、健康检查、upstream 数组、权重）都生成完整 JSON 并走 `POST /load`；不再使用分离的 `PATCH`，避免权重与 upstream 顺序错位。Caddy 会重建并替换 `http` app，因此每次应用都按同一稳定窗口处理。
 - 每次应用后校验 `GET /config/` 的关键片段和 `/reverse_proxy/upstreams`；失败则回退到上一份已知配置并告警。
 - Caddy 启动使用 `--resume` 恢复自动保存配置；Go 启动后立即对账，修正过期上游。
-- Caddy 与 API 共享 `caddy_admin` volume；两个容器使用同一 UID/GID 或共享组，socket 权限 `0660`，其他容器不挂载该 volume。
+- Caddy 与 API 共享 `caddy_admin` volume；两者固定使用 UID/GID `65532:65532`，Caddy 生成的 admin socket 为 `0600`，因此不需要放宽 socket 权限。`caddy-init` 一次性把 `caddy_data`、`caddy_config`、`caddy_admin` 卷 chown 给该 UID；Caddy 先丢弃全部 capabilities，仅加回 `NET_BIND_SERVICE` 以绑定容器内 80。其他容器不挂载该 volume。
 - 不重启 Caddy 来应用配置。
 
 ### Docker 编排
@@ -871,16 +872,16 @@ flowchart TD
 - 启动时按 `com.token-ne.role=core` 和 `instance` 列出容器并接管；缺失数据库记录时补登记，数据库记录但容器不存在时标记 `failed`。`deployment` 不是接管必需标签。
 - 宿主机或 Docker daemon 重启后，`restart=no` 的动态实例不会自行恢复；接管时必须重新启动它们，再等待 ready 后加入 Caddy。
 - 创建容器：
-  - 镜像使用版本登记中的 digest 或不可变 tag。
+  - 镜像由核心镜像仓库加版本 tag 或版本登记的 digest 组成；新版本部署在创建前自动拉取并刷新该镜像。
   - 加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络。
   - 不发布端口。
-  - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。
-  - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。
+  - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。`CORE_VERSION` 必须与核心 `/internal/v1/meta` 报告的版本完全一致；Compose 标签、核心自报版本不一致时，控制面拒绝接管该基线实例。
+  - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。API 在创建容器前用 `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）启动一次性 helper，以 root 在宿主机父目录创建实例子目录并 chown 给 core UID `10001`；Docker 直接创建 bind 目录会得到 root:root `0755`，非 root core 无法写入。控制面不拉取该镜像，宿主机必须已预拉取。
   - 配置 Docker healthcheck 和日志驱动。
   - Go 管理的实例使用 `restart=no`，避免排水后的容器被自动拉起；代价是宿主机或 Docker daemon 重启后这些实例不会自行恢复，控制面接管时必须重新启动。Compose 基线核心可以使用 `unless-stopped`，由 Go 接管后仍按其状态管理。
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
-- 镜像拉取支持显式 API 触发；生产环境禁止 `latest`。
+- 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。生产环境禁止 `latest`。
 - 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
@@ -1105,7 +1106,7 @@ create table upstream_models (
 create table core_versions (
   id uuid primary key,
   version text not null unique,
-  image_ref text not null,
+  image_ref text not null, -- 由核心镜像仓库与版本或 digest 推导，客户端不提供
   image_digest text,
   protocol_version int not null,
   config_schema_min int not null,
@@ -1233,6 +1234,7 @@ create unique index status_rewrite_policies_one_active
 - `models` 删除时由 `upstream_models` 的 `restrict` 阻止，必须显式清理能力关系；删除上游时 `on delete cascade` 清理其能力关系。
 - `upstream_models` 的 `(upstream_id, model_id)` 是主键，重复能力关系直接拒绝。
 - `downstream_api_keys` 只存哈希和前缀，不允许恢复明文。
+- `core_versions.image_ref` 是控制面按核心镜像仓库推导并保存的展示值；登记版本只接收版本、可选 digest 和协议/schema 范围。
 - 上游密钥加密字段不参与全文索引、日志或调试导出。
 - 时间字段统一 `timestamptz`，写入 UTC；展示按浏览器时区。
 
@@ -1423,7 +1425,9 @@ services:
       - data
 
   api:
-    build: ../server
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -1441,6 +1445,9 @@ services:
       CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
       CORE_CACHE_KEY: ${CORE_CACHE_KEY}
       CORE_STATE_HOST_DIR: ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}
+      CORE_STATE_INIT_IMAGE: ${CORE_STATE_INIT_IMAGE:-busybox:1.37}
+      CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
+      ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
@@ -1465,11 +1472,29 @@ services:
       - core-control
       - data
 
+  caddy-init:
+    image: busybox:1.37
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_admin:/run/caddy
+    command: ["sh", "-c", "chown -R 65532:65532 /data /config /run/caddy"]
+
   caddy:
     image: caddy:2.11.9-alpine
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     depends_on:
       api:
         condition: service_healthy
+      caddy-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${CADDY_HTTP_PORT:-8080}:80"
     volumes:
@@ -1490,12 +1515,12 @@ services:
       - edge
 
   core:
-    image: ${CORE_IMAGE:-ghcr.io/example/token-ne-core:dev}
+    image: ${CORE_IMAGE:-token-ne-core:0.1.0}
     depends_on:
       api:
         condition: service_healthy
     environment:
-      CORE_VERSION: ${CORE_VERSION:-dev}
+      CORE_VERSION: ${CORE_VERSION:-0.1.0}
       CORE_INSTANCE_ID: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
       CORE_CONTROL_PLANE_URL: http://api:8080
       CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN}
@@ -1513,7 +1538,7 @@ services:
       - ${CORE_STATE_HOST_DIR:-/var/lib/token-ne/cores}/0193f0c2-7b1a-7c3e-9f00-0000000000b1:/var/lib/token-ne/state
     labels:
       com.token-ne.role: core
-      com.token-ne.version: ${CORE_VERSION:-dev}
+      com.token-ne.version: ${CORE_VERSION:-0.1.0}
       com.token-ne.instance: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
     healthcheck:
       test: ["CMD", "/app/core", "healthcheck"]
@@ -1546,7 +1571,8 @@ networks:
 - Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 可以清理，`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载最小 `bootstrap.json`（只含管理 API 监听）作为初始配置；Go 启动后立即装载完整配置并对账。
 - Caddy 默认只映射 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 到容器 `:80`；外部 TLS 反向代理负责公网 443。只有 `CADDY_TLS_MODE=auto` 才需要额外的 443 映射。
-- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。
+- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。动态实例的子目录由 API 通过一次性 helper 创建，避免 Docker 以 root 创建不可写的 bind 目录；控制面不拉取 `CORE_STATE_INIT_IMAGE`，该镜像必须已在宿主机预拉取（默认 `busybox:1.37` 由 `caddy-init` 服务顺带拉取）。
+- 核心镜像仓库只有一个，由 `CORE_IMAGE_REPOSITORY` 指定；动态实例的镜像是 `<repo>:<version>` 或 `<repo>@<digest>`。控制面不构建镜像，部署新版本时通过 Docker Engine 拉取；`core` service 的 `CORE_IMAGE` 只描述本地构建的基线实例。
 - 不建议在 Compose 中为每个版本写死 service；那会导致每次升级修改部署文件并重建整个项目。
 
 ### 环境变量
@@ -1570,17 +1596,19 @@ networks:
 | `CORE_CONFIG_OVERRIDE` | 手动 override 文件路径，默认状态目录下 `config.override.json` | 否 |
 | `CORE_CACHE_KEY` | 核心配置缓存加密密钥 | 是 |
 | `CORE_STATE_HOST_DIR` | 宿主机上的核心状态根目录，生产环境用绝对路径 | 是 |
+| `CORE_STATE_INIT_IMAGE` | 为动态实例创建状态子目录的一次性容器镜像，默认 `busybox:1.37`；控制面不拉取，必须已在宿主机预拉取 | 否 |
+| `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
+| `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
 | `METRICS_TOKEN` | Prometheus 抓取 Token | 是 |
-| `CORE_IMAGE` | 基线核心镜像 | 是 |
-| `CORE_VERSION` | 基线核心版本 | 是 |
+| `CORE_IMAGE` | 基线核心镜像；动态实例由 `CORE_IMAGE_REPOSITORY` 与版本决定 | 是 |
+| `CORE_VERSION` | 基线核心版本；必须等于核心 `/internal/v1/meta` 的 `version` | 是 |
 | `COMPOSE_PROJECT_NAME` | Compose 项目名，用于网络名 | 是 |
 | `RETENTION_DAYS` | 用量事实保留天数 | 否，默认 30 |
 | `LOG_LEVEL` | 日志级别 | 否，默认 `info` |
-| `ALLOW_PRIVATE_UPSTREAMS` | 是否允许上游指向私网 | 否，默认 `false` |
 
 ### 启动顺序
 
@@ -1603,18 +1631,20 @@ networks:
 ### 升级流程
 
 1. **预检**：数据库备份；确认当前权重、实例健康、无进行中的部署；记录当前镜像 digest、配置 revision 和 spool 未确认量。
-2. **登记版本**：控制面登记新版本、镜像 digest、协议版本和配置 schema 范围。
-3. **预热**：创建至少 1 个新版本实例，权重 0；等待 `/readyz` 和配置 revision 一致。
+2. **登记版本**：控制面登记版本、协议版本和配置 schema 范围；镜像引用由 `CORE_IMAGE_REPOSITORY` 与版本（标签或 digest）推导，不由客户端传入，入库后作为展示与兼容字段保留。
+3. **预热**：创建至少 1 个新版本实例，权重 0；控制面创建实例前自动拉取目标镜像，等待 `/readyz` 和配置 revision 一致。
 4. **冒烟**：从 API 容器直接请求新实例，使用 `x-token-ne-probe: 1`；该请求照常生成用量事件，不使用特殊跳过逻辑；响应头仅作为日志/审计标记。
-5. **切换**：按 `0 → 10 → 50 → 100` 推进；每阶段至少 60 秒；观察错误率、p95 延迟、TTFT 和上游错误。
+5. **切换**：默认自动推进（`auto_advance` 默认 `true`）：实例 ready 后自动进入 10%，再按 `0 → 10 → 50 → 100` 推进；每阶段至少 60 秒；观察错误率、p95 延迟、TTFT 和上游错误。关闭自动推进时用 `POST /api/cores/deployments/{id}/shift` 手动推进。
 6. **排水**：旧版本权重归零；等待 `inflight == 0`；尽量等待 spool 未确认事件清零；停止容器；保留版本记录、镜像 digest 和状态目录。若 spool 未清零，停止后用兼容 core 重启并自行重放。
 7. **完成**：更新部署状态；记录审计和指标。
+
+旧版本或需要刷新本地镜像时，显式调用 `POST /api/cores/versions/{version_id}/pull`；部署新版本之外的场景不会自动拉取。
 
 ### 回滚流程
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热后再接流量；由兼容 core 启动时自行重放该实例的 spool。
+3. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热后再接流量；由兼容 core 启动时自行重放该实例的 spool。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
@@ -1646,7 +1676,8 @@ networks:
 
 ## 安全边界
 
-- **公网**：只有外部 TLS 反向代理；Caddy 只监听 HTTP，宿主端口绑定 loopback 或受控内网。Caddy 显式拒绝 `/internal/*`。
+- **公网**：只有外部 TLS 反向代理；Caddy 只监听 HTTP，宿主端口绑定 loopback 或受控内网，并丢弃全部 capabilities 后仅加回 `NET_BIND_SERVICE`。Caddy 显式拒绝 `/internal/*`。
+- **镜像来源**：核心镜像只来自一个仓库（`CORE_IMAGE_REPOSITORY`），当前公开、由控制面匿名拉取；私有仓库认证属于部署宿主的后续配置，第一期控制面不持有 registry 凭据，也不构建镜像。
 - **管理面**：管理员会话 + 同源校验；登录限速；无 RBAC。
 - **内部 API**：`CORE_CONTROL_TOKEN`；常量时间比较；只在 Compose 网络。
 - **核心指标**：`CORE_METRICS_LISTEN=9091` 只在内网；不发布宿主端口，Caddy 不路由；外部 Prometheus 不直接抓取。

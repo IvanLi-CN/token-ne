@@ -2,7 +2,7 @@
 
 本 Runbook 描述第一期多版本核心的推荐操作顺序。所有命令都假设在部署主机上执行，并已导出 Compose 环境变量；命令默认设置 `COMPOSE_FILE=ops/compose.yaml`，或在 `ops/` 目录执行。
 
-命令还假设已设置：`PUBLIC_DOMAIN`、`PUBLIC_ORIGIN`（含 scheme）、`ADMIN_COOKIE`、`METRICS_TOKEN`、`CORE_CONTAINER`、`INSTANCE_ID`、`DEPLOYMENT_ID` 和 `DOWNSTREAM_TEST_KEY`。
+命令还假设已设置：`PUBLIC_DOMAIN`、`PUBLIC_ORIGIN`（含 scheme）、`ADMIN_COOKIE`、`METRICS_TOKEN`、`CORE_CONTAINER`、`INSTANCE_ID`、`VERSION_ID`、`DEPLOYMENT_ID` 和 `DOWNSTREAM_TEST_KEY`。
 
 ## 前置检查
 
@@ -20,6 +20,8 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 - 已记录当前核心版本、镜像 digest、权重、配置 revision、Caddy 配置哈希和 spool 未确认量。
 - 数据库已备份，`MASTER_KEY` 和 `CORE_CONFIG_SIGNING_KEY` 已独立备份。
 - `CORE_STATE_HOST_DIR` 可写且权限为 `0700`。
+- `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）已在部署宿主预拉取；控制面不会拉取该镜像。
+- `CORE_IMAGE_REPOSITORY` 是裸仓库地址（不含 tag 或 digest），与要部署的版本组合后可拉取；回滚会用到的旧版本镜像仍在本地，或准备好显式拉取。
 
 通过控制面查询当前状态：
 
@@ -37,7 +39,6 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
   -H "Content-Type: application/json" \
   -d '{
     "version": "0.2.0",
-    "image_ref": "ghcr.io/example/token-ne-core:0.2.0-abcdef",
     "image_digest": "sha256:...",
     "protocol_version": 1,
     "config_schema_min": 1,
@@ -45,7 +46,9 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
   }'
 ```
 
-生产环境使用 digest 或不可变 tag；不要使用 `latest`。
+客户端不传 `image_ref`：核心镜像只有一个仓库，由 `CORE_IMAGE_REPOSITORY` 指定（默认 `ghcr.io/ivanli-cn/token-ne-core`），镜像为 `<repo>:<version>` 或 `<repo>@<digest>`。`image_digest` 可选：给出时按 digest 精确锁定镜像；省略时部署阶段拉取 `<repo>:<version>` 标签，并把解析出的 digest 记录到版本上，后续回滚复用该 digest。
+
+`version` 不能是 `latest`；生产环境优先登记 digest，只给 tag 时每次部署都会重新拉取该标签，避免用旧镜像启动。
 
 ## 预热新版本
 
@@ -57,9 +60,14 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deploy \
   -d '{
     "to_version": "0.2.0",
     "replicas": 1,
-    "initial_weight": 0
+    "initial_weight": 0,
+    "auto_advance": true
   }'
 ```
+
+创建实例前，控制面通过 Docker Engine 拉取目标镜像：只给 tag 时总是重新拉取，digest 必须已在本地或可拉取。当前仓库公开，拉取不需要凭据；私有仓库认证属于部署宿主的后续配置，第一期控制面不处理。
+
+`auto_advance` 默认 `true`：部署进入 `ready` 后自动进入 10% 阶段，再按 `0 → 10 → 50 → 100` 推进，每阶段至少 60 秒。需要逐个阶段人工观察时显式传 `false`。
 
 等待部署状态进入 `ready`：
 
@@ -83,6 +91,10 @@ docker compose exec -e DOWNSTREAM_TEST_KEY api sh -c '
 如果冒烟失败，停止部署，保留新实例供排查，不切换流量。
 
 ## 分阶段切换
+
+默认自动推进：部署进入 `ready` 后，控制面自动应用 10% 阶段，再按 `0 → 10 → 50 → 100` 推进，每阶段至少停留 60 秒。自动推进不会因为指标异常自行停止，操作者仍须按下文检查项观察，命中停止条件时回滚。
+
+`auto_advance=false` 的部署需要手动推进。提交的权重必须等于该部署的下一阶段权重（查询部署的 `next_weights`），否则接口返回冲突：
 
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/shift \
@@ -135,6 +147,18 @@ curl -fsS https://$PUBLIC_DOMAIN/api/cores/instances/$INSTANCE_ID \
 
 长流可能让排水等待较久。默认最大等待 30 分钟；不要用强制排水代替正常等待。
 
+## 重新拉取镜像
+
+新版本部署会自动拉取镜像；其余场景需要显式拉取，例如旧版本实例需要重建、或标签被重新发布：
+
+```bash
+curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions/$VERSION_ID/pull \
+  -H "Cookie: $ADMIN_COOKIE" \
+  -H "Origin: $PUBLIC_ORIGIN"
+```
+
+拉取失败会返回错误并保留原记录，不要把失败当作已完成。当前镜像仓库公开、匿名拉取；私有仓库认证属于部署宿主的后续配置，控制面不持有 registry 凭据。
+
 ## 回滚
 
 ```bash
@@ -151,7 +175,7 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deployments/$DEPLOYMENT_ID/ro
 4. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热；由兼容 core 启动时按 `ack.json` 自行重放该实例的 spool。
 5. 记录审计和事故原因。
 
-回滚不自动回退数据库 schema；如果新版本引入了不兼容迁移，必须先完成兼容迁移或恢复备份。
+回滚不自动拉取镜像：宿主机缺少旧版本镜像时回滚失败，需先恢复镜像或用上面的显式拉取命令，再重试回滚。回滚也不自动回退数据库 schema；如果新版本引入了不兼容迁移，必须先完成兼容迁移或恢复备份。
 
 ## 强制排水
 
@@ -256,6 +280,8 @@ override 存在期间，控制面推送不应覆盖它；操作者必须显式�
 | 现象 | 检查 | 处理 |
 | --- | --- | --- |
 | 新实例不 ready | `docker logs`、`/readyz`、配置拉取日志 | 修复镜像/Token/网络；删除实例重试 |
+| 部署时镜像拉取失败 | API 日志、`docker images`、到仓库的连通性、`CORE_IMAGE_REPOSITORY` 是否含 tag/digest | 修正仓库地址；确认版本已发布；网络恢复后重试部署，或先显式 `POST /api/cores/versions/{version_id}/pull` |
+| 回滚时提示镜像不可用 | `docker images` 中的旧版本 digest、版本登记 | 回滚不自动拉取；先恢复镜像或显式拉取该版本，再重试回滚 |
 | 配置 revision 不一致 | 控制面推送日志、核心 `/internal/v1/status` | 检查网络和 Token；手动重推 |
 | Caddy 应用失败 | `token_ne_caddy_apply_total`、API 日志 | 保留旧配置；修复 JSON 或 Caddy 管理连接 |
 | 排水卡住 | 实例 `inflight`、请求日志 | 定位长流；等待或强制排水 |

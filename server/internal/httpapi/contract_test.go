@@ -492,7 +492,7 @@ func TestUpstreamProbe(t *testing.T) {
 	h, f, cfg, cookie := testAPI(t)
 	cipher, nonce, _ := auth.Encrypt(cfg.MasterKey, "probe-secret")
 	id := uuid.NewString()
-	f.upstreams[id] = store.Upstream{ID: id, Name: "probe", Kind: "api_key", BaseURL: up.URL + "/v1", AuthStyle: "bearer", Connect: 1000, FirstByte: 1000, Idle: 1000, Models: []store.Capability{}, Ciphertext: cipher, Nonce: nonce}
+	f.upstreams[id] = store.Upstream{ID: id, Name: "probe", Kind: "api_key", BaseURL: up.URL, AuthStyle: "bearer", Connect: 1000, FirstByte: 1000, Idle: 1000, Models: []store.Capability{}, Ciphertext: cipher, Nonce: nonce}
 	w := request(h, cfg, cookie, "POST", "/api/upstreams/"+id+"/test", "")
 	if w.Code != 200 || seen != 1 {
 		t.Fatalf("probe %d %s requests=%d", w.Code, w.Body.String(), seen)
