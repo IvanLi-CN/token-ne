@@ -980,15 +980,24 @@ th {
   }
   .theme-control button {
     height: 36px;
+    padding-inline: 6px;
   }
   .range-control button {
     min-height: 38px;
   }
 }
+@media (max-width: 600px) {
+  .brand-name,
+  .language-control > svg {
+    display: none;
+  }
+  .language-control select {
+    width: 74px;
+  }
+}
 @media (max-width: 479px) {
   .brand-name,
-  .command-open > span:nth-child(2),
-  .language-control > svg {
+  .command-open > span:nth-child(2) {
     display: none;
   }
   .shell-controls {
@@ -998,15 +1007,11 @@ th {
     padding-inline: 12px;
   }
   .control-pill,
-  .command-open,
-  .theme-control button {
+  .command-open {
     padding-inline: 11px;
   }
   .language-control {
-    padding-inline: 8px;
-  }
-  .language-control select {
-    width: 74px;
+    display: none;
   }
   .page-header {
     align-items: flex-start;
