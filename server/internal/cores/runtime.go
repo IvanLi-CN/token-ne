@@ -112,7 +112,8 @@ func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (VersionView, e
 	digestPinned := v.Digest != nil
 	e = r.database().QueryRow(ctx, `insert into core_versions(id,version,image_ref,image_digest,digest_pinned,protocol_version,config_schema_min,config_schema_max,build_commit)
  values($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict(version) do update set version=excluded.version
- where core_versions.image_ref=excluded.image_ref and core_versions.image_digest is not distinct from excluded.image_digest
+ where core_versions.image_ref=excluded.image_ref
+ and (not excluded.digest_pinned or core_versions.image_digest is not distinct from excluded.image_digest)
  and core_versions.digest_pinned=excluded.digest_pinned
  and core_versions.protocol_version=excluded.protocol_version and core_versions.config_schema_min=excluded.config_schema_min and core_versions.config_schema_max=excluded.config_schema_max
  returning id::text`, id, v.Version, image, imageDigest, digestPinned, v.Protocol, v.SchemaMin, v.SchemaMax, v.Commit).Scan(&versionID)
@@ -535,15 +536,23 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		c, exists := byInstance[id]
 		if !exists {
 			if state != "failed" && state != "stopped" && state != "pruned" && state != "pruning" {
+				var image string
 				var digest *string
-				if e = tx.QueryRow(ctx, `select image_digest from core_versions where id=$1`, row.versionID).Scan(&digest); e != nil {
+				if e = tx.QueryRow(ctx, `select image_ref,image_digest from core_versions where id=$1`, row.versionID).Scan(&image, &digest); e != nil {
 					return e
 				}
-				// Derive from the current repository so an operator can change
-				// CORE_IMAGE_REPOSITORY without rewriting every version row.
-				image, refErr := VersionImageRef(r.CoreImage, version, digest)
-				if refErr != nil {
-					return refErr
+				// Prefer the recorded image: the Compose baseline may use
+				// CORE_IMAGE rather than the dynamic repository. Fall back to the
+				// configured repository only for legacy rows without a valid ref.
+				if ref, parseErr := ParseImageReference(image); parseErr == nil {
+					if digest != nil && ref.Digest == "" {
+						image = ref.WithDigest(*digest).String()
+					}
+				} else {
+					image, e = VersionImageRef(r.CoreImage, version, digest)
+					if e != nil {
+						return e
+					}
 				}
 				if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e

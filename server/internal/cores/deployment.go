@@ -170,10 +170,12 @@ func (r *Runtime) failDeploy(ctx context.Context, id string, containers []string
 	// The request context may already be canceled (pull deadline or client
 	// disconnect). Failure cleanup must still be durable, otherwise reconcile can
 	// resume and auto-advance a deployment the caller was told had failed.
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
 	for _, container := range containers {
-		_ = r.Docker.Stop(cleanup, container, 5*time.Second)
+		if e := r.Docker.Stop(cleanup, container, 5*time.Second); e != nil {
+			_ = r.Docker.Remove(cleanup, container, true)
+		}
 	}
 	_, _ = r.database().Exec(cleanup, `update core_instances set state='failed',weight=0,lifecycle_error=$2 where deployment_id=$1`, id, cause.Error())
 	_, _ = r.database().Exec(cleanup, `update core_deployments set state='failed',error=$2,updated_at=now() where id=$1`, id, cause.Error())
