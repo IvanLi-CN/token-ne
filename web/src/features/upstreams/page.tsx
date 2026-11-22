@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
 import {
@@ -259,21 +259,16 @@ export default function UpstreamsPage() {
   };
   return (
     <>
-      <PageHeader
-        title="Upstreams"
-        description="管理上游连接、只写凭据与显式模型能力。"
-        actions={
-          <Button className="rounded-xl" onClick={() => setEditor(null)}>
-            创建上游
-          </Button>
-        }
-      />
+      <PageTitle title="Upstreams" />
       <section className="surface-card">
         <div className="panel-heading">
           <div>
             <h2>上游连接</h2>
             <p className="muted">优先级升序选择，同级按权重分配；测试不会自动改变启用状态。</p>
           </div>
+          <Button className="rounded-xl" onClick={() => setEditor(null)}>
+            创建上游
+          </Button>
         </div>
         <div className="px-5 pb-5">
           <ManagementTable

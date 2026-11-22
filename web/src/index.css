@@ -203,6 +203,10 @@ h3 {
     inset 0 1px 0 color-mix(in srgb, var(--fg) 3%, transparent),
     0 2px 8px #1d2c4710;
 }
+.command-nav {
+  height: 40px;
+  padding: 3px;
+}
 .command-link,
 .range-control button {
   border: 1px solid transparent;
@@ -214,17 +218,42 @@ h3 {
   font-weight: 500;
   background: transparent;
 }
+.command-link {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 13px;
+}
 .command-link.active,
-.range-control button[aria-pressed="true"] {
+.range-control button[aria-pressed="true"],
+.theme-control button[aria-pressed="true"] {
   color: var(--primary);
   background: var(--primary-soft);
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
   box-shadow: 0 3px 10px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 .command-link:hover,
-.range-control button:hover {
+.range-control button:hover,
+.theme-control button:hover {
   color: var(--primary);
   background: var(--primary-soft);
+}
+.theme-control {
+  height: 40px;
+  padding: 3px;
+}
+.theme-control button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 .shell-controls {
   display: flex;
@@ -277,9 +306,6 @@ h3 {
   color: var(--fg);
   padding: 0 12px;
   white-space: nowrap;
-}
-.theme-toggle svg {
-  color: var(--primary);
 }
 .language-control select {
   width: 88px;
@@ -357,6 +383,12 @@ kbd {
   margin-top: 5px;
   line-height: 1.6;
   font-size: 13px;
+}
+.panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 .range-control {
   padding: 4px;
@@ -883,7 +915,7 @@ th {
     font-size: 17px;
   }
   .command-open kbd,
-  .theme-toggle span {
+  .theme-control-label {
     display: none;
   }
   .main-content {
@@ -941,9 +973,13 @@ th {
     font-size: 12px;
   }
   .control-pill,
-  .command-open {
+  .command-open,
+  .theme-control {
     min-height: 44px;
     height: 44px;
+  }
+  .theme-control button {
+    height: 36px;
   }
   .range-control button {
     min-height: 38px;
@@ -962,7 +998,8 @@ th {
     padding-inline: 12px;
   }
   .control-pill,
-  .command-open {
+  .command-open,
+  .theme-control button {
     padding-inline: 11px;
   }
   .language-control {

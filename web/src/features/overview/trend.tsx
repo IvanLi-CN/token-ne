@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -8,12 +7,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { type Metric, metrics } from "./metrics";
 import type { Window } from "./time-range";
 import { displayMoney, displayNumber, displayTime, type UsagePoint } from "./usage";
 
-const metrics = { requests: "请求量", total_tokens: "Token 用量", cost_usd: "费用" } as const;
-type Metric = keyof typeof metrics;
-const metricKeys = Object.keys(metrics) as Metric[];
 const intervalMs = { "5m": 300_000, "1h": 3_600_000, "1d": 86_400_000 } as const;
 export type UsageInterval = keyof typeof intervalMs;
 
@@ -47,31 +44,19 @@ export default function UsageTrend({
   points,
   window,
   interval,
+  metric,
 }: {
   points: UsagePoint[];
   window: Window;
   interval: UsageInterval;
+  metric: Metric;
 }) {
-  const [metric, setMetric] = useState<Metric>("requests");
   const format = metric === "cost_usd" ? displayMoney : displayNumber;
   const color = metric === "cost_usd" ? "var(--accent)" : "var(--primary)";
   const filled = fillUsageBuckets(points, window, interval);
   const samples = filled.map((point) => ({ ...point, timestamp: Date.parse(point.bucket) }));
   return (
     <div className="min-w-0 space-y-3">
-      <fieldset className="segmented-control range-control">
-        <legend className="visually-hidden">趋势指标</legend>
-        {metricKeys.map((key) => (
-          <button
-            type="button"
-            key={key}
-            aria-pressed={metric === key}
-            onClick={() => setMetric(key)}
-          >
-            {metrics[key]}
-          </button>
-        ))}
-      </fieldset>
       {samples.some((point) => point[metric] != null) ? (
         <div className="h-[220px]">
           <ResponsiveContainer

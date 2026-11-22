@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Button, PageHeader, StatusBadge } from "../../components/primitives";
+import { Button, PageTitle, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
 import { type Billing, type Model, type ModelInput, modelsApi } from "./api";
@@ -141,38 +141,35 @@ export default function ModelsPage() {
     ) ?? [];
   return (
     <>
-      <PageHeader
-        title="Models"
-        description="管理公开模型、计费与全局映射。候选仅来自显式配置的上游能力。"
-        actions={
-          <Button className="rounded-xl" onClick={() => setEditor(null)}>
-            创建模型
-          </Button>
-        }
-      />
+      <PageTitle title="Models" />
       <section className="surface-card">
         <div className="panel-heading">
           <div>
             <h2>模型目录</h2>
             <p className="muted">价格为 USD / 百万 tokens；未配置与免费分别展示。</p>
           </div>
-          <fieldset className="segmented-control range-control">
-            <legend className="visually-hidden">模型状态筛选</legend>
-            {[
-              ["all", "全部"],
-              ["enabled", "启用"],
-              ["disabled", "禁用"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </fieldset>
+          <div className="panel-controls">
+            <fieldset className="segmented-control range-control">
+              <legend className="visually-hidden">模型状态筛选</legend>
+              {[
+                ["all", "全部"],
+                ["enabled", "启用"],
+                ["disabled", "禁用"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={filter === value}
+                  onClick={() => setFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
+            <Button className="rounded-xl" onClick={() => setEditor(null)}>
+              创建模型
+            </Button>
+          </div>
         </div>
         <div className="px-5 pb-5">
           <ManagementTable

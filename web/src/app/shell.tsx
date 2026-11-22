@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Globe, Menu, Moon, Sun, X } from "lucide-react";
+import { Globe, Menu, Monitor, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   NavLink,
@@ -25,10 +25,15 @@ const navigation = [
   ["/keys", "Downstream Keys"],
   ["/cores", "Cores"],
 ] as const;
+const themeModes = [
+  { value: "light", label: "浅色", Icon: Sun },
+  { value: "dark", label: "深色", Icon: Moon },
+  { value: "system", label: "跟随系统", Icon: Monitor },
+] as const;
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const user = useLoaderData() as AdminUser;
-  const { theme, toggleTheme } = useTheme();
+  const { mode, setMode } = useTheme();
   const { visit, pinned, reset } = useAdaptiveState();
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -125,19 +130,21 @@ export function AppShell() {
           </nav>
           <div className="shell-controls">
             <CommandPanel />
-            <Button
-              variant="secondary"
-              className="control-pill theme-toggle"
-              onClick={toggleTheme}
-              aria-label={`切换到${theme === "dark" ? "浅色" : "深色"}主题`}
-            >
-              {theme === "dark" ? (
-                <Moon size={18} aria-hidden="true" />
-              ) : (
-                <Sun size={18} aria-hidden="true" />
-              )}
-              <span>{theme === "dark" ? "深色" : "浅色"}</span>
-            </Button>
+            <fieldset className="segmented-control theme-control">
+              <legend className="visually-hidden">主题</legend>
+              {themeModes.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={label}
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                  <span className="theme-control-label">{label}</span>
+                </button>
+              ))}
+            </fieldset>
             <label className="control-pill language-control">
               <Globe size={18} aria-hidden="true" />
               <span className="visually-hidden">界面语言</span>

@@ -100,9 +100,30 @@ describe("application router", () => {
       await screen.findByRole("heading", { name: title });
       expect(router.state.location.pathname).toBe(path);
     }
-    const previous = document.documentElement.dataset.theme;
-    fireEvent.click(screen.getByRole("button", { name: /切换到/ }));
-    await waitFor(() => expect(document.documentElement.dataset.theme).not.toBe(previous));
+    fireEvent.click(screen.getByRole("button", { name: "深色" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    fireEvent.click(screen.getByRole("button", { name: "浅色" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    fireEvent.click(screen.getByRole("button", { name: "跟随系统" }));
+    expect(localStorage.getItem("token-ne.theme")).toBe("system");
+  });
+  it("follows the system theme until an explicit choice is made", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-color-scheme: dark"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(admin)));
+    mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(screen.getByRole("button", { name: "跟随系统" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(localStorage.getItem("token-ne.theme")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "浅色" }));
+    expect(localStorage.getItem("token-ne.theme")).toBe("light");
   });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
