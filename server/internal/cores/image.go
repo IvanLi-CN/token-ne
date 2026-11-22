@@ -123,7 +123,7 @@ func (r ImageReference) WithDigest(digest string) ImageReference {
 // from once it is gone.
 func (r ImageReference) Local() bool {
 	host, _, hasPath := strings.Cut(r.Repository, "/")
-	return !hasPath || !isRegistryHost(host)
+	return !hasPath && !isRegistryHost(host)
 }
 
 // VersionImageRef derives the image reference for a registered version. Clients
@@ -185,7 +185,15 @@ func (r *Runtime) ensureImage(ctx context.Context, ref ImageReference) (ImageRef
 // is available and returns the reference to create containers with. A tag pull
 // resolves the digest and persists it for rollback/reconciliation.
 func (r *Runtime) prepareVersionImage(ctx context.Context, v versionImageRow) (string, error) {
-	refString, err := VersionImageRef(r.CoreImage, v.Version, v.Digest)
+	// A digest supplied at registration is immutable. A tag registration stays
+	// a tag: each new deployment refreshes it and stores the resolved digest for
+	// rollback/reconciliation, but never turns the registration into a pinned
+	// digest reference.
+	pullDigest := v.Digest
+	if !v.DigestPinned {
+		pullDigest = nil
+	}
+	refString, err := VersionImageRef(r.CoreImage, v.Version, pullDigest)
 	if err != nil {
 		return "", fmt.Errorf("%w: version %q cannot derive an image reference", ErrInvalid, v.Version)
 	}
@@ -198,7 +206,11 @@ func (r *Runtime) prepareVersionImage(ctx context.Context, v versionImageRow) (s
 		return "", err
 	}
 	if refString != v.Image || resolved.Digest != "" && (v.Digest == nil || *v.Digest != resolved.Digest) {
-		if _, err = r.database().Exec(ctx, `update core_versions set image_ref=$3,image_digest=$2 where id=$1`, v.ID, resolved.Digest, refString); err != nil {
+		var digest any
+		if resolved.Digest != "" {
+			digest = resolved.Digest
+		}
+		if _, err = r.database().Exec(ctx, `update core_versions set image_ref=$3,image_digest=$2 where id=$1`, v.ID, digest, refString); err != nil {
 			return "", err
 		}
 	}
@@ -213,15 +225,21 @@ func (r *Runtime) PullVersion(ctx context.Context, id string) (VersionView, erro
 		return VersionView{}, ErrInvalid
 	}
 	var v VersionView
-	e := r.database().QueryRow(ctx, `select id::text,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max,build_commit,created_at from core_versions where id=$1`, id).
-		Scan(&v.ID, &v.Version, &v.ImageRef, &v.ImageDigest, &v.Protocol, &v.SchemaMin, &v.SchemaMax, &v.Commit, &v.Created)
+	e := r.database().QueryRow(ctx, `select id::text,version,image_ref,image_digest,digest_pinned,protocol_version,config_schema_min,config_schema_max,build_commit,created_at from core_versions where id=$1`, id).
+		Scan(&v.ID, &v.Version, &v.ImageRef, &v.ImageDigest, &v.DigestPinned, &v.Protocol, &v.SchemaMin, &v.SchemaMax, &v.Commit, &v.Created)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return VersionView{}, ErrUnknown
 	}
 	if e != nil {
 		return VersionView{}, e
 	}
-	refString, e := VersionImageRef(r.CoreImage, v.Version, v.ImageDigest)
+	// A digest registration pulls the pinned digest. A tag registration refreshes
+	// the tag; the stored digest is only for rollback/reconciliation.
+	pullDigest := v.ImageDigest
+	if !v.DigestPinned {
+		pullDigest = nil
+	}
+	refString, e := VersionImageRef(r.CoreImage, v.Version, pullDigest)
 	if e != nil {
 		return VersionView{}, fmt.Errorf("%w: version %q cannot derive an image reference", ErrInvalid, v.Version)
 	}
@@ -240,15 +258,17 @@ func (r *Runtime) PullVersion(ctx context.Context, id string) (VersionView, erro
 	if !ok {
 		digest = ref.Digest
 	}
-	targetRef, e := VersionImageRef(r.CoreImage, v.Version, v.ImageDigest)
-	if e != nil {
-		return VersionView{}, e
-	}
 	if digest != "" {
 		v.ImageDigest = &digest
+	} else {
+		v.ImageDigest = nil
 	}
-	v.ImageRef = targetRef
-	if _, e = r.database().Exec(ctx, `update core_versions set image_ref=$3,image_digest=$2 where id=$1`, id, v.ImageDigest, v.ImageRef); e != nil {
+	v.ImageRef = refString
+	var storedDigest any
+	if v.ImageDigest != nil {
+		storedDigest = *v.ImageDigest
+	}
+	if _, e = r.database().Exec(ctx, `update core_versions set image_ref=$3,image_digest=$2 where id=$1`, id, storedDigest, v.ImageRef); e != nil {
 		return VersionView{}, e
 	}
 	return v, nil

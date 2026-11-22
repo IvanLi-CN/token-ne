@@ -39,6 +39,7 @@ type Runtime struct {
 	AllowPrivateUpstreams string
 	mu                    sync.Mutex
 	lifecycle             sync.Mutex
+	deployMu              sync.Mutex
 }
 
 // Target is the client-supplied part of a core version registration. The image
@@ -54,15 +55,16 @@ type Target struct {
 
 // VersionView is the registered core version as the admin API exposes it.
 type VersionView struct {
-	ID          string    `json:"id"`
-	Version     string    `json:"version"`
-	ImageRef    string    `json:"image_ref"`
-	ImageDigest *string   `json:"image_digest"`
-	Protocol    int       `json:"protocol_version"`
-	SchemaMin   int       `json:"config_schema_min"`
-	SchemaMax   int       `json:"config_schema_max"`
-	Commit      *string   `json:"build_commit"`
-	Created     time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Version      string    `json:"version"`
+	ImageRef     string    `json:"image_ref"`
+	ImageDigest  *string   `json:"image_digest"`
+	DigestPinned bool      `json:"digest_pinned"`
+	Protocol     int       `json:"protocol_version"`
+	SchemaMin    int       `json:"config_schema_min"`
+	SchemaMax    int       `json:"config_schema_max"`
+	Commit       *string   `json:"build_commit"`
+	Created      time.Time `json:"created_at"`
 }
 
 type DeploymentRequest struct {
@@ -107,37 +109,40 @@ func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (VersionView, e
 	id := uuid.NewString()
 	var versionID string
 	var imageDigest any = v.Digest
-	e = r.database().QueryRow(ctx, `insert into core_versions(id,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max,build_commit)
- values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(version) do update set version=excluded.version
+	digestPinned := v.Digest != nil
+	e = r.database().QueryRow(ctx, `insert into core_versions(id,version,image_ref,image_digest,digest_pinned,protocol_version,config_schema_min,config_schema_max,build_commit)
+ values($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict(version) do update set version=excluded.version
  where core_versions.image_ref=excluded.image_ref and core_versions.image_digest is not distinct from excluded.image_digest
+ and core_versions.digest_pinned=excluded.digest_pinned
  and core_versions.protocol_version=excluded.protocol_version and core_versions.config_schema_min=excluded.config_schema_min and core_versions.config_schema_max=excluded.config_schema_max
- returning id::text`, id, v.Version, image, imageDigest, v.Protocol, v.SchemaMin, v.SchemaMax, v.Commit).Scan(&versionID)
+ returning id::text`, id, v.Version, image, imageDigest, digestPinned, v.Protocol, v.SchemaMin, v.SchemaMax, v.Commit).Scan(&versionID)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return VersionView{}, ErrConflict
 	}
 	if e != nil {
 		return VersionView{}, e
 	}
-	return VersionView{ID: versionID, Version: v.Version, ImageRef: image, ImageDigest: v.Digest, Protocol: v.Protocol,
+	return VersionView{ID: versionID, Version: v.Version, ImageRef: image, ImageDigest: v.Digest, DigestPinned: digestPinned, Protocol: v.Protocol,
 		SchemaMin: v.SchemaMin, SchemaMax: v.SchemaMax, Commit: v.Commit, Created: time.Now().UTC()}, nil
 }
 
 // versionImageRow is the registered image identity and compatibility range a
 // deployment needs before it touches deployment state.
 type versionImageRow struct {
-	ID        string
-	Version   string
-	Image     string
-	Digest    *string
-	Protocol  int
-	SchemaMin int
-	SchemaMax int
+	ID           string
+	Version      string
+	Image        string
+	Digest       *string
+	DigestPinned bool
+	Protocol     int
+	SchemaMin    int
+	SchemaMax    int
 }
 
 func (r *Runtime) versionImage(ctx context.Context, version string) (versionImageRow, error) {
 	var v versionImageRow
-	e := r.database().QueryRow(ctx, `select id::text,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max from core_versions where version=$1`, version).
-		Scan(&v.ID, &v.Version, &v.Image, &v.Digest, &v.Protocol, &v.SchemaMin, &v.SchemaMax)
+	e := r.database().QueryRow(ctx, `select id::text,version,image_ref,image_digest,digest_pinned,protocol_version,config_schema_min,config_schema_max from core_versions where version=$1`, version).
+		Scan(&v.ID, &v.Version, &v.Image, &v.Digest, &v.DigestPinned, &v.Protocol, &v.SchemaMin, &v.SchemaMax)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return v, ErrUnknown
 	}

@@ -399,7 +399,8 @@ func (e *Engine) PullImage(ctx context.Context, ref string) (Image, error) {
 // consumePull drains Docker's progress stream and surfaces the first error
 // record. Progress lines carry no value for the control plane.
 func consumePull(body io.Reader) error {
-	decoder := json.NewDecoder(io.LimitReader(body, 8<<20))
+	limited := &io.LimitedReader{R: body, N: 8 << 20}
+	decoder := json.NewDecoder(limited)
 	for {
 		var record struct {
 			Error       string `json:"error"`
@@ -409,6 +410,9 @@ func consumePull(body io.Reader) error {
 		}
 		if err := decoder.Decode(&record); err != nil {
 			if errors.Is(err, io.EOF) {
+				if limited.N == 0 {
+					return errors.New("image pull progress stream exceeded 8 MiB")
+				}
 				return nil
 			}
 			return err

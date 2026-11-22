@@ -61,6 +61,8 @@ func canPrune(i instanceRow) bool {
 }
 
 func (r *Runtime) observeDrains(ctx context.Context) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	instances, e := r.instances(ctx)
 	if e != nil {
 		return e

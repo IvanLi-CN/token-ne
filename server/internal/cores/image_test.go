@@ -87,6 +87,7 @@ func TestImageReferenceParsingAndRemoteDetection(t *testing.T) {
 	}{
 		{ref: "token-ne-core:0.1.0", repo: "token-ne-core", tag: "0.1.0", local: true, canonical: "token-ne-core:0.1.0"},
 		{ref: "token-ne-core", repo: "token-ne-core", local: true, canonical: "token-ne-core"},
+		{ref: "ivanli/token-ne-core:0.1.0", repo: "ivanli/token-ne-core", tag: "0.1.0", canonical: "ivanli/token-ne-core:0.1.0"},
 		{ref: "ghcr.io/ivanli-cn/token-ne-core:0.2.0", repo: "ghcr.io/ivanli-cn/token-ne-core", tag: "0.2.0", canonical: "ghcr.io/ivanli-cn/token-ne-core:0.2.0"},
 		{ref: "ghcr.io/ivanli-cn/token-ne-core@" + digest, repo: "ghcr.io/ivanli-cn/token-ne-core", digest: digest, canonical: "ghcr.io/ivanli-cn/token-ne-core@" + digest},
 		{ref: "localhost:5000/cores/core:1", repo: "localhost:5000/cores/core", tag: "1", canonical: "localhost:5000/cores/core:1"},
@@ -260,8 +261,15 @@ func TestPrepareVersionImagePersistsResolvedDigest(t *testing.T) {
 
 	stored := digest
 	db = &fakeDB{}
+	docker = &fakeDocker{image: Image{RepoDigests: []string{repo + "@" + digest}}}
+	r = Runtime{Pool: db, Docker: docker, CoreImage: repo}
+	if image, e = r.prepareVersionImage(context.Background(), versionImageRow{ID: "version-id", Version: "0.2.0", Image: repo + ":0.2.0", Digest: &stored}); e != nil || image != repo+"@"+digest || docker.pulls != 1 {
+		t.Fatalf("tag registration reused digest: %q %v pulls=%d", image, e, docker.pulls)
+	}
+
+	db = &fakeDB{}
 	r = Runtime{Pool: db, Docker: &fakeDocker{}, CoreImage: repo}
-	if image, e = r.prepareVersionImage(context.Background(), versionImageRow{ID: "version-id", Version: "0.2.0", Image: repo + "@" + stored, Digest: &stored}); e != nil || image != repo+"@"+digest {
+	if image, e = r.prepareVersionImage(context.Background(), versionImageRow{ID: "version-id", Version: "0.2.0", Image: repo + "@" + stored, Digest: &stored, DigestPinned: true}); e != nil || image != repo+"@"+digest {
 		t.Fatalf("pinned digest: %q %v", image, e)
 	}
 	if len(db.writes) != 0 {
@@ -278,12 +286,12 @@ func TestPullVersionExplicit(t *testing.T) {
 	repo := "ghcr.io/ivanli-cn/token-ne-core"
 	digest := testDigest("1")
 	created := time.Now().UTC()
-	row := func(image string, stored *string) func(string, []any) fakeRow {
+	row := func(image string, stored *string, pinned bool) func(string, []any) fakeRow {
 		return func(string, []any) fakeRow {
-			return fakeRow{values: []any{"version-id", "0.2.0", image, stored, 1, 1, 1, nil, created}}
+			return fakeRow{values: []any{"version-id", "0.2.0", image, stored, pinned, 1, 1, 1, nil, created}}
 		}
 	}
-	db := &fakeDB{row: row(repo+":0.2.0", nil)}
+	db := &fakeDB{row: row(repo+":0.2.0", nil, false)}
 	docker := &fakeDocker{image: Image{RepoDigests: []string{repo + "@" + digest}}}
 	r := Runtime{Pool: db, Docker: docker, CoreImage: repo}
 	version, e := r.PullVersion(context.Background(), uuid.NewString())
@@ -298,7 +306,7 @@ func TestPullVersionExplicit(t *testing.T) {
 	}
 
 	localDocker := &fakeDocker{}
-	r = Runtime{Pool: &fakeDB{row: row("token-ne-core:0.2.0", nil)}, Docker: localDocker, CoreImage: "token-ne-core"}
+	r = Runtime{Pool: &fakeDB{row: row("token-ne-core:0.2.0", nil, false)}, Docker: localDocker, CoreImage: "token-ne-core"}
 	if _, e = r.PullVersion(context.Background(), uuid.NewString()); !errors.Is(e, ErrConflict) || localDocker.pulls != 0 {
 		t.Fatalf("local repository pull: %v pulls=%d", e, localDocker.pulls)
 	}

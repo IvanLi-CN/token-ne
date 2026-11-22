@@ -278,7 +278,7 @@ func (h *HTTP) status(w http.ResponseWriter, r *http.Request) {
 func (h *HTTP) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	rows, e := h.Runtime.database().Query(ctx, `select id::text,version,image_ref,image_digest,protocol_version,config_schema_min,config_schema_max,build_commit,created_at from core_versions order by created_at,version`)
+	rows, e := h.Runtime.database().Query(ctx, `select id::text,version,image_ref,image_digest,digest_pinned,protocol_version,config_schema_min,config_schema_max,build_commit,created_at from core_versions order by created_at,version`)
 	if e != nil {
 		writeAdminError(w, 503, "storage_unavailable", "database unavailable")
 		return
@@ -286,7 +286,7 @@ func (h *HTTP) list(w http.ResponseWriter, r *http.Request) {
 	versions := []VersionView{}
 	for rows.Next() {
 		var version VersionView
-		if e = rows.Scan(&version.ID, &version.Version, &version.ImageRef, &version.ImageDigest, &version.Protocol, &version.SchemaMin, &version.SchemaMax, &version.Commit, &version.Created); e != nil {
+		if e = rows.Scan(&version.ID, &version.Version, &version.ImageRef, &version.ImageDigest, &version.DigestPinned, &version.Protocol, &version.SchemaMin, &version.SchemaMax, &version.Commit, &version.Created); e != nil {
 			rows.Close()
 			writeAdminError(w, 503, "storage_unavailable", "database unavailable")
 			return

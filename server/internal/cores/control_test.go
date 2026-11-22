@@ -515,7 +515,7 @@ func TestDeployEnsuresTargetImage(t *testing.T) {
 				case strings.Contains(q, "from core_versions where version=$1 for share"):
 					return fakeRow{values: []any{"version-id", 1, 1, 1}}
 				case strings.Contains(q, "from core_versions where version=$1"):
-					return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, 1, 1, 1}}
+					return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 1, 1}}
 				case strings.Contains(q, "from core_deployments where state not in"):
 					return fakeRow{err: pgx.ErrNoRows}
 				case strings.Contains(q, "from core_deployments where id=$1"):

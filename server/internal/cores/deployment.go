@@ -28,8 +28,6 @@ type Deployment struct {
 }
 
 func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentRequest) (Deployment, error) {
-	r.lifecycle.Lock()
-	defer r.lifecycle.Unlock()
 	if req.Replicas < 1 || req.Replicas > 10 || req.InitialWeight != 0 {
 		return Deployment{}, ErrInvalid
 	}
@@ -50,6 +48,10 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	if e != nil {
 		return Deployment{}, e
 	}
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
+	r.lifecycle.Lock()
+	defer r.lifecycle.Unlock()
 	tx, e := r.database().Begin(ctx)
 	if e != nil {
 		return Deployment{}, e
@@ -148,32 +150,39 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 		}
 	}
 	if _, e = r.database().Exec(ctx, `update core_deployments set state='warming',updated_at=now() where id=$1`, id); e != nil {
-		return Deployment{}, e
+		return Deployment{}, r.failDeploy(ctx, id, created, e)
 	}
 
 	if e = r.Audit(ctx, actor, "core.deploy", "core_deployment", id, map[string]any{"to_version": req.Version, "replicas": req.Replicas, "initial_weight": 0, "auto_advance": autoAdvance}); e != nil {
-		return Deployment{}, e
+		return Deployment{}, r.failDeploy(ctx, id, created, e)
 	}
 	var updated Deployment
 	var stored []byte
 	e = r.database().QueryRow(ctx, `select id::text,from_version_id::text,(select version from core_versions where id=to_version_id),state,target_weights,progress,error,created_at,updated_at from core_deployments where id=$1`, id).Scan(&updated.ID, &updated.FromVersion, &updated.ToVersion, &updated.State, &updated.Target, &stored, &updated.Error, &updated.Created, &updated.Updated)
 	if e != nil {
-		return Deployment{}, e
+		return Deployment{}, r.failDeploy(ctx, id, created, e)
 	}
 	setNextWeights(&updated, stored)
 	return updated, nil
 }
 
 func (r *Runtime) failDeploy(ctx context.Context, id string, containers []string, cause error) error {
+	// The request context may already be canceled (pull deadline or client
+	// disconnect). Failure cleanup must still be durable, otherwise reconcile can
+	// resume and auto-advance a deployment the caller was told had failed.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	for _, container := range containers {
-		_ = r.Docker.Stop(ctx, container, 5*time.Second)
+		_ = r.Docker.Stop(cleanup, container, 5*time.Second)
 	}
-	_, _ = r.database().Exec(ctx, `update core_instances set state='failed',weight=0,lifecycle_error=$2 where deployment_id=$1`, id, cause.Error())
-	_, _ = r.database().Exec(ctx, `update core_deployments set state='failed',error=$2,updated_at=now() where id=$1`, id, cause.Error())
+	_, _ = r.database().Exec(cleanup, `update core_instances set state='failed',weight=0,lifecycle_error=$2 where deployment_id=$1`, id, cause.Error())
+	_, _ = r.database().Exec(cleanup, `update core_deployments set state='failed',error=$2,updated_at=now() where id=$1`, id, cause.Error())
 	return cause
 }
 
 func (r *Runtime) advance(ctx context.Context) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	var id, state string
 	var raw []byte
 	e := r.database().QueryRow(ctx, `select id::text,state,progress from core_deployments where state not in ('completed','failed','rolled_back') order by created_at limit 1`).Scan(&id, &state, &raw)
@@ -283,7 +292,7 @@ func (r *Runtime) applyStage(ctx context.Context, id string, p *progress) error 
 	}
 	weights := p.weights(next)
 	if e := r.applyWeights(ctx, id, weights); e != nil {
-		return errors.Join(e, r.Rollback(ctx, id, "system"))
+		return errors.Join(e, r.rollback(ctx, id, "system"))
 	}
 	p.Stage = next
 	p.Started = time.Now().UTC()
@@ -336,6 +345,8 @@ func (r *Runtime) applyWeights(ctx context.Context, deployment string, weights m
 }
 
 func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	if !UUID(id, false) || len(weights) == 0 {
 		return ErrInvalid
 	}
@@ -403,6 +414,12 @@ func (r *Runtime) shift(ctx context.Context, id string, weights map[string]int) 
 }
 
 func (r *Runtime) Rollback(ctx context.Context, id, actor string) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
+	return r.rollback(ctx, id, actor)
+}
+
+func (r *Runtime) rollback(ctx context.Context, id, actor string) error {
 	var state string
 	var raw []byte
 	e := r.database().QueryRow(ctx, `select state,progress from core_deployments where id=$1`, id).Scan(&state, &raw)
@@ -516,6 +533,8 @@ func (r *Runtime) stopInstance(ctx context.Context, i instanceRow) error {
 }
 
 func (r *Runtime) Drain(ctx context.Context, id, actor string, force bool, reason *string) error {
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	if !UUID(id, false) || force && (reason == nil || *reason == "") {
 		return ErrInvalid
 	}

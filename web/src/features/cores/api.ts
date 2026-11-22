@@ -6,6 +6,7 @@ export type Version = {
   version: string;
   image_ref: string;
   image_digest?: string | null;
+  digest_pinned?: boolean;
   protocol_version: number;
   config_schema_min: number;
   config_schema_max: number;
