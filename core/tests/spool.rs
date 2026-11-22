@@ -78,8 +78,8 @@ fn byte_capacity_drops_only_oldest_prefix_and_counts_it() {
         .len() as u64
         + 1;
     let spool = Spool::open_with_limits(dir.path(), one, one, 24, 0).unwrap();
-    spool.append(event()).unwrap();
-    spool.append(event()).unwrap();
+    spool.append(e.clone()).unwrap();
+    spool.append(e).unwrap();
     assert_eq!(spool.stats().unwrap().dropped_total, 1);
     assert_eq!(spool.unacked().unwrap(), 1);
 }
