@@ -23,6 +23,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 管理 API 使用会话 Cookie，所有写请求校验 `Origin` 与 `Sec-Fetch-Site`。路径和操作：
 
 - `/api/auth/*`：登录、退出、当前管理员。
+- `/api/version`：公开的 API 运行时版本、commit 和构建时间；Web 页脚消费该值。
 - `/api/models`：全局模型；`model_id` 是公开名，实体包含启用、计费、全局映射和 `shutdown_date`。
 - `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 能力集合。
 - `/api/downstream-keys`：下游 Key；明文只在创建和轮换响应出现一次。

@@ -5,3 +5,4 @@ pub mod spool;
 pub mod state;
 pub mod telemetry;
 pub mod usage_client;
+pub mod version;

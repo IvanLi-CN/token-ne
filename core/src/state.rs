@@ -285,7 +285,7 @@ impl CoreState {
             s.as_ref()
                 .and_then(|sp| sp.oldest_unacked_at().ok().flatten())
         });
-        json!({"instance_id":self.instance_id,"version":env!("CARGO_PKG_VERSION"),"config":config,"status_rewrite_policy":policy,"last_controlled_at":snapshot.as_ref().and_then(|s|s.last_controlled_at),"inflight":self.inflight.load(Ordering::Acquire),"spool":{"bytes":spool.bytes,"unacked_events":spool.unacked_events,"oldest_unacked_at":oldest,"oldest_unacked_seconds":spool.oldest_unacked_seconds,"last_ack_seq":spool.last_ack_seq,"dropped_total":spool.dropped_total},"draining":self.draining.load(Ordering::Acquire),"started_at":self.started_at,"features":crate::telemetry::FEATURES})
+        json!({"instance_id":self.instance_id,"version":crate::version::VERSION,"config":config,"status_rewrite_policy":policy,"last_controlled_at":snapshot.as_ref().and_then(|s|s.last_controlled_at),"inflight":self.inflight.load(Ordering::Acquire),"spool":{"bytes":spool.bytes,"unacked_events":spool.unacked_events,"oldest_unacked_at":oldest,"oldest_unacked_seconds":spool.oldest_unacked_seconds,"last_ack_seq":spool.last_ack_seq,"dropped_total":spool.dropped_total},"draining":self.draining.load(Ordering::Acquire),"started_at":self.started_at,"features":crate::telemetry::FEATURES})
     }
 }
 pub struct InflightGuard {

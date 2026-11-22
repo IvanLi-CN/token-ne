@@ -3,7 +3,10 @@ use token_ne_core::{proxy::usage::UsageEvent, spool::Spool};
 fn event() -> UsageEvent {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../docs/fixtures/usage-batch.v1.json")).unwrap();
-    serde_json::from_value(fixture["payload"]["events"][0].clone()).unwrap()
+    let mut event: UsageEvent =
+        serde_json::from_value(fixture["payload"]["events"][0].clone()).unwrap();
+    event.occurred_at = chrono::Utc::now().to_rfc3339();
+    event
 }
 
 #[test]

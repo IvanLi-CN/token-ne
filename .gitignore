@@ -21,6 +21,10 @@
 /web/coverage/
 *.tsbuildinfo
 
+# Python
+__pycache__/
+*.pyc
+
 # Local runtime state
 /ops/state/
 *.log

@@ -19,7 +19,7 @@ pub const FEATURES: [&str; 5] = [
     "status_rewrite",
 ];
 pub fn meta() -> Value {
-    json!({"protocol_version":1,"config_schema_min":1,"config_schema_max":1,"features":FEATURES,"version":env!("CARGO_PKG_VERSION"),"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
+    json!({"protocol_version":1,"config_schema_min":1,"config_schema_max":1,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
 }
 pub fn metrics(state: &CoreState) -> String {
     let snapshot = state.snapshot();

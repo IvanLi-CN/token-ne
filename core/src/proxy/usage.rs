@@ -43,7 +43,7 @@ pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
         event_id: Uuid::now_v7().to_string(),
         request_id: f.request_id.clone(),
         occurred_at: Utc::now().to_rfc3339(),
-        core_version: env!("CARGO_PKG_VERSION").into(),
+        core_version: crate::version::VERSION.into(),
         core_instance: instance.into(),
         downstream_key_id: f.downstream_key_id.clone(),
         upstream_id: f.upstream_id.clone(),

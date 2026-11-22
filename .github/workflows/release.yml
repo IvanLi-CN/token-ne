@@ -1,0 +1,363 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Release target: patch, minor, major, or X.Y.Z"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      source: ${{ steps.version.outputs.source }}
+      recovery: ${{ steps.version.outputs.recovery }}
+      built_at: ${{ steps.version.outputs.built_at }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Resolve canonical version
+        id: version
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          result=$(python3 ops/release/version_policy.py resolve --target "$TARGET" --source "$GITHUB_SHA" --repo . --run-attempt "${GITHUB_RUN_ATTEMPT:-1}")
+          echo "$result"
+          echo "version=$(jq -r .version <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "tag=$(jq -r .tag <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "source=$(jq -r .source <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "recovery=$(jq -r .recovery <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Verify source and CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY: ${{ steps.version.outputs.recovery }}
+          SOURCE: ${{ steps.version.outputs.source }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          git fetch --force origin main
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          if [ "${RECOVERY}" = "true" ]; then
+            git merge-base --is-ancestor "${SOURCE}" origin/main
+          else
+            test "$(git rev-parse origin/main)" = "${SOURCE}"
+          fi
+          suite=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+            --jq '[.workflow_runs[] | select(.event == "push")] | sort_by(.run_started_at) | last | .check_suite_id')
+          test -n "$suite" && test "$suite" != "null" || { echo "no ci run for ${GITHUB_SHA}" >&2; exit 1; }
+          runs=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100")
+          for name in core core-smoke server e2e-tools web contracts release-policy; do
+            state=$(jq -r --arg name "$name" --arg suite "$suite" '[.[].check_runs[] | select(.name == $name and .check_suite.id == ($suite | tonumber))] | sort_by(.started_at) | last | if . == null then "missing" else "\(.status):\(.conclusion // "")" end' <<<"$runs")
+            test "$state" = "completed:success" || { echo "CI check ${name}: ${state}" >&2; exit 1; }
+          done
+
+  tag:
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source }}
+          fetch-depth: 0
+      - name: Ensure immutable release tag
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "${TAG}")" = "${SOURCE}" || {
+              echo "tag ${TAG} points to another source" >&2
+              exit 1
+            }
+            echo "reusing ${TAG} at ${SOURCE}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" "${SOURCE}" -m "token-ne ${VERSION}"
+          git push origin "refs/tags/${TAG}"
+
+  web:
+    needs: [resolve, tag]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source }}
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Build Web artifact
+        env:
+          VITE_APP_VERSION: ${{ needs.resolve.outputs.version }}
+          VITE_GIT_COMMIT: ${{ needs.resolve.outputs.source }}
+          VITE_BUILD_TIMESTAMP: ${{ needs.resolve.outputs.built_at }}
+        run: |
+          cd web
+          bun install --frozen-lockfile
+          bun run build
+          jq -e --arg version "$VITE_APP_VERSION" '.version == $version' dist/version.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+
+  core-image:
+    needs: [resolve, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source }}
+          fetch-depth: 1
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Resolve image name
+        id: image
+        run: |
+          set -euo pipefail
+          image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          echo "name=${image}" >> "$GITHUB_OUTPUT"
+      - name: Check existing image
+        id: existing
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          if probe=$(docker buildx imagetools inspect "$IMAGE" 2>&1); then
+            docker pull "$IMAGE"
+            revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")
+            version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")
+            test "$revision" = "$SOURCE"
+            test "$version" = "$VERSION"
+            repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+            echo "digest=${repo_digest##*@}" >> "$GITHUB_OUTPUT"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eqi 'manifest unknown|not found|no such manifest|name unknown' <<<"$probe"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$probe" >&2
+            exit 1
+          fi
+      - name: Build and push core
+        id: build
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: core/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ needs.resolve.outputs.version }}
+            GIT_COMMIT=${{ needs.resolve.outputs.source }}
+            BUILD_TIMESTAMP=${{ needs.resolve.outputs.built_at }}
+            OCI_SOURCE=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=token-ne-core
+          cache-to: type=gha,mode=max,scope=token-ne-core
+      - name: Save digest
+        env:
+          BUILT: ${{ steps.build.outputs.digest }}
+          EXISTING: ${{ steps.existing.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${BUILT:-$EXISTING}"
+          test -n "$digest"
+          echo "$digest" > core-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-digest
+          path: core-digest.txt
+          retention-days: 1
+
+  api-image:
+    needs: [resolve, tag, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Resolve image name
+        id: image
+        run: |
+          set -euo pipefail
+          image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          echo "name=${image}" >> "$GITHUB_OUTPUT"
+          echo "core_name=${core_image}" >> "$GITHUB_OUTPUT"
+      - name: Check existing image
+        id: existing
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          if probe=$(docker buildx imagetools inspect "$IMAGE" 2>&1); then
+            docker pull "$IMAGE"
+            revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")
+            version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")
+            test "$revision" = "$SOURCE"
+            test "$version" = "$VERSION"
+            repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+            echo "digest=${repo_digest##*@}" >> "$GITHUB_OUTPUT"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eqi 'manifest unknown|not found|no such manifest|name unknown' <<<"$probe"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$probe" >&2
+            exit 1
+          fi
+      - name: Build and push API
+        id: build
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ needs.resolve.outputs.version }}
+            GIT_COMMIT=${{ needs.resolve.outputs.source }}
+            BUILD_TIMESTAMP=${{ needs.resolve.outputs.built_at }}
+            OCI_SOURCE=https://github.com/${{ github.repository }}
+            CORE_IMAGE_REPOSITORY=${{ steps.image.outputs.core_name }}
+          cache-from: type=gha,scope=token-ne-api
+          cache-to: type=gha,mode=max,scope=token-ne-api
+      - name: Save digest
+        env:
+          BUILT: ${{ steps.build.outputs.digest }}
+          EXISTING: ${{ steps.existing.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${BUILT:-$EXISTING}"
+          test -n "$digest"
+          echo "$digest" > api-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-digest
+          path: api-digest.txt
+          retention-days: 1
+
+  publish:
+    needs: [resolve, core-image, api-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-digest
+          path: digests/core
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-digest
+          path: digests/api
+      - name: Verify tag identity
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          test "$(git rev-list -n 1 "$TAG")" = "$SOURCE"
+      - name: Verify anonymous image pulls and digests
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          core_digest=$(cat digests/core/core-digest.txt)
+          api_digest=$(cat digests/api/api-digest.txt)
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          api_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          docker pull "${core_image}:${VERSION}"
+          docker pull "${api_image}:${VERSION}"
+          core_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "${core_image}:${VERSION}")
+          api_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "${api_image}:${VERSION}")
+          test "${core_ref##*@}" = "$core_digest"
+          test "${api_ref##*@}" = "$api_digest"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          core_digest=$(cat digests/core/core-digest.txt)
+          api_digest=$(cat digests/api/api-digest.txt)
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          api_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release ${TAG} already exists"
+            exit 0
+          fi
+          notes=$(cat <<EOF
+          token-ne ${VERSION}
+
+          - source: ${SOURCE}
+          - core: ${core_image}:${VERSION}@${core_digest}
+          - api: ${api_image}:${VERSION}@${api_digest}
+          EOF
+          )
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "token-ne ${VERSION}" --notes "$notes"
