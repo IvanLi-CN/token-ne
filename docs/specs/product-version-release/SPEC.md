@@ -114,9 +114,9 @@
 
 ### VER-PVR-006
 
-- Method: 检查 GHCR 镜像标签、OCI labels、匿名 `docker pull` 和 release notes。
+- Method: 检查 GHCR 镜像标签、OCI labels、匿名 `docker pull`、拉取 digest 与构建 digest 对比和 release notes。
 - covers: `REQ-PVR-006`
-- Pass condition: 两个镜像使用同一精确 `X.Y.Z`，无 `latest`，无 `-sha` 后缀；匿名拉取成功后才创建 Release。
+- Pass condition: 两个镜像使用同一精确 `X.Y.Z`，无 `latest`，无 `-sha` 后缀；匿名拉取成功且 digest 与构建 digest 一致后才创建 Release。
 
 ### VER-PVR-007
 

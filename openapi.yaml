@@ -1612,7 +1612,7 @@ components:
           example: 7bf2870
         built_at:
           type: string
-          format: date-time
+          description: RFC3339 构建时间；非发布构建为 unknown
     Billing:
       type: object
       required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok]

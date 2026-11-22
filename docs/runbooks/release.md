@@ -66,11 +66,10 @@ curl -fsS https://$PUBLIC_DOMAIN/api/version
 
 ## 失败恢复
 
-- tag 已创建后失败：保留 tag，重新运行 release workflow。
-- 同一 SHA 已有唯一 `vX.Y.Z` tag：workflow 识别为 same-identity recovery，复用该版本。
-- 镜像已存在：
-  - `recovery=true` 时允许重试同一 identity。
-  - 非恢复发布遇到已存在镜像时 fail closed，不覆盖。
+- tag 已创建后失败：保留 tag，在原 workflow run 上选择 **Re-run all jobs**。不要在主分支前进后新建 dispatch；新的 dispatch 会解析新版本。
+- 同一 SHA 已有唯一 `vX.Y.Z` tag：workflow 识别为 same-identity recovery，复用该版本；该 SHA 必须是当前 `origin/main` 的祖先。
+- 恢复时已有镜像不会被重新构建或覆盖；workflow 校验 OCI `revision`/`version` 后复用原 digest。标签或 digest 与 source 不匹配时失败。
+- 创建 GitHub Release 前会重新校验 tag 仍指向 source SHA，并校验匿名拉取到的 digest 与构建 digest 一致。
 - GitHub Release 只在两个镜像都成功后创建；已存在时跳过重复创建。
 - 不删除 tag、不移动 tag、不重新计算 successor、不生成下一个版本。
 

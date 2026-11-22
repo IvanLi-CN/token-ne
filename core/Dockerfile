@@ -1,5 +1,5 @@
 FROM rust:1.99.1-bookworm AS builder
-ARG APP_VERSION=0.0.0-dev
+ARG APP_VERSION=0.1.0
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
 ENV APP_VERSION=$APP_VERSION \
@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp target/release/token-ne-core /out/core
 
 FROM debian:bookworm-slim
-ARG APP_VERSION=0.0.0-dev
+ARG APP_VERSION=0.1.0
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
 LABEL org.opencontainers.image.version=$APP_VERSION \

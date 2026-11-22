@@ -36,9 +36,9 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 - `resolve`：校验 `main`、target、trusted final baseline、source SHA 和当前 SHA 的 `ci` 结果。
 - `tag`：创建或确认不可变 `vX.Y.Z`；同 SHA 已有 tag 只允许恢复。
 - `web`：独立 `bun install` 与 `bun run build`，注入 `VITE_APP_VERSION`，上传 `web/dist`。
-- `core-image`：Buildx 构建并推送 `token-ne-core:X.Y.Z`。
-- `api-image`：下载 `web/dist`，构建并推送 `token-ne-api:X.Y.Z`；不在 Docker 内重建前端。
-- `publish`：先对两个 GHCR 镜像执行匿名 `docker pull`；只有 public 可见性验证通过后才创建 GitHub Release。新 package 默认 private，首次发布需要 owner 在 package settings 中切到 public 后重跑同 identity 发布。
+- `core-image`：Buildx 构建并推送 `token-ne-core:X.Y.Z`；若 tag 已存在，校验 OCI revision/version 后复用原 digest，不覆盖。
+- `api-image`：下载 `web/dist`，构建并推送 `token-ne-api:X.Y.Z`；不在 Docker 内重建前端；已有镜像同样校验后复用。
+- `publish`：重新校验 tag 指向 source SHA，对两个 GHCR 镜像执行匿名 `docker pull`，对比拉取 digest 与构建 digest，再创建 GitHub Release。新 package 默认 private，首次发布需要 owner 在 package settings 中切到 public 后重跑同 identity 发布。
 
 ### Version propagation
 
