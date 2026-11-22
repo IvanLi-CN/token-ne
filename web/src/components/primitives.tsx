@@ -80,6 +80,13 @@ const sectionLabels: Record<string, string> = {
   "Downstream Keys": "Downstream Keys",
   Cores: "Cores",
 };
+export function PageTitle({ title }: { title: string }) {
+  return (
+    <h1 id="page-title" tabIndex={-1} className="visually-hidden">
+      {title}
+    </h1>
+  );
+}
 export function PageHeader({
   title,
   description,

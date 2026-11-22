@@ -6,11 +6,13 @@ import { type Column, DataTable } from "../../components/data-table";
 import {
   EmptyState,
   ErrorState,
-  PageHeader,
+  PageTitle,
   Spinner,
   StatusBadge,
 } from "../../components/primitives";
 import { coresApi, coresPolling, instanceTone } from "../../features/cores/api";
+import { MetricControl } from "../../features/overview/metric-control";
+import type { Metric } from "../../features/overview/metrics";
 import { RangeControl, rangeWindow, type TimeRange } from "../../features/overview/time-range";
 import {
   displayMoney,
@@ -56,6 +58,7 @@ function Breakdown({ range, group }: { range: TimeRange; group: "model" | "upstr
 
 export default function OverviewPage() {
   const [range, setRange] = useState<TimeRange>({ preset: "今天" });
+  const [metric, setMetric] = useState<Metric>("requests");
   const summary = useQuery({
     queryKey: [...queryKeys.overview(range), "summary"],
     queryFn: ({ signal }) => usageApi.overview(rangeWindow(range), signal),
@@ -89,11 +92,14 @@ export default function OverviewPage() {
   ];
   return (
     <>
-      <PageHeader title="总览" eyebrow="控制面" description="请求、用量、延迟与核心运行状态。" />
+      <PageTitle title="总览" />
       <section className="surface-card" aria-labelledby="overview-activity">
         <div className="panel-heading">
           <h2 id="overview-activity">活动概览</h2>
-          <RangeControl range={range} onChange={setRange} />
+          <div className="panel-controls">
+            <MetricControl metric={metric} onChange={setMetric} />
+            <RangeControl range={range} onChange={setRange} />
+          </div>
         </div>
         {summary.isPending ? (
           <div className="px-6 pb-6">
@@ -132,7 +138,12 @@ export default function OverviewPage() {
               <EmptyState title="当前范围没有趋势数据">可切换时间范围后重试。</EmptyState>
             ) : (
               <Suspense fallback={<Spinner label="正在加载趋势图" />}>
-                <UsageTrend points={series.data} window={window} interval={interval} />
+                <UsageTrend
+                  points={series.data}
+                  window={window}
+                  interval={interval}
+                  metric={metric}
+                />
               </Suspense>
             )}
           </div>

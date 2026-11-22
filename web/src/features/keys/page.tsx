@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
 import {
@@ -139,21 +139,16 @@ export default function KeysPage() {
   };
   return (
     <>
-      <PageHeader
-        title="Downstream Keys"
-        description="管理访问凭据、模型权限与并发限制。明文只在创建和轮换后展示一次。"
-        actions={
-          <Button className="rounded-xl" onClick={() => setEditor(null)}>
-            创建 Key
-          </Button>
-        }
-      />
+      <PageTitle title="Downstream Keys" />
       <section className="surface-card">
         <div className="panel-heading">
           <div>
             <h2>访问凭据</h2>
             <p className="muted">轮换创建新 Key；旧 Key 需显式禁用或删除。</p>
           </div>
+          <Button className="rounded-xl" onClick={() => setEditor(null)}>
+            创建 Key
+          </Button>
         </div>
         <div className="px-5 pb-5">
           <ManagementTable

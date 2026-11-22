@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useId, useRef, useState } from "react";
 import { type Column, DataTable } from "../../components/data-table";
-import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
 import { type Action, CoreActionDialog, coreError } from "../../features/cores/actions";
 import {
   coresApi,
@@ -370,7 +370,7 @@ export default function CoresPage() {
 
   return (
     <>
-      <PageHeader title="Cores" description="查看核心版本和实例，管理部署与流量切换。" />
+      <PageTitle title="Cores" />
       {receipt && (
         <p role="status" className="surface-card break-all px-6 py-4">
           {receipt}

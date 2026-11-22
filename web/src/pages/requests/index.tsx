@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { DataTable } from "../../components/data-table";
-import { Button, Input, PageHeader } from "../../components/primitives";
+import { Button, Input, PageTitle } from "../../components/primitives";
 import { RangeControl, rangeWindow, type TimeRange } from "../../features/overview/time-range";
 import { displayNumber } from "../../features/overview/usage";
 import { type RequestFilters, requestsApi } from "../../features/requests/api";
@@ -50,7 +50,7 @@ export default function RequestsPage() {
   }
   return (
     <>
-      <PageHeader title="请求" description="按时间、模型、上游与 HTTP 状态定位请求。" />
+      <PageTitle title="请求" />
       <section className="surface-card" aria-labelledby="request-summary">
         <div className="panel-heading">
           <div>

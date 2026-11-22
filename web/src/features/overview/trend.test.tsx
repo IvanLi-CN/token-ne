@@ -26,7 +26,7 @@ describe("usage trend", () => {
     });
   });
   it("renders the zero gap in the trend data table", () => {
-    render(<UsageTrend points={points} window={window} interval="5m" />);
+    render(<UsageTrend points={points} window={window} interval="5m" metric="requests" />);
     const rows = within(screen.getByRole("table", { name: "用量时间序列" }))
       .getAllByRole("row")
       .slice(1);
