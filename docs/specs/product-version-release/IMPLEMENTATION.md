@@ -38,7 +38,7 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 - `web`：独立 `bun install` 与 `bun run build`，注入 `VITE_APP_VERSION`，上传 `web/dist`。
 - `core-image`：Buildx 构建并推送 `token-ne-core:X.Y.Z`。
 - `api-image`：下载 `web/dist`，构建并推送 `token-ne-api:X.Y.Z`；不在 Docker 内重建前端。
-- `publish`：在镜像成功后创建 GitHub Release，写入 version、source SHA 与 digest。
+- `publish`：先对两个 GHCR 镜像执行匿名 `docker pull`；只有 public 可见性验证通过后才创建 GitHub Release。新 package 默认 private，首次发布需要 owner 在 package settings 中切到 public 后重跑同 identity 发布。
 
 ### Version propagation
 

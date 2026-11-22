@@ -52,6 +52,7 @@
 ### REQ-PVR-006
 
 - 发布 MUST 产出同一版本的 core 与 API 镜像，并且 MUST NOT 使用 `latest` 或 `<semver>-<sha>` 后缀。
+- core 与 API 镜像 MUST 是 public，并在创建 GitHub Release 前通过匿名拉取验证。
 - Inputs: canonical version、source SHA。
 - Outputs: `token-ne-core:X.Y.Z` 与 `token-ne-api:X.Y.Z`，带 OCI version/revision/source labels。
 
@@ -113,9 +114,9 @@
 
 ### VER-PVR-006
 
-- Method: 检查 GHCR 镜像标签、OCI labels 和 release notes。
+- Method: 检查 GHCR 镜像标签、OCI labels、匿名 `docker pull` 和 release notes。
 - covers: `REQ-PVR-006`
-- Pass condition: 两个镜像使用同一精确 `X.Y.Z`，无 `latest`，无 `-sha` 后缀。
+- Pass condition: 两个镜像使用同一精确 `X.Y.Z`，无 `latest`，无 `-sha` 后缀；匿名拉取成功后才创建 Release。
 
 ### VER-PVR-007
 

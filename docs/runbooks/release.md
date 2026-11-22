@@ -6,9 +6,9 @@
 
 - `main` 上的 `ci` 检查全部成功，包括 `release-policy`。
 - GitHub Actions 有 `contents: write` 和 `packages: write` 权限。
-- `v*` tag protection 允许 release workflow 创建 tag。
-- GHCR package 允许本仓库发布 `token-ne-core` 与 `token-ne-api`。
 - 已确认当前没有其他 release workflow 在运行；workflow 使用 `concurrency: release` 串行化。
+- GHCR 新 package 的默认可见性是 private；首次推送后必须在 GitHub package settings 中把 `token-ne-core` 与 `token-ne-api` 改为 public。控制面匿名拉取依赖 public，release workflow 会在创建 GitHub Release 前用匿名 `docker pull` 校验；未公开时发布会失败。
+- 当前仓库没有 tag protection；如果以后添加 `v*` ruleset，必须允许 Actions 创建 tag。
 
 ## 正常发布
 
@@ -54,6 +54,15 @@ curl -fsS https://$PUBLIC_DOMAIN/api/version
 - 精确 `X.Y.Z` 只能大于 baseline，或在当前 source 已有同 tag 时用于恢复。
 - 已存在 tag 指向其他 SHA 时 fail closed，不移动 tag。
 - workflow 会检查当前 SHA 的 `ci` 结果；未完成或失败的 SHA 不允许发布。
+
+## 首次发布
+
+首次发布与其他发布多一个可见性步骤：
+
+1. 正常 dispatch。镜像会先推送到 GHCR，此时两个 package 默认是 private。
+2. `publish` job 的匿名 `docker pull` 会失败，workflow 在创建 GitHub Release 前停止。
+3. 在 GitHub package settings 中分别把 `token-ne-core` 和 `token-ne-api` 的 visibility 改为 public。
+4. 重新运行同一 release workflow；同一 SHA/tag 会走 same-identity recovery，匿名拉取通过后才创建 GitHub Release。
 
 ## 失败恢复
 

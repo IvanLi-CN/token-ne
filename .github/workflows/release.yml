@@ -254,6 +254,16 @@ jobs:
         with:
           name: api-digest
           path: digests/api
+      - name: Verify anonymous image pulls
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          api_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          docker pull "${core_image}:${VERSION}"
+          docker pull "${api_image}:${VERSION}"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
