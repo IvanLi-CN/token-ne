@@ -122,7 +122,7 @@ function UpstreamEditor({
                 name="base_url"
                 required
                 defaultValue={upstream?.base_url}
-                placeholder="https://api.example.com/v1"
+                placeholder="https://api.example.com"
               />
             </Field>
             <Field label="认证方式">

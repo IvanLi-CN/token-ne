@@ -1423,7 +1423,9 @@ services:
       - data
 
   api:
-    build: ../server
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

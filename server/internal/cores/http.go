@@ -31,6 +31,7 @@ func (h *HTTP) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /internal/v1/status", h.status)
 	mux.HandleFunc("GET /api/cores/instances/{instance_id}", httpapi.ProtectRoute(h.instance))
 	mux.HandleFunc("GET /api/cores", httpapi.ProtectRoute(h.list))
+	mux.HandleFunc("GET /api/cores/spool", httpapi.ProtectRoute(h.spool))
 	mux.HandleFunc("POST /api/cores/versions", httpapi.ProtectRoute(h.version))
 	mux.HandleFunc("POST /api/cores/deploy", httpapi.ProtectRoute(h.deploy))
 	mux.HandleFunc("POST /api/cores/deployments/{deployment_id}/shift", httpapi.ProtectRoute(h.shift))
@@ -345,6 +346,37 @@ func (h *HTTP) deploy(w http.ResponseWriter, r *http.Request) {
 	}
 	writeAdminJSON(w, 202, result)
 }
+func (h *HTTP) spool(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	instances, e := h.Runtime.SortedInstances(ctx)
+	if e != nil {
+		mapAdmin(w, e)
+		return
+	}
+	data := make([]map[string]any, 0, len(instances))
+	for _, instance := range instances {
+		var status Status
+		_ = json.Unmarshal(instance.Status, &status)
+		spool := status.Spool
+		bytes, unacked, dropped := int64(0), int64(0), int64(0)
+		if spool.Bytes != nil {
+			bytes = *spool.Bytes
+		}
+		if spool.Unacked != nil {
+			unacked = *spool.Unacked
+		}
+		if spool.Dropped != nil {
+			dropped = *spool.Dropped
+		}
+		data = append(data, map[string]any{
+			"instance_id": instance.ID, "bytes": bytes, "unacked_events": unacked,
+			"dropped_total": dropped, "oldest_unacked_at": spool.Oldest,
+		})
+	}
+	writeAdminJSON(w, 200, map[string]any{"data": data})
+}
+
 func (h *HTTP) shift(w http.ResponseWriter, r *http.Request) {
 	var input ShiftRequest
 	if !decodeAdmin(w, r, &input) {

@@ -33,7 +33,9 @@ services:
       - data
 
   api:
-    build: ../server
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     depends_on:
       socket-proxy:
         condition: service_started
