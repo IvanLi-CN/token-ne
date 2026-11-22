@@ -14,6 +14,7 @@
 - [Golden fixtures](./fixtures/)：配置、usage、heartbeat、管理错误和 OpenAI 错误样例。
 - [Web 设计规格](../DESIGN.md)：页面、状态、交互和视觉边界。
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
+- [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、镜像身份和恢复边界。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。
 - [状态码改写策略示例](./examples/status-rewrite.yaml)：第一版 YAML 规则文件示例。
 
@@ -28,3 +29,4 @@
 - [ADR 0007：状态码改写策略先文件、后数据库与界面](./adr/0007-status-rewrite-policy-source.md)
 - [ADR 0008：核心私有 usage spool，控制面不读取](./adr/0008-core-private-usage-spool.md)
 - [ADR 0009：模型是全局实体，映射与上游能力分离](./adr/0009-global-models-with-upstream-capabilities.md)
+- [ADR 0010：产品版本采用 target-only 手动发布并统一 core、API、Web](./adr/0010-product-version-release.md)

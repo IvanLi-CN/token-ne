@@ -71,3 +71,19 @@ _Avoid_: Sample, data point, rollup row
 **Force drain**:
 常规排水等待超限后强制停止实例的操作；会中断在途流，只作为例外使用并留下审计记录。
 _Avoid_: Kill, hard stop
+
+**Release target**:
+owner 在手动发布入口提供的单一版本意图，取值为 `patch`、`minor`、`major` 或完整 `X.Y.Z`；它不是具体版本号，也不是兼容性分类结果。
+_Avoid_: Version bump, impact label, VERSION value
+
+**Canonical version**:
+执行端根据 release target 与 trusted final tag baseline 解析出的完整产品版本。
+_Avoid_: Target version, next version
+
+**Effective version**:
+某个构建产物实际携带并对外报告的版本；发布构建等于 canonical version，开发构建带有 dev 限定符。
+_Avoid_: Package version, latest tag
+
+**Release identity**:
+绑定 source SHA、canonical version、tag、镜像 digest 和 GitHub Release 的发布身份。
+_Avoid_: Build number, image tag only

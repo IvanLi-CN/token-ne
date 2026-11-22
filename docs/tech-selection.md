@@ -184,10 +184,11 @@ TypeScript 7 是原生编译器版本，生态插件可能滞后。门禁失败�
 
 镜像标签：
 
-- 生产：`ghcr.io/<owner>/token-ne-api:<semver>-<sha>`，可附加 digest。
+- 生产：core 与 API 使用同一精确 `X.Y.Z`，分别为 `ghcr.io/<owner>/token-ne-core:X.Y.Z` 和 `ghcr.io/<owner>/token-ne-api:X.Y.Z`；不使用 `-sha` 后缀。
 - 开发：`dev-<sha>`；禁止生产使用 `latest`。
 - 核心版本登记保存 `image_ref` 和 `image_digest`；部署优先使用 digest。
 - 升级镜像不自动改变运行中容器；必须通过控制面部署流程。
+- 发布 identity、target-only 手动入口和版本注入边界见 [`docs/specs/product-version-release/SPEC.md`](./specs/product-version-release/SPEC.md)。
 
 ### 依赖升级
 
