@@ -9,8 +9,12 @@ type Prices struct {
 
 // Calculate returns decimal USD rounded to the nearest microdollar.
 // Missing prices matter only for token categories with nonzero usage.
+// Missing input or output counts leave the cost unknown but are not an error.
 func Calculate(p Prices, input, cached, output *int64) (*string, bool) {
-	if input == nil || output == nil || cached != nil && *cached > *input {
+	if input == nil || output == nil {
+		return nil, true
+	}
+	if cached != nil && *cached > *input {
 		return nil, false
 	}
 	c := int64(0)

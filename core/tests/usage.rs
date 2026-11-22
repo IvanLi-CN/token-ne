@@ -89,7 +89,7 @@ async fn mock_control_plane_202_ack_503_retry_and_422_isolation() {
                     0 => ("503 Service Unavailable", r#"{}"#),
                     1 => (
                         "422 Unprocessable Entity",
-                        r#"{"details":[{"path":"events[0].request_id"}]}"#,
+                        r#"{"error":{"code":"validation_failed","details":[{"path":"events[0].request_id","reason":"invalid usage event"}],"message":"invalid usage event"}}"#,
                     ),
                     _ => ("202 Accepted", r#"{"accepted":1,"duplicates":0}"#),
                 };

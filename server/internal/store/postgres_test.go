@@ -241,6 +241,42 @@ func TestUsageTransactionReturnsOnlyCommittedRows(t *testing.T) {
 	}
 }
 
+func TestUsageAcceptsKnownModelWithoutTokenCounts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*usage.Event)
+	}{
+		{"missing input", func(e *usage.Event) { e.InputTokens = nil }},
+		{"missing output", func(e *usage.Event) { e.OutputTokens = nil }},
+		{"missing both", func(e *usage.Event) { e.InputTokens, e.OutputTokens = nil, nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			batch := validUsageBatch()
+			tc.mutate(&batch.Events[0])
+			tx := &usageTxFake{}
+			result, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
+			if err != nil || !tx.committed || tx.rolled || len(result.Inserted) != 1 || result.Duplicates != 0 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if result.Inserted[0].Cost != nil {
+				t.Fatalf("unknown token counts must keep cost unknown, got %q", *result.Inserted[0].Cost)
+			}
+		})
+	}
+}
+
+func TestUsageRejectsCachedTokensAboveInput(t *testing.T) {
+	batch := validUsageBatch()
+	cached := int64(2)
+	batch.Events[0].CachedInputTokens = &cached
+	tx := &usageTxFake{}
+	_, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
+	problem, ok := err.(*usage.Problem)
+	if !ok || problem.Field != "cached_input_tokens" || tx.committed || !tx.rolled {
+		t.Fatalf("err=%v committed=%v rolled=%v", err, tx.committed, tx.rolled)
+	}
+}
+
 func TestBootstrapExistingAdminUnchanged(t *testing.T) {
 	tx := &fakeTx{row: countRow(1)}
 	s := &Store{fakeDB{tx: tx}}

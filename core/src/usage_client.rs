@@ -101,13 +101,7 @@ impl UsageClient {
             422 => {
                 let detail: serde_json::Value = response.json().await.unwrap_or_default();
                 let detail_text = detail.to_string();
-                let index = detail["details"]
-                    .as_array()
-                    .and_then(|d| d.iter().find_map(|v| v["path"].as_str()))
-                    .and_then(|p| p.strip_prefix("events["))
-                    .and_then(|p| p.split(']').next())
-                    .and_then(|i| i.parse::<usize>().ok());
-                if let Some(i) = index.filter(|i| *i < values.len()) {
+                if let Some(i) = rejected_event_index(&detail).filter(|i| *i < values.len()) {
                     self.spool.record_send("rejected");
                     let mut rest = values;
                     let (dropped_seq, _) = rest.remove(i);
@@ -143,13 +137,34 @@ enum BatchResult {
     Retained,
 }
 
+/// Extracts the rejected event index from a 422 body. The API nests details
+/// under `error.details`; top-level `details` remains accepted for older servers.
+fn rejected_event_index(detail: &serde_json::Value) -> Option<usize> {
+    let details = detail
+        .get("error")
+        .and_then(|error| error.get("details"))
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| detail.get("details").and_then(serde_json::Value::as_array))?;
+    details.iter().find_map(|detail| {
+        detail
+            .get("path")?
+            .as_str()?
+            .strip_prefix("events[")?
+            .split(']')
+            .next()?
+            .parse::<usize>()
+            .ok()
+    })
+}
+
 fn endpoint_url(base: &str) -> String {
     base.trim_end_matches('/').to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::endpoint_url;
+    use super::{endpoint_url, rejected_event_index};
+    use serde_json::json;
 
     #[test]
     fn usage_endpoint_is_used_verbatim() {
@@ -157,5 +172,26 @@ mod tests {
             endpoint_url("http://api:8080/internal/v1/usage/batch/"),
             "http://api:8080/internal/v1/usage/batch"
         );
+    }
+
+    #[test]
+    fn usage_rejection_reads_nested_error_details() {
+        let body = json!({"error":{"code":"validation_failed","details":[{"path":"events[0].input_tokens","reason":"calculated cost exceeds storage range or token detail is inconsistent"}],"message":"invalid usage event"}});
+        assert_eq!(rejected_event_index(&body), Some(0));
+    }
+
+    #[test]
+    fn usage_rejection_reads_top_level_details() {
+        let body = json!({"details":[{"path":"events[2].output_tokens"}]});
+        assert_eq!(rejected_event_index(&body), Some(2));
+    }
+
+    #[test]
+    fn usage_rejection_skips_paths_without_an_event() {
+        let body =
+            json!({"error":{"details":[{"path":"batch_id"},{"path":"events[4].output_tokens"}]}});
+        assert_eq!(rejected_event_index(&body), Some(4));
+        assert_eq!(rejected_event_index(&json!({"error":{"details":[]}})), None);
+        assert_eq!(rejected_event_index(&json!({"error":"boom"})), None);
     }
 }

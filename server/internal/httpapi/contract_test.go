@@ -231,6 +231,18 @@ func TestUsageIngestContract(t *testing.T) {
 	if w.Code != 202 || !strings.Contains(w.Body.String(), `"accepted":1`) {
 		t.Fatalf("valid batch: %d %s", w.Code, w.Body.String())
 	}
+	unknownTokens := strings.Replace(body, `"input_tokens": 1200`, `"input_tokens": null`, 1)
+	unknownTokens = strings.Replace(unknownTokens, `"output_tokens": 350`, `"output_tokens": null`, 1)
+	f.ingestFn = func(_ context.Context, b usage.Batch) (usage.Result, error) {
+		if b.Events[0].InputTokens != nil || b.Events[0].OutputTokens != nil {
+			t.Fatal("null token counts must remain unknown")
+		}
+		return usage.Result{Inserted: []usage.AcceptedEvent{{Event: b.Events[0]}}}, nil
+	}
+	w = request(unknownTokens, true)
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"accepted":1`) {
+		t.Fatalf("unknown token counts: %d %s", w.Code, w.Body.String())
+	}
 	f.ingestFn = func(context.Context, usage.Batch) (usage.Result, error) { return usage.Result{Duplicates: 1}, nil }
 	w = request(body, true)
 	if w.Code != 202 || !strings.Contains(w.Body.String(), `"duplicates":1`) {
