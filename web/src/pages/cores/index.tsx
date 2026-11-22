@@ -312,8 +312,10 @@ export default function CoresPage() {
   ];
 
   function shiftTargets(row: Deployment) {
+    if (row.next_weights && Object.keys(row.next_weights).length > 0) return row.next_weights;
+    // Older control planes do not expose the next stage; keep the form usable
+    // as a fallback, although the server may reject values that are not staged.
     if (Object.keys(row.target_weights).length > 0) return row.target_weights;
-    // An initial ready deployment may not have applied a weight map yet.
     return Object.fromEntries(
       (data?.instances ?? [])
         .filter((instance) => instance.deployment_id === row.id || instance.weight > 0)

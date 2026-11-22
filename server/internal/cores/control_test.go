@@ -217,6 +217,28 @@ func TestDeploymentStagesAndRollbackWeights(t *testing.T) {
 	}
 }
 
+func TestDeploymentNextWeights(t *testing.T) {
+	p := progress{Stage: 0, From: map[string]int{"old": 100}, To: map[string]int{"new": 100}}
+	raw, _ := json.Marshal(p)
+	d := Deployment{State: "ready"}
+	setNextWeights(&d, raw)
+	if !reflect.DeepEqual(d.Next, map[string]int{"old": 90, "new": 10}) {
+		t.Fatalf("ready next weights: %#v", d.Next)
+	}
+	p.Stage = 1
+	raw, _ = json.Marshal(p)
+	d = Deployment{State: "shifting"}
+	setNextWeights(&d, raw)
+	if !reflect.DeepEqual(d.Next, map[string]int{"old": 50, "new": 50}) {
+		t.Fatalf("shifting next weights: %#v", d.Next)
+	}
+	d = Deployment{State: "failed"}
+	setNextWeights(&d, raw)
+	if d.Next != nil {
+		t.Fatalf("terminal deployment exposed next weights: %#v", d.Next)
+	}
+}
+
 func TestDrainTimeoutAndPruneGuard(t *testing.T) {
 	now := time.Now()
 	i := instanceRow{State: "draining", DrainStarted: ptr(now.Add(-20 * time.Second)), Observed: &now, Heartbeat: &now, ZeroSamples: 3, Spool: ptr(int64(0))}

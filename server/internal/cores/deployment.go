@@ -20,6 +20,7 @@ type Deployment struct {
 	ToVersion   string         `json:"to_version"`
 	State       string         `json:"state"`
 	Target      map[string]int `json:"target_weights"`
+	Next        map[string]int `json:"next_weights,omitempty"`
 	Error       *string        `json:"error"`
 	Created     time.Time      `json:"created_at"`
 	Updated     time.Time      `json:"updated_at"`
@@ -582,7 +583,7 @@ func (r *Runtime) Prune(ctx context.Context, actor string, ids []string) error {
 }
 
 func deploymentList(ctx context.Context, r *Runtime) ([]Deployment, error) {
-	rows, e := r.database().Query(ctx, `select d.id::text,d.from_version_id::text,v.version,d.state,d.target_weights,d.error,d.created_at,d.updated_at from core_deployments d join core_versions v on v.id=d.to_version_id order by d.created_at desc limit 100`)
+	rows, e := r.database().Query(ctx, `select d.id::text,d.from_version_id::text,v.version,d.state,d.target_weights,d.progress,d.error,d.created_at,d.updated_at from core_deployments d join core_versions v on v.id=d.to_version_id order by d.created_at desc limit 100`)
 	if e != nil {
 		return nil, e
 	}
@@ -590,20 +591,41 @@ func deploymentList(ctx context.Context, r *Runtime) ([]Deployment, error) {
 	out := []Deployment{}
 	for rows.Next() {
 		var d Deployment
-		if e = rows.Scan(&d.ID, &d.FromVersion, &d.ToVersion, &d.State, &d.Target, &d.Error, &d.Created, &d.Updated); e != nil {
+		var raw []byte
+		if e = rows.Scan(&d.ID, &d.FromVersion, &d.ToVersion, &d.State, &d.Target, &raw, &d.Error, &d.Created, &d.Updated); e != nil {
 			return nil, e
 		}
+		setNextWeights(&d, raw)
 		out = append(out, d)
 	}
 	return out, rows.Err()
 }
 func getDeployment(ctx context.Context, r *Runtime, id string) (Deployment, error) {
 	var d Deployment
-	e := r.database().QueryRow(ctx, `select d.id::text,d.from_version_id::text,v.version,d.state,d.target_weights,d.error,d.created_at,d.updated_at from core_deployments d join core_versions v on v.id=d.to_version_id where d.id=$1`, id).Scan(&d.ID, &d.FromVersion, &d.ToVersion, &d.State, &d.Target, &d.Error, &d.Created, &d.Updated)
+	var raw []byte
+	e := r.database().QueryRow(ctx, `select d.id::text,d.from_version_id::text,v.version,d.state,d.target_weights,d.progress,d.error,d.created_at,d.updated_at from core_deployments d join core_versions v on v.id=d.to_version_id where d.id=$1`, id).Scan(&d.ID, &d.FromVersion, &d.ToVersion, &d.State, &d.Target, &raw, &d.Error, &d.Created, &d.Updated)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return d, ErrUnknown
 	}
-	return d, e
+	if e != nil {
+		return d, e
+	}
+	setNextWeights(&d, raw)
+	return d, nil
+}
+
+// setNextWeights exposes the stage the next shift will apply. The shift API
+// validates submitted weights against this exact stage, so clients must not
+// have to reconstruct the stage progression themselves.
+func setNextWeights(d *Deployment, raw []byte) {
+	if d.State != "ready" && d.State != "shifting" {
+		return
+	}
+	var p progress
+	if json.Unmarshal(raw, &p) != nil || p.Stage < 0 || p.Stage+1 >= len(stages) {
+		return
+	}
+	d.Next = p.weights(p.Stage + 1)
 }
 
 func (r *Runtime) restoreBaseline(ctx context.Context, p progress, instances []instanceRow) error {

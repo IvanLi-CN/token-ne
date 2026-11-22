@@ -40,6 +40,7 @@ export type Deployment = {
   to_version?: string;
   state: string;
   target_weights: Record<string, number>;
+  next_weights?: Record<string, number> | null;
   error?: string | null;
   updated_at: string;
 };

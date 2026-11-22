@@ -1917,6 +1917,11 @@ components:
           type: object
           additionalProperties:
             type: integer
+        next_weights:
+          type: object
+          description: Weights the next shift will apply; present while ready or shifting.
+          additionalProperties:
+            type: integer
         error:
           type: [string, "null"]
         created_at:

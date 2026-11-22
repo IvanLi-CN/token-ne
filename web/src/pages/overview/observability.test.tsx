@@ -152,6 +152,63 @@ it("blocks prune while spool is unconfirmed or still has events", async () => {
     expect(button.disabled).toBe(true);
 });
 
+it("prefills the shift dialog with the server's next-stage weights", async () => {
+  const deployment = {
+    id: "dep-1",
+    from_version: "0.1.0",
+    to_version: "0.2.0",
+    state: "ready",
+    target_weights: { old: 100, new: 0 },
+    next_weights: { old: 90, new: 10 },
+    error: null,
+    created_at: "2026-11-20T12:00:00Z",
+    updated_at: "2026-11-20T12:00:00Z",
+  };
+  const fetcher = mock((url, options) => {
+    if (url.pathname === "/api/cores")
+      return json({
+        ...emptyCores,
+        instances: [
+          { ...blocked, id: "old", version: "0.1.0", state: "running", weight: 100 },
+          { ...blocked, id: "new", version: "0.2.0", state: "running", weight: 0 },
+        ],
+        deployments: [deployment],
+      });
+    if (url.pathname === "/api/cores/spool") return json({ data: [] });
+    if (url.pathname === "/api/cores/deployments/dep-1/shift" && options?.method === "POST")
+      return json(
+        {
+          ...deployment,
+          state: "shifting",
+          target_weights: deployment.next_weights,
+          next_weights: { old: 50, new: 50 },
+        },
+        202,
+      );
+  });
+  mount("/cores");
+  fireEvent.click(await screen.findByRole("button", { name: "切换权重" }));
+  const dialog = await screen.findByRole("dialog", { name: "切换权重" });
+  expect((within(dialog).getByLabelText("old") as HTMLInputElement).value).toBe("90");
+  expect((within(dialog).getByLabelText("new") as HTMLInputElement).value).toBe("10");
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换权重" }));
+  await waitFor(() => {
+    expect(
+      fetcher.mock.calls.some(
+        ([url, options]) =>
+          new URL(url, "http://test.local").pathname === "/api/cores/deployments/dep-1/shift" &&
+          options?.method === "POST",
+      ),
+    ).toBe(true);
+  });
+  const shift = fetcher.mock.calls.find(
+    ([url, options]) =>
+      new URL(url, "http://test.local").pathname === "/api/cores/deployments/dep-1/shift" &&
+      options?.method === "POST",
+  );
+  expect(JSON.parse(String(shift?.[1]?.body))).toEqual({ weights: { old: 90, new: 10 } });
+});
+
 it("confirms core actions, preserves errors, and displays only a server receipt", async () => {
   let reject = true;
   const fetcher = mock((url, options) => {
