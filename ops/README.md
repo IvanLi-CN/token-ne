@@ -42,6 +42,10 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 
 Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS`、`STATUS_REWRITE_CONFIG` 与核心内部监听地址，不需要在 `.env` 再配置。基线实例 ID 为 `0193f0c2-7b1a-7c3e-9f00-0000000000b1`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
 
+## API 镜像与 Web 构建
+
+API 镜像不负责下载前端依赖。发布前先在 `web/` 执行 `bun install --frozen-lockfile && bun run build`，生成的 `web/dist` 会由 API 构建上下文嵌入镜像。`.dockerignore` 必须保留 `!web/dist` 例外；否则 API 镜像只有占位页。Compose 的 `api.build.context` 是仓库根目录，Dockerfile 为 `server/Dockerfile`。
+
 ## 离线检查
 
 需要 Python 3、Git 与 Mike Farah `yq` v4；脚本只解析文件，不连接 Docker、网络服务或真实上游。

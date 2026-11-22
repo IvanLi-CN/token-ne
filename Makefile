@@ -6,6 +6,9 @@ core-check:
 server-check:
 	cd server && go vet ./... && go test ./...
 
+web-build:
+	cd web && bun install --frozen-lockfile && bun run build
+
 web-check:
 	cd web && bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run test && bun run build
 
