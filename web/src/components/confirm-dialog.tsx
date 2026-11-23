@@ -6,9 +6,12 @@ export function ConfirmDialog({
   trigger,
   title,
   description,
+  children,
   onConfirm,
   pending = false,
+  confirmDisabled = false,
   error,
+  errorId,
   confirmLabel = "确认",
   open,
   onOpenChange,
@@ -16,9 +19,12 @@ export function ConfirmDialog({
   trigger: ReactNode;
   title: string;
   description: string;
+  children?: ReactNode;
   onConfirm: () => void;
   pending?: boolean;
+  confirmDisabled?: boolean;
   error?: string;
+  errorId?: string;
   confirmLabel?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -44,8 +50,9 @@ export function ConfirmDialog({
         >
           <Dialog.Title>{title}</Dialog.Title>
           <Dialog.Description>{description}</Dialog.Description>
+          {children}
           {error && (
-            <p role="alert" className="field-error">
+            <p id={errorId} role="alert" aria-atomic="true" className="field-error">
               {error}
             </p>
           )}
@@ -55,7 +62,7 @@ export function ConfirmDialog({
                 取消
               </Button>
             </Dialog.Close>
-            <Button variant="danger" disabled={pending} onClick={onConfirm}>
+            <Button variant="danger" disabled={pending || confirmDisabled} onClick={onConfirm}>
               {pending ? "处理中…" : confirmLabel}
             </Button>
           </div>
