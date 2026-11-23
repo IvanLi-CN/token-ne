@@ -795,12 +795,48 @@ kbd {
 .drawer-heading h2 {
   font-size: 20px;
 }
+.system-tree > details > summary {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.system-tree > details > summary::-webkit-details-marker {
+  display: none;
+}
+.system-tree > details > summary::before {
+  content: "▾";
+  width: 14px;
+  margin-right: 6px;
+  color: var(--muted);
+}
+.system-tree > details:not([open]) > summary::before {
+  content: "▸";
+}
+.system-tree > details > summary:hover {
+  background: var(--surface-raised);
+}
+.system-tree-children {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 1px solid var(--border-quiet);
+}
 .system-subnav-link {
   display: flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
   color: var(--fg);
   text-decoration: none;
   transition:

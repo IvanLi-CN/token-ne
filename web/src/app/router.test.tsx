@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../components/confirm-dialog";
@@ -188,6 +188,11 @@ describe("application router", () => {
     expect(router.state.location.pathname).toBe("/system/settings");
     expect(screen.getByRole("link", { name: "系统" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");
+    const tree = screen.getByRole("navigation", { name: "系统子导航" });
+    expect(within(tree).getByText("系统")).toBeTruthy();
+    expect(within(tree).queryByRole("link", { name: "系统" })).toBeNull();
+    expect(within(tree).getByRole("link", { name: "Cores" })).toBeTruthy();
+    expect(within(tree).getByRole("link", { name: "设置" })).toBeTruthy();
   });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
