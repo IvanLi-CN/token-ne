@@ -852,7 +852,7 @@ kbd {
   }
 }
 .cores-card-focus {
-  animation: cores-card-focus-glow 1500ms cubic-bezier(0.4, 0, 0.2, 1) 1;
+  animation: cores-card-focus-glow 2600ms cubic-bezier(0.45, 0, 0.25, 1) 1;
 }
 @media (prefers-reduced-motion: reduce) {
   .cores-card-focus,

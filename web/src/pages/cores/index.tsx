@@ -110,7 +110,7 @@ export default function CoresPage() {
           signal: animation.signal,
         });
         // Belt and braces: some environments never dispatch animationend.
-        cleanupTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 2400);
+        cleanupTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 3400);
       };
       const began = performance.now();
       let restingScroll = window.scrollY;
