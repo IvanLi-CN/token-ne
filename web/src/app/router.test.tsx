@@ -210,6 +210,15 @@ describe("application router", () => {
     expect(within(tree).queryByText("系统")).toBeNull();
     expect(within(tree).getByRole("link", { name: "Cores" })).toBeTruthy();
     expect(within(tree).getByRole("link", { name: "设置" })).toBeTruthy();
+    expect(within(tree).getByRole("link", { name: "部署进度" }).getAttribute("href")).toBe(
+      "/system/cores#core-deployments",
+    );
+    expect(within(tree).getByRole("link", { name: "核心实例" }).getAttribute("href")).toBe(
+      "/system/cores#core-instances",
+    );
+    expect(within(tree).getByRole("link", { name: "核心版本" }).getAttribute("href")).toBe(
+      "/system/cores#core-versions",
+    );
   });
   it("redirects the system root to Cores", async () => {
     vi.stubGlobal(
@@ -388,7 +397,21 @@ describe("shared boundaries", () => {
     expect(within(drawer).getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe(
       "page",
     );
-    fireEvent.click(within(drawer).getByRole("link", { name: "设置" }));
+    expect(within(drawer).getByRole("link", { name: "部署进度" }).getAttribute("href")).toBe(
+      "/system/cores#core-deployments",
+    );
+    expect(within(drawer).getByRole("link", { name: "核心实例" }).getAttribute("href")).toBe(
+      "/system/cores#core-instances",
+    );
+    expect(within(drawer).getByRole("link", { name: "核心版本" }).getAttribute("href")).toBe(
+      "/system/cores#core-versions",
+    );
+    fireEvent.click(within(drawer).getByRole("link", { name: "核心实例" }));
+    await waitFor(() => expect(router.state.location.hash).toBe("#core-instances"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
+    const settingsDrawer = screen.getByRole("dialog", { name: "token-ne" });
+    fireEvent.click(within(settingsDrawer).getByRole("link", { name: "设置" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/system/settings"));
   });
   it("expands one morph panel at a time and restores focus on Escape", () => {

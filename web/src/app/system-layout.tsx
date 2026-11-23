@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 import { systemSections } from "./system-nav";
 
 export function SystemLayout() {
@@ -9,19 +9,30 @@ export function SystemLayout() {
         <nav className="system-tree" aria-label="系统子导航">
           <ul className="system-tree-list">
             {systemSections.map((section) => (
-              <li key={section.to}>
+              <li key={section.to} className="system-tree-item">
                 <NavLink
                   to={section.to}
                   className={({ isActive }) => `system-subnav-link${isActive ? " active" : ""}`}
                 >
                   {section.label}
                 </NavLink>
+                {section.children && (
+                  <ul className="system-tree-children">
+                    {section.children.map((child) => (
+                      <li key={child.href}>
+                        <Link className="system-tree-child-link" to={child.href}>
+                          {child.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>
         </nav>
       </div>
-      <div className="min-w-0">
+      <div className="system-content min-w-0">
         <Outlet />
       </div>
     </div>
