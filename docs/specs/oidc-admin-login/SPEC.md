@@ -67,7 +67,7 @@
 - Web MUST 在主导航最后增加“系统”，系统页左侧子导航上方显示可见标题“系统”；其下提供 `Cores`、`设置` 一级菜单，`Cores` 下显示部署进度、核心实例、核心版本三个页面锚点，`系统` 不是子导航的一层。同一导航项内的卡片 MUST 连续显示为长列表，不拆成二级页面；访问 Cores hash 时，页面 MUST 在目标卡片渲染后将整张卡片平滑滚动到固定顶栏下方；减少动态效果已启用时 MUST 直接定位，移动端抽屉关闭后再执行滚动。窄屏时系统子导航 MUST 移入全局抽屉导航并作为“系统”下的树状子项显示。设置路径为 `/system/settings`，MUST 以单卡片呈现，且 MUST 只覆盖管理员认证，不扩展为通用配置中心。
 - 系统 → 设置子页面 MUST 包含 OIDC 状态与绑定、provider 配置、测试连接、本地登录开关、会话 TTL 和“强制下线所有会话”。
 - client secret MUST 只写不读；设置页 MUST 用“已配置/未配置”表达状态，并提供显式清除操作；未修改 secret 时请求 MUST 省略该字段，不得把空输入当作“保持不变”。
-- 关闭本地登录、重新绑定身份、修改 issuer 或 client secret MUST 要求确认；关闭本地登录还 MUST 要求输入当前本地密码。
+- 关闭本地登录、重新绑定身份、修改 issuer 或 client secret MUST 要求确认；关闭本地登录 MUST 在保存确认 Dialog 中要求输入当前本地密码。
 - 登录页 MUST 在本地登录可用时显示用户名/密码表单；OIDC 登录按钮 MUST 只在 `oidc_login_available=true` 时显示。
 - 保存导致 `session_version` 递增时，设置页 MUST 提示会话已失效并跳转登录页，不得继续显示已登录状态。
 - 登录失败 MUST 显示通用错误，不区分 IdP 不可达、未绑定、token 交换失败或身份被拒绝。
@@ -108,6 +108,7 @@
 ### REQ-OIDC-009
 
 - 本地登录 MUST 默认启用，并与 OIDC 登录并存；本地密码继续使用 Argon2id 哈希。
+- 关闭本地登录时，Web MUST 在保存确认 Dialog 中收集当前密码，并用应用内校验阻止空密码提交；密码验证失败 MUST 保持 Dialog 与其他表单草稿、清空密码字段、聚焦密码字段并关联错误消息。
 - 只有 OIDC 已启用、存在绑定且当前管理员完成密码确认后，才允许关闭本地登录；关闭前 MUST 提示先用无痕窗口完成一次 OIDC 登录，并说明 IdP 故障时只能使用 CLI break-glass。
 - 本地登录关闭时，修改 issuer、client ID、client secret 或 scopes MUST 被拒绝；绑定变更仍允许通过现有 OIDC 会话完成。
 - 本地登录关闭时，关闭 OIDC MUST 被拒绝；两种登录方式不得同时不可用。
@@ -213,7 +214,7 @@
 
 - Method: Web 组件测试与浏览器检查覆盖系统设置导航、登录页 OIDC 按钮、来源标记、secret 状态、确认对话框和通用错误。
 - covers: `REQ-OIDC-005`
-- Pass condition: 设置页可完成配置与绑定；登录页只在可用时显示 OIDC；敏感操作需要确认；保存导致会话失效时跳转登录；失败不泄漏原因。
+- Pass condition: 设置页可完成配置与绑定；登录页只在可用时显示 OIDC；关闭本地登录在保存确认 Dialog 中验证当前密码；错误密码时保留 Dialog 与其他表单草稿并清空、聚焦密码字段；保存导致会话失效时跳转登录；失败不泄漏原因。
 
 ### VER-OIDC-006
 
@@ -235,7 +236,7 @@
 
 ### VER-OIDC-009
 
-- Method: 锁死防护测试覆盖无绑定关闭本地登录、关闭 OIDC、密码确认、禁用时 provider 变更、同一次保存中的组合变更、CLI break-glass 与启动不变量。
+- Method: 锁死防护测试覆盖无绑定关闭本地登录、关闭 OIDC、Dialog 密码确认与错误后重试、禁用时 provider 变更、同一次保存中的组合变更、CLI break-glass 与启动不变量。
 - covers: `REQ-OIDC-009`
 - Pass condition: 无绑定不能关闭；关闭前提示 OIDC 登录验证；本地登录关闭时不能关闭 OIDC 或变更 provider；关闭本地登录与 provider 变更不能在同一次保存中完成；CLI 可恢复；启动不变量违反时给出 CLI 提示。
 
@@ -288,6 +289,7 @@
 ## Visual Evidence
 
 - [`./assets/settings-page.png`](./assets/settings-page.png)
+ - [`./assets/local-login-confirmation.png`](./assets/local-login-confirmation.png)
 - [`./assets/settings-page-1024.png`](./assets/settings-page-1024.png)
 - [`./assets/mobile-navigation.png`](./assets/mobile-navigation.png)
 - [`./assets/cores-page.png`](./assets/cores-page.png)
