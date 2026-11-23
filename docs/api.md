@@ -1,6 +1,6 @@
 # API 契约说明
 
-机器可读契约是根目录 [`openapi.yaml`](../openapi.yaml)。本文只说明实现时必须遵守的边界；字段形状以 OpenAPI 和 JSON Schema 为准。
+机器可读契约是根目录 [`openapi.yaml`](../openapi.yaml)。模型目录、承接策略、名称路由、上游价格覆盖和报价同步属于第二期接口设计。两期共用接口兼容一期载荷，二期新增字段的必填条件见字段说明与下文。
 
 ## 下游接口
 
@@ -55,9 +55,9 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 上游模型目录与策略 API
 
-- `POST /api/upstreams/{upstream_id}/models/sync` 同步单个上游。`POST /api/upstreams/models/sync` 批量同步启用的上游。各 run ID 可通过 `GET /api/upstreams/{upstream_id}/models/sync-runs/{run_id}` 查询。目录 GET 的 `latest_run` 是最近一次尝试，`data` 来自最近一次成功同步及其 stale 项。
+- `POST /api/upstreams/{upstream_id}/models/sync` 同步单个上游。`POST /api/upstreams/models/sync` 批量同步启用的上游。各 run ID 可通过 `GET /api/upstreams/{upstream_id}/model-sync-runs/{run_id}` 查询。目录 GET 的 `latest_run` 是最近一次尝试，`data` 来自最近一次成功同步及其 stale 项。
 - `POST /api/upstreams/{upstream_id}/models/import` 必须带目录项和目标 `model_id`。`create_model` 要求目标 ID 尚不存在，`bind_existing` 要求目标 Model 已存在。导入返回 `model_id`、是否新建能力和更新后的 `capabilities_revision`。
-- `PUT /api/upstreams/{upstream_id}` 携带当前 `capabilities_revision`，冲突返回 `409`。全量替换保留留存能力的目录绑定。客户端重取能力集合后显示差异，供管理员合并。
+- 第二期的上游响应必须返回 `capabilities_revision`，`PUT /api/upstreams/{upstream_id}` 必须携带该值，冲突返回 `409`。全量替换保留留存能力的目录绑定。客户端重取能力集合后显示差异，供管理员合并。
 - `GET/PUT /api/upstreams/{upstream_id}/model-policy` 读取或原子替换 `default_action`、`allow_patterns` 和 `deny_patterns`。保存前校验 Glob、重复规则和影响范围。
 - 目录的 `bound_model_id` 为单个全局 ID 或 `null`。绑定身份独立于上游名称改写字段。目录项或能力已绑定其他目标时返回 `409`。
 - 能力、路由规则或当前上游价格覆盖阻塞删除 Model。路由限制或当前价格覆盖阻塞删除 Upstream。阻塞时返回 `409` 并在 `details` 列出引用。删除 Upstream 时级联清理其能力、目录、策略和同步记录。历史价格修订及用量继续可查。
@@ -71,7 +71,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 价格 API
 
-- `GET /api/models` 返回全局默认价格和 `billing_state`。通过原有 `PUT /api/models/{model_id}` 的 `billing` 和 `billing_locked` 字段修改全局价格和锁定状态。
+- 全局默认价格通过原有模型 API 读取和更新。第二期的模型响应必须返回 `billing_state`，`PUT /api/models/{model_id}` 可通过 `billing` 和 `billing_locked` 修改全局价格和锁定状态。
 - `GET /api/prices` 返回上游级覆盖。`PUT /api/upstreams/{upstream_id}/models/{model_id}/price` 设置覆盖与锁定状态。`DELETE` 移除已解锁的覆盖。修改或解锁已锁定的档案时需显式传入 `confirm_locked`。
 - 改价或改变锁定状态时追加不可变修订。用量摄入选择整份上游级覆盖或全局默认价格，并引用当时的修订 ID。`null` 表示未知，`0` 表示免费。
 - `GET /api/price-sources` 返回受控内置源；`POST /api/price-sources/{source_id}/sync` 生成报价批次，不直接覆盖价格。

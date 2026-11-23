@@ -40,6 +40,7 @@
 - The system MUST require an explicit owner action to import a catalog item as a new global model or bind it to an existing global model.
 - Inputs: a selected catalog item and an explicit target model ID.
 - Outputs: a unique catalog-to-capability binding within the upstream. New models and capabilities begin disabled. Binding an existing capability preserves its mapping and routing settings. A stale capability edit fails with `409` and can be reconciled against the latest collection.
+- Compatibility: the shared OpenAPI schema accepts phase-one upstream payloads without `capabilities_revision`. Phase-two upstream responses provide the current revision, and a phase-two update request must supply it.
 - covers: `../../prd.md#fr-17-模型导入与能力管理`
 
 ### REQ-MUM-004
@@ -68,6 +69,7 @@
 - The system MUST use `Model.billing` as the authoritative global default and select a whole upstream override when present. A missing override selects the global profile. `null` means unknown and `0` means free.
 - Inputs: resolved global model, selected upstream, price profile, and usage token details.
 - Outputs: a cost calculated with the effective profile for the new event; changing a price MUST NOT recalculate an existing event.
+- Compatibility: the shared OpenAPI schema accepts phase-one model responses without `billing_state`. Phase-two model responses include the current global price revision and lock state.
 - covers: `../../prd.md#fr-20-价格管理`
 
 ### REQ-MUM-008

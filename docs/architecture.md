@@ -782,7 +782,7 @@ server/
 | GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 能力集合 |
 | GET | `/api/upstreams/{id}/models/catalog` | 查看上游模型目录和 stale 状态 |
 | POST | `/api/upstreams/{id}/models/sync` | 同步单个上游模型目录 |
-| GET | `/api/upstreams/{id}/models/sync-runs/{run_id}` | 查看单个上游模型同步终态 |
+| GET | `/api/upstreams/{id}/model-sync-runs/{run_id}` | 查看单个上游模型同步终态 |
 | POST | `/api/upstreams/models/sync` | 批量同步启用上游模型目录 |
 | POST | `/api/upstreams/{id}/models/import` | 显式导入或绑定目录模型 |
 | GET/PUT | `/api/upstreams/{id}/model-policy` | 查看/替换上游模型白名单和黑名单 |

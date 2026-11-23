@@ -9,6 +9,8 @@ info:
     token-ne 的对外 OpenAI 兼容接口与管理 API 契约。
     下游 `/v1/*` 只承诺第一期定义的 OpenAI 风格端点；管理 API 使用会话 Cookie、
     同源校验和统一错误信封。内部核心控制协议见 `docs/protocol.md`.
+    上游模型目录与承接策略、模型名称路由、上游价格覆盖和报价同步属于第二期接口设计。
+    共用接口兼容第一期载荷。新增字段的说明列出第二期启用后的约束。
 servers:
   - url: http://127.0.0.1:8080
     description: 本地或外部 TLS 代理后的入口
@@ -874,7 +876,7 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
-  /api/upstreams/{upstream_id}/models/sync-runs/{run_id}:
+  /api/upstreams/{upstream_id}/model-sync-runs/{run_id}:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
       - $ref: "#/components/parameters/SyncRunId"
@@ -2588,7 +2590,7 @@ components:
           minimum: 0
     ModelAdmin:
       type: object
-      required: [model_id, enabled, created_at, updated_at, billing, billing_state]
+      required: [model_id, enabled, created_at, updated_at, billing]
       properties:
         model_id:
           type: string
@@ -2605,6 +2607,7 @@ components:
           $ref: "#/components/schemas/Billing"
         billing_state:
           $ref: "#/components/schemas/PriceRevisionState"
+          description: 第二期必须返回的全局默认价格锁定状态和修订信息。第一期响应省略此字段。
         created_at:
           type: string
           format: date-time
@@ -3002,7 +3005,7 @@ components:
           default: false
     Upstream:
       type: object
-      required: [id, name, kind, base_url, auth_style, enabled, capabilities_revision, models, created_at, updated_at]
+      required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3038,6 +3041,7 @@ components:
         capabilities_revision:
           type: integer
           minimum: 1
+          description: 第二期必须返回的能力集合版本。第一期响应省略此字段。
         models:
           type: array
           items:
@@ -3090,11 +3094,11 @@ components:
       allOf:
         - $ref: "#/components/schemas/UpstreamInput"
         - type: object
-          required: [capabilities_revision]
           properties:
             capabilities_revision:
               type: integer
               minimum: 1
+              description: 第二期更新必填。使用上一次读取的能力集合版本，版本冲突时返回 409。第一期请求可省略。
     UpstreamCreateInput:
       allOf:
         - $ref: "#/components/schemas/UpstreamInput"
