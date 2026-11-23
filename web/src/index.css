@@ -853,18 +853,11 @@ kbd {
   background: var(--primary-soft);
   font-weight: 600;
 }
-.mobile-nav-section {
+.mobile-tree {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding-top: 14px;
-}
-.mobile-nav-section-label {
-  padding: 0 16px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
 }
 .mobile-nav-tree {
   list-style: none;

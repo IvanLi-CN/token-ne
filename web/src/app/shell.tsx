@@ -107,10 +107,17 @@ export function AppShell() {
                       {label}
                     </NavLink>
                   ))}
-                  <section className="mobile-nav-section" aria-labelledby="mobile-system-label">
-                    <p id="mobile-system-label" className="mobile-nav-section-label">
+                  <div className="mobile-tree">
+                    <NavLink
+                      to="/system"
+                      end
+                      onClick={() => setMobileOpen(false)}
+                      className={({ isActive }) =>
+                        isActive ? "mobile-link active" : "mobile-link"
+                      }
+                    >
                       系统
-                    </p>
+                    </NavLink>
                     <ul className="mobile-nav-tree">
                       {systemSections.map((section) => (
                         <li key={section.to}>
@@ -126,7 +133,7 @@ export function AppShell() {
                         </li>
                       ))}
                     </ul>
-                  </section>
+                  </div>
                 </nav>
                 <p className="drawer-account muted">当前管理员：{user.username}</p>
               </Dialog.Content>

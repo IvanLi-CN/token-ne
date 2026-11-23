@@ -341,6 +341,7 @@ describe("shared boundaries", () => {
     await screen.findByRole("heading", { name: "系统" });
     fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
     const drawer = screen.getByRole("dialog", { name: "token-ne" });
+    expect(within(drawer).getByRole("link", { name: "系统" })).toBeTruthy();
     expect(within(drawer).getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe(
       "page",
     );
