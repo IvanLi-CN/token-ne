@@ -220,7 +220,7 @@ core/src/
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
 4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用且 `weight > 0`，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
-5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或部署开关 `STREAM_USAGE_INJECTION=false` 时跳过。
+5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或数据面开关 `stream_usage_injection` 为 `false` 时跳过。
 6. **尝试**：构造上游 URL、认证头、透传头；发送请求；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
@@ -789,6 +789,7 @@ server/
 | POST | `/api/cores/prune` | 清理已停止且 spool 已清零的实例 |
 | GET | `/api/cores/spool` | 查看各实例 spool 摘要 |
 | GET | `/api/audit` | 审计查询 |
+| GET/PUT | `/api/data-plane-settings` | 读取/修改数据面开关（`stream_usage_injection`），写入 `system_state` 并入库审计 |
 
 分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。没有 `model-routes`、`model-catalog` 或独立价格 API；模型与能力分别属于 `/api/models` 和上游聚合。
 
@@ -1676,7 +1677,7 @@ networks:
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
-| `STREAM_USAGE_INJECTION` | 是否在快照的 `features` 中启用流式 `stream_options.include_usage` 注入，默认 `true`；关闭后核心不再注入，用量依赖上游返回的 usage | 否 |
+| `STREAM_USAGE_INJECTION` | 数据面开关的部署默认值，默认 `true`；Cores 页或 `PUT /api/data-plane-settings` 保存的选择优先于它。关闭后核心不再注入 `stream_options.include_usage`，流式用量依赖上游返回 | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
 | `METRICS_TOKEN` | Prometheus 抓取 Token | 是 |
 | `CORE_IMAGE` | 基线核心镜像；动态实例由 `CORE_IMAGE_REPOSITORY` 与版本决定 | 是 |

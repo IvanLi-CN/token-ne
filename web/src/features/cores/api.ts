@@ -138,6 +138,21 @@ export const coresApi = {
     }
     return result;
   },
+  dataPlane: async (signal: AbortSignal) => {
+    const result = await apiRequest<{ stream_usage_injection: boolean }>("/data-plane-settings", {
+      signal,
+    });
+    if (typeof result?.stream_usage_injection !== "boolean") throw invalid();
+    return result;
+  },
+  setStreamUsageInjection: async (enabled: boolean) => {
+    const result = await apiRequest<{ stream_usage_injection: boolean }>("/data-plane-settings", {
+      method: "PUT",
+      body: { stream_usage_injection: enabled },
+    });
+    if (result?.stream_usage_injection !== enabled) throw invalid();
+    return result;
+  },
   spool: (signal: AbortSignal) =>
     apiRequest<{ data: Spool[] }>("/cores/spool", { signal }).then(requireRows),
   pull,

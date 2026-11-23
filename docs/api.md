@@ -31,6 +31,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `/api/cores`：核心版本、实例、部署、权重、排水、prune 和 spool 状态。
 - `/api/overview`、`/api/usage/*`、`/api/requests/*`：用量与请求查询。
 - `/api/audit`：审计查询。
+- `/api/data-plane-settings`：数据面开关；目前只有 `stream_usage_injection`（默认 `true`），修改写入 `system_state` 并记录审计，下一轮配置快照生效。
 
 不提供 `model-catalog` CRUD、`model-routes` 或独立价格目录 API。模型是全局实体；上游能力嵌套在上游聚合中；计费属于模型。
 

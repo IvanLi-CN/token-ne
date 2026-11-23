@@ -57,6 +57,20 @@ func featuresEnabled(name string, streamInjection *bool, rewrite bool) bool {
 	}
 }
 
+// streamUsageInjection prefers the operator's stored switch and falls back to
+// the deployment default only when it was never set.
+func (s *Snapshots) streamUsageInjection(ctx context.Context, tx pgx.Tx) (*bool, error) {
+	var enabled bool
+	e := tx.QueryRow(ctx, `select (value)::boolean from system_state where key='stream_usage_injection'`).Scan(&enabled)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return s.StreamUsageInjection, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	return &enabled, nil
+}
+
 type configBody struct {
 	Protocol      int             `json:"protocol_version"`
 	Schema        int             `json:"config_schema_version"`
@@ -125,6 +139,10 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		return Snapshot{}, ErrCompatibility
 	}
 	p := s.readPolicy(last.Policy)
+	injection, e := s.streamUsageInjection(ctx, tx)
+	if e != nil {
+		return Snapshot{}, e
+	}
 	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []upstream{}, Policy: p,
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
@@ -132,7 +150,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 			"spool": map[string]any{"dir": "/var/lib/token-ne/state/spool", "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
 	}
 	for _, f := range features {
-		c.Features[f] = featuresEnabled(f, s.StreamUsageInjection, *p.Enabled)
+		c.Features[f] = featuresEnabled(f, injection, *p.Enabled)
 	}
 	// One database statement gives the entire routing catalog a single MVCC view.
 	var encrypted []struct {

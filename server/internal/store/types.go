@@ -141,4 +141,6 @@ type Repository interface {
 	SaveKey(context.Context, Key, bool, Audit) (Key, error)
 	Audits(context.Context, *Cursor, int) ([]Audit, error)
 	RecordAudit(context.Context, Audit) error
+	StreamUsageInjection(context.Context) (bool, error)
+	SetStreamUsageInjection(context.Context, bool, Audit) error
 }

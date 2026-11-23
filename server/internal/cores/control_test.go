@@ -546,7 +546,7 @@ func TestReadPolicyKeepsLastValidOnInvalidFile(t *testing.T) {
 }
 
 func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
-	features := func(injection *bool) map[string]any {
+	features := func(injection, stored *bool) map[string]any {
 		db := &fakeDB{}
 		db.row = func(q string, _ []any) fakeRow {
 			switch {
@@ -556,6 +556,8 @@ func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
 				return fakeRow{values: []any{1, 1, 1}}
 			case strings.Contains(q, "jsonb_agg"):
 				return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
+			case strings.Contains(q, "stream_usage_injection") && stored != nil:
+				return fakeRow{values: []any{*stored}}
 			}
 			return fakeRow{err: pgx.ErrNoRows}
 		}
@@ -572,15 +574,19 @@ func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
 		}
 		return body.Features
 	}
-	if got := features(nil)["stream_usage_injection"]; got != true {
+	if got := features(nil, nil)["stream_usage_injection"]; got != true {
 		t.Fatalf("default snapshot disabled stream usage injection: %v", got)
 	}
 	disabled := false
-	if got := features(&disabled)["stream_usage_injection"]; got != false {
+	if got := features(&disabled, nil)["stream_usage_injection"]; got != false {
 		t.Fatalf("snapshot ignored the disabled switch: %v", got)
 	}
-	if got := features(&disabled)["status_rewrite"]; got != true {
+	if got := features(&disabled, nil)["status_rewrite"]; got != true {
 		t.Fatalf("policy-driven feature changed with the injection switch: %v", got)
+	}
+	enabled := true
+	if got := features(&enabled, &disabled)["stream_usage_injection"]; got != false {
+		t.Fatalf("stored switch did not override the deployment default: %v", got)
 	}
 }
 
