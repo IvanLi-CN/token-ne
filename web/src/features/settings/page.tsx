@@ -2,8 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ConfirmDialog } from "../../components/confirm-dialog";
-import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
-import { type AuthSettings, type AuthSettingsInput, authApi, settingsApi } from "../../lib/api";
+import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
+import {
+  ApiError,
+  type AuthSettings,
+  type AuthSettingsInput,
+  authApi,
+  settingsApi,
+} from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { errorMessage, Field, FormError } from "../models/management";
 
@@ -327,6 +333,11 @@ export default function SettingsPage() {
                   />
                 </Field>
               )}
+              <p className="muted text-xs sm:col-span-2">
+                关闭本地登录前，请先在无痕窗口完成一次 OIDC
+                登录；如果配置错误导致无法登录，请在服务器执行{" "}
+                <code>api auth local-login enable</code>。
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border-quiet)] px-6 py-4">
               <Button

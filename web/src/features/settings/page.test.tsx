@@ -109,4 +109,118 @@ describe("system settings", () => {
     expect(saved?.local_login_enabled).toBe(false);
     expect(saved?.current_password).toBe("current-password");
   });
+
+  it("keeps the session when the server reports no changes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url !== "/api/settings/auth") return Promise.resolve(response({}, 404));
+        if (init?.method === "PUT") return Promise.resolve(response(settings));
+        return Promise.resolve(response(settings));
+      }),
+    );
+    const router = mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    expect(await screen.findByRole("status")).toHaveProperty(
+      "textContent",
+      "没有需要保存的变更，当前会话保持有效。",
+    );
+    expect(router.state.location.pathname).toBe("/system/settings");
+  });
+
+  it("does not log out on a first save that only snapshots unchanged values", async () => {
+    const initial = { ...settings, revision: 0 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url !== "/api/settings/auth") return Promise.resolve(response({}, 404));
+        if (init?.method === "PUT") return Promise.resolve(response({ ...settings, revision: 1 }));
+        return Promise.resolve(response(initial));
+      }),
+    );
+    const router = mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    expect(await screen.findByRole("status")).toHaveProperty(
+      "textContent",
+      "没有需要保存的变更，当前会话保持有效。",
+    );
+    expect(router.state.location.pathname).toBe("/system/settings");
+  });
+
+  it("refetches settings after a revision conflict", async () => {
+    let gets = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url !== "/api/settings/auth") return Promise.resolve(response({}, 404));
+        if (init?.method === "PUT")
+          return Promise.resolve(
+            response({ error: { code: "conflict", message: "conflict", details: [] } }, 409),
+          );
+        gets++;
+        return Promise.resolve(response(gets === 1 ? settings : { ...settings, revision: 2 }));
+      }),
+    );
+    mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    expect(await screen.findByText(/已重新加载/)).toBeTruthy();
+    await waitFor(() => expect(gets).toBe(2));
+  });
+
+  it("clears a stale discovery success after a failed retry", async () => {
+    let tests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url === "/api/settings/auth/test") {
+          tests++;
+          if (tests === 1)
+            return Promise.resolve(
+              response({ ok: true, discovery: { issuer: "https://auth.example.com" } }),
+            );
+          return Promise.resolve(response({}, 503));
+        }
+        if (url === "/api/settings/auth" && init?.method !== "PUT")
+          return Promise.resolve(response(settings));
+        return Promise.resolve(response({}, 404));
+      }),
+    );
+    mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    expect(await screen.findByText(/discovery 成功/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "discovery 失败：请求失败（503）",
+    );
+    expect(screen.queryByText(/discovery 成功/)).toBeNull();
+  });
+
+  it("makes secret replacement and clearing mutually exclusive", async () => {
+    let saved: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url !== "/api/settings/auth") return Promise.resolve(response({}, 404));
+        if (init?.method === "PUT") {
+          saved = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Promise.resolve(response({ ...settings, revision: 2 }));
+        }
+        return Promise.resolve(response(settings));
+      }),
+    );
+    mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.change(screen.getByLabelText("Client secret"), { target: { value: "new-secret" } });
+    fireEvent.click(screen.getByLabelText("清除已配置的 client secret"));
+    expect((screen.getByLabelText("Client secret") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认保存" }));
+    await waitFor(() => expect(saved).toBeDefined());
+    expect(saved?.client_secret).toBe("");
+  });
 });

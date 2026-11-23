@@ -68,3 +68,24 @@ func TestLoadOIDC(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadForAuthCLIIgnoresBrokenAuthEnv(t *testing.T) {
+	for k, v := range map[string]string{
+		"MASTER_KEY":      base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"DATABASE_URL":    "postgres://user:password@db/token_ne",
+		"ADMIN_USERNAME":  "admin",
+		"ADMIN_PASSWORD":  "secret",
+		"OIDC_ENABLED":    "not-a-boolean",
+		"OIDC_SCOPES":     "profile",
+		"OIDC_ISSUER_URL": "http://public.example.com",
+	} {
+		t.Setenv(k, v)
+	}
+	c, e := LoadForAuthCLI()
+	if e != nil || c.DatabaseURL == "" || c.AdminUsername != "admin" {
+		t.Fatalf("auth CLI config: %+v %v", c, e)
+	}
+	if c.OIDCEnabled || c.OIDCClientSecret != "" || !c.LocalLoginEnabled {
+		t.Fatalf("auth CLI unexpectedly loaded OIDC env: %+v", c)
+	}
+}
