@@ -1996,13 +1996,19 @@ create unique index upstream_models_one_global_binding
 create table upstream_model_sync_runs (
   id uuid primary key,
   upstream_id uuid not null references upstreams(id) on delete cascade,
-  state text not null,
+  state text not null check (state in ('running', 'succeeded', 'failed')),
   started_at timestamptz not null,
+  lease_until timestamptz not null,
   finished_at timestamptz,
   discovered_count int not null default 0,
   error text,
   created_at timestamptz not null default now()
 );
+
+create unique index upstream_model_sync_runs_one_running
+  on upstream_model_sync_runs (upstream_id) where state = 'running';
+
+领取同步时先锁定上游，若存在未过期的运行记录则返回 `409 catalog_sync_running`；若租约过期则先将旧 run 标记失败，再创建新 run。worker 定期续租。应用结果时事务必须确认 run 仍是 `running` 且租约有效，并在该上游行锁保护下与目录快照一起提交终态。过期 worker 的晚到响应只能写入 run 错误，不能更新目录或 stale 状态。
 
 create table upstream_model_policies (
   upstream_id uuid primary key references upstreams(id) on delete cascade,
@@ -2038,22 +2044,33 @@ create table price_revisions (
   source text not null check (source in ('manual', 'price_source')),
   source_id text,
   locked boolean not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  scope text not null check ((scope = 'global' and upstream_id is null) or (scope = 'upstream' and upstream_id is not null)),
+  unique (id, model_id, scope),
+  unique (id, model_id, scope, upstream_id)
 );
 
-alter table models add column billing_revision_id uuid references price_revisions(id);
+alter table models add column billing_revision_id uuid;
+alter table models add column billing_revision_scope text not null default 'global' check (billing_revision_scope = 'global');
+alter table models add constraint models_billing_revision_scope
+  foreign key (billing_revision_id, model_id, billing_revision_scope)
+  references price_revisions(id, model_id, scope)
+  deferrable initially deferred;
 
 create table model_prices (
   id uuid primary key,
   model_id text not null references models(model_id) on delete restrict,
   upstream_id uuid not null references upstreams(id) on delete restrict,
+  scope text not null default 'upstream' check (scope = 'upstream'),
   input_usd_per_mtok numeric(14,6),
   cached_input_usd_per_mtok numeric(14,6),
   output_usd_per_mtok numeric(14,6),
   source text not null default 'manual',
   locked boolean not null default false,
-  price_revision_id uuid not null references price_revisions(id),
-  updated_at timestamptz not null default now()
+  price_revision_id uuid not null,
+  updated_at timestamptz not null default now(),
+  foreign key (price_revision_id, model_id, scope, upstream_id)
+    references price_revisions(id, model_id, scope, upstream_id)
 );
 
 create unique index model_prices_upstream_scope on model_prices (model_id, upstream_id);
@@ -2073,6 +2090,6 @@ create table price_sync_runs (
 
 - 目录同步只写 `upstream_model_catalog` 和 `upstream_model_sync_runs`。每个上游同一时间最多运行一个同步。同步失败保留目录，成功时在同一事务内写入快照和终态。
 - 导入和能力全量编辑先锁定同一上游行，在事务内提交能力变更与递增 `capabilities_revision`。全量编辑先比对 revision，保留仍在集合内的能力对应的 `catalog_model_id`。目录绑定身份属于控制面，配置快照只导出实际路由所需字段。
-- 全局当前价格保存在 `models` 的 billing 字段，上游当前覆盖保存在 `model_prices`。创建和迁移 Model 时记录全局初始修订。价格或锁定状态变动时，在同一事务内更新当前值、修订快照和关联指针。同步应用还在同一事务内记录批次终态和生成的所有修订 ID。
-- 第二期迁移为 `usage_events` 增加可空的 `resolved_model` 和 `price_revision_id`，并为 `resolved_model` 建查询索引。首次摄入时计算 `cost_usd` 并保存所用修订。旧事件继续使用原有归因，重复投递保留已写入的费用和修订。
+- 全局当前价格保存在 `models` 的 billing 字段，上游当前覆盖保存在 `model_prices`。每条历史修订分别标明 `scope=global|upstream`，且保存 `model_id` 和可空的 `upstream_id`。全局当前修订通过 billing revision 外键限制为同模型的 global scope；上游覆盖含 `scope=upstream` 并通过复合外键限制为同模型、同上游的 upstream scope。历史修订不以模型/上游外键限制生命周期删除。报价应用事务按模型或覆盖行加锁、重检 `base_price_revision_id`，并同时更新当前值、修订快照和批次终态；基线过期以 `409 stale_price_quote` 回滚整批。
+- 第二期迁移为 `usage_events` 增加可空的 `resolved_model` 和 `price_revision_id`，并为 `resolved_model` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名与上游 ID；第一期与未完成路由的本地错误事件可以省略。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
 - 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。

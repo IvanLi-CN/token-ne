@@ -77,6 +77,7 @@
 - The system MUST treat third-party price synchronization as a reviewable quote workflow rather than an unconditional overwrite.
 - Inputs: a controlled price source, normalized quotes, explicit mappings, and a selected set of changes.
 - Outputs: a diff containing current value, proposed value, source, match method, and conflict state; exact safe matches may be batch-applied, fuzzy matches require explicit selection, missing source rows preserve existing prices, and manual locks are not overwritten by ordinary sync.
+- Concurrency: every quote captures the target profile revision at generation. Applying a quote whose target revision changed since generation MUST fail without modifying current prices.
 - covers: `../../prd.md#fr-21-第三方价格获取与快捷同步`
 
 ### REQ-MUM-009
@@ -97,9 +98,9 @@
 
 ### VER-MUM-001
 
-- Method: catalog synchronization contract tests covering successful upsert, failed-run lookup, stale marking, unique explicit bindings, and a full-collection save racing with an import.
+- Method: catalog synchronization contract tests covering successful upsert, failed-run lookup, stale marking, unique explicit bindings, full-collection save racing with an import, active-run rejection, and expired-run fencing.
 - covers: `REQ-MUM-001`, `REQ-MUM-002`, `REQ-MUM-003`
-- Pass condition: synchronization never changes routable state without an explicit import or bind operation, and a failed sync leaves the last successful catalog and routing state intact.
+- Pass condition: an upstream-row lock admits one active run. A concurrent sync is rejected; lease expiry fences the old worker so a late result cannot change the catalog or stale state. Failed runs preserve the last successful catalog and routable state. Imported new Models and capabilities start disabled.
 
 ### VER-MUM-002
 
@@ -111,7 +112,7 @@
 
 - Method: price synchronization and usage-ingestion tests covering scope precedence, manual locks, exact versus fuzzy matches, missing quotes, atomic apply, and price revision attribution.
 - covers: `REQ-MUM-007`, `REQ-MUM-008`, `REQ-MUM-009`
-- Pass condition: new events use the selected effective profile, existing costs remain unchanged, and no unreviewed or missing quote clears a configured price.
+- Pass condition: exact safe matches are batch-applicable. Fuzzy or conflicting quotes cannot apply before per-quote review, quotes cannot apply if their target revision changed since generation, and locked overrides require separate confirmation. The current-price pointer must reference a revision for the same model and upstream scope. Each successful phase-two event retains requested model, resolved global model, upstream model, upstream ID, and the exact price revision used. Missing quotes preserve configured prices; existing event costs never change.
 
 ### VER-MUM-004
 

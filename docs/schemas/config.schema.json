@@ -20,6 +20,17 @@
     "limits"
   ],
   "additionalProperties": true,
+  "allOf": [
+    {
+      "if": { "required": ["model_routes"], "properties": { "model_routes": { "minItems": 1 } } },
+      "then": { "properties": { "features": { "required": ["model_name_routing"], "properties": { "model_name_routing": { "const": true } } } } }
+    },
+    {
+      "if": { "required": ["upstream_policies"], "properties": { "upstream_policies": { "minItems": 1 } } },
+      "then": { "properties": { "features": { "required": ["upstream_model_policy"], "properties": { "upstream_model_policy": { "const": true } } } } }
+    }
+  ],
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -68,6 +79,7 @@
     },
     "upstream_policies": {
       "type": "array",
+      "$comment": "Both publisher and core must additionally reject duplicate upstream_id values, even when the policy objects differ; JSON Schema uniqueItems cannot enforce key uniqueness.",
       "items": { "$ref": "#/$defs/upstreamPolicy" }
     },
     "retry": { "$ref": "#/$defs/retry" },
@@ -75,6 +87,7 @@
     "usage": { "$ref": "#/$defs/usage" },
     "limits": { "$ref": "#/$defs/limits" }
   },
+  "$comment": "Before configuration publication, the control plane and core perform semantic checks JSON Schema cannot express: policy items are unique by upstream_id; each route and policy reference resolves; allow_patterns/deny_patterns use full-string Glob syntax where only * and ? are wildcards; brackets, braces, backslash and control characters are rejected. When model-name-routing or upstream-model-policy is absent or false, its corresponding array must be absent or empty. Route and policy object schemas reject unknown fields because silently ignoring a misspelled routing field is unsafe.",
   "$defs": {
     "downstreamKey": {
       "type": "object",
@@ -181,7 +194,13 @@
         "enabled": { "type": "boolean" },
         "description": { "type": ["string", "null"], "maxLength": 1024 }
       },
-      "additionalProperties": true
+      "additionalProperties": false
+    },
+    "globPattern": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\[\\]{}\\\\\\x00-\\x1f\\x7f]+$"
     },
     "upstreamPolicy": {
       "type": "object",
@@ -189,10 +208,10 @@
       "properties": {
         "upstream_id": { "type": "string", "format": "uuid" },
         "default_action": { "enum": ["allow", "deny"] },
-        "allow_patterns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "uniqueItems": true },
-        "deny_patterns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "uniqueItems": true }
+        "allow_patterns": { "type": "array", "items": { "$ref": "#/$defs/globPattern" }, "uniqueItems": true },
+        "deny_patterns": { "type": "array", "items": { "$ref": "#/$defs/globPattern" }, "uniqueItems": true }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "retry": {
       "type": "object",

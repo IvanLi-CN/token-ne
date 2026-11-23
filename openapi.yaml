@@ -570,6 +570,9 @@ paths:
       tags: [upstreams]
       summary: 更新上游并原子替换模型能力集合
       operationId: updateUpstream
+      x-phase-two-request-schema:
+        $ref: "#/components/schemas/UpstreamUpdateInputPhaseTwo"
+      description: 适用两期的请求契约见 requestBody 的 UpstreamUpdateInput：一期从其一期分支读取，二期从 phase-two 严格分支读取。二期缺失 revision 返回 422、过期 revision 返回 409；服务按已启用阶段校验，禁止请求通过兼容分支绕过。
       security:
         - cookieAuth: []
       requestBody:
@@ -859,6 +862,7 @@ paths:
       tags: [upstreams]
       summary: 同步单个上游模型目录
       operationId: syncUpstreamModels
+      description: At most one run per upstream may be active. A duplicate in-flight request returns 409 catalog_sync_running.
       security:
         - cookieAuth: []
       responses:
@@ -874,6 +878,8 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/model-sync-runs/{run_id}:
@@ -2109,6 +2115,8 @@ paths:
           $ref: "#/components/responses/OpenAIUnavailable"
 
 components:
+  x-phase-two-semantic-validation:
+    description: Before configuration publication and core application, validate upstream policy uniqueness by upstream_id, references, Glob syntax, and feature-to-array consistency. Do not silently ignore misspelled routing or policy fields.
   securitySchemes:
     cookieAuth:
       type: apiKey
@@ -2607,7 +2615,7 @@ components:
           $ref: "#/components/schemas/Billing"
         billing_state:
           $ref: "#/components/schemas/PriceRevisionState"
-          description: 第二期必须返回的全局默认价格锁定状态和修订信息。第一期响应省略此字段。
+          description: 第二期启用价格修订管理时必须返回的全局默认价格锁定状态和修订信息；第一期响应省略此字段。
         created_at:
           type: string
           format: date-time
@@ -2734,7 +2742,7 @@ components:
           maxLength: 1024
     RoutePreview:
       type: object
-      required: [requested_model, resolved_model, matched_rule, candidates]
+      required: [requested_model, resolved_model, matched_rule, rule_kind, candidates]
       properties:
         requested_model:
           type: string
@@ -2743,6 +2751,9 @@ components:
         matched_rule:
           type: [string, "null"]
           format: uuid
+        rule_kind:
+          type: [string, "null"]
+          enum: [exact, glob, null]
         candidates:
           type: array
           items:
@@ -2865,6 +2876,7 @@ components:
             type: string
             minLength: 1
             maxLength: 256
+            pattern: '^[^\[\]{}\\\x00-\x1f\x7f]+$'
         deny_patterns:
           type: array
           uniqueItems: true
@@ -2872,9 +2884,10 @@ components:
             type: string
             minLength: 1
             maxLength: 256
+            pattern: '^[^\[\]{}\\\x00-\x1f\x7f]+$'
     PriceRevisionState:
       type: object
-      required: [source, source_id, locked, price_revision_id, updated_at]
+      required: [source, source_id, locked, price_revision_id, revision_created_at, updated_at]
       properties:
         source:
           type: string
@@ -2886,6 +2899,10 @@ components:
         price_revision_id:
           type: string
           format: uuid
+        revision_created_at:
+          type: string
+          format: date-time
+          description: Immutable creation time of the referenced price revision.
         updated_at:
           type: string
           format: date-time
@@ -2961,7 +2978,7 @@ components:
             $ref: "#/components/schemas/PriceQuote"
     PriceQuote:
       type: object
-      required: [id, model_id, upstream_id, source_model_id, match_method, status, locked, current, proposed]
+      required: [id, model_id, upstream_id, source_model_id, match_method, status, locked, base_price_revision_id, base_updated_at, current, proposed]
       properties:
         id:
           type: string
@@ -2982,6 +2999,13 @@ components:
           enum: [safe, needs_review, conflict, missing, ignored]
         locked:
           type: boolean
+        base_price_revision_id:
+          type: [string, "null"]
+          format: uuid
+          description: Current target price revision when the quote was generated. The control plane rejects an apply if this revision has changed.
+        base_updated_at:
+          type: [string, "null"]
+          format: date-time
         current:
           anyOf:
             - $ref: "#/components/schemas/Billing"
@@ -3003,6 +3027,12 @@ components:
         force_locked:
           type: boolean
           default: false
+        reviewed_quote_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+      description: The control plane requires every selected non-safe quote to appear in reviewed_quote_ids, validates that reviewed_quote_ids is a subset of quote_ids, and rejects the entire apply transaction if a selected quote's base revision is stale. force_locked is a separate confirmation for locked profiles and does not imply per-quote review.
     Upstream:
       type: object
       required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
@@ -3041,7 +3071,7 @@ components:
         capabilities_revision:
           type: integer
           minimum: 1
-          description: 第二期必须返回的能力集合版本。第一期响应省略此字段。
+          description: 第二期启用目录绑定时必须返回的能力集合版本；第一期响应省略此字段。
         models:
           type: array
           items:
@@ -3091,14 +3121,28 @@ components:
           items:
             $ref: "#/components/schemas/UpstreamCapability"
     UpstreamUpdateInput:
+      description: 两期共用接口接受两种载荷；二期服务必须按 UpstreamUpdateInputPhaseTwo 校验，不能回退到一期分支。阶段由部署能力决定，不由请求是否携带 revision 决定。
+      anyOf:
+        - $ref: "#/components/schemas/UpstreamUpdateInputPhaseOne"
+        - $ref: "#/components/schemas/UpstreamUpdateInputPhaseTwo"
+    UpstreamUpdateInputPhaseOne:
       allOf:
         - $ref: "#/components/schemas/UpstreamInput"
         - type: object
+          not:
+            required: [capabilities_revision]
+            properties:
+              capabilities_revision: {}
+    UpstreamUpdateInputPhaseTwo:
+      allOf:
+        - $ref: "#/components/schemas/UpstreamInput"
+        - type: object
+          required: [capabilities_revision]
           properties:
             capabilities_revision:
               type: integer
               minimum: 1
-              description: 第二期更新必填。使用上一次读取的能力集合版本，版本冲突时返回 409。第一期请求可省略。
+              description: 当前读取的能力集合版本；缺失返回 422，过期返回 409。
     UpstreamCreateInput:
       allOf:
         - $ref: "#/components/schemas/UpstreamInput"

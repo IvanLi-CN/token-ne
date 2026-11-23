@@ -451,13 +451,17 @@ func contract(t *testing.T, path, method string, w *httptest.ResponseRecorder) {
 	if e = yaml.Unmarshal(b, &spec); e != nil {
 		t.Fatal(e)
 	}
+	components := spec["components"].(map[string]any)
+	if strings.EqualFold(method, http.MethodPut) && path == "/api/upstreams/{upstream_id}" {
+		spec["paths"].(map[string]any)[path].(map[string]any)["put"].(map[string]any)["requestBody"] = map[string]any{"content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/UpstreamUpdateInputPhaseOne"}}}}
+	}
 	response := spec["paths"].(map[string]any)[path].(map[string]any)[strings.ToLower(method)].(map[string]any)["responses"].(map[string]any)[strconv.Itoa(w.Code)]
 	if response == nil {
 		t.Fatalf("undocumented status %s %s: %d %s", method, path, w.Code, w.Body.String())
 	}
 	res := response.(map[string]any)
 	if ref, ok := res["$ref"].(string); ok {
-		res = spec["components"].(map[string]any)["responses"].(map[string]any)[strings.TrimPrefix(ref, "#/components/responses/")].(map[string]any)
+		res = components["responses"].(map[string]any)[strings.TrimPrefix(ref, "#/components/responses/")].(map[string]any)
 	}
 	if w.Code == 204 {
 		if w.Body.Len() != 0 {
@@ -466,7 +470,7 @@ func contract(t *testing.T, path, method string, w *httptest.ResponseRecorder) {
 		return
 	}
 	schema := res["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
-	doc := map[string]any{"components": spec["components"], "allOf": []any{schema}}
+	doc := map[string]any{"components": components, "allOf": []any{schema}}
 	c := jsonschema.NewCompiler()
 	if e = c.AddResource("https://contract.test/admin.json", doc); e != nil {
 		t.Fatal(e)
