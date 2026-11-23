@@ -210,7 +210,7 @@ func (r *Registry) ObserveCoreConfig(core Core, source, signature string, overri
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch source {
-	case "control_plane", "manual_override", "bootstrap", "file":
+	case "control_plane", "manual_override", "bootstrap", "file", "cache":
 	default:
 		source = "unknown"
 	}

@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
@@ -21,6 +23,21 @@ type Snapshots struct {
 	DB                                                    Database
 	Master                                                []byte
 	Token, SigningKey, SignatureMode, BaseURL, PolicyPath string
+	warnMu                                                sync.Mutex
+	warnHash                                              string
+}
+
+// warnPolicyOnce deduplicates policy rejection warnings across the 5-second
+// publication loop without a persistent state change.
+func (s *Snapshots) reportPolicyRejection(raw []byte) {
+	h := Hash(raw)
+	s.warnMu.Lock()
+	defer s.warnMu.Unlock()
+	if s.warnHash == h {
+		return
+	}
+	s.warnHash = h
+	slog.Warn("status rewrite policy rejected; keeping the previous valid policy", "path", s.PolicyPath, "content_hash", h)
 }
 
 type configBody struct {
@@ -117,6 +134,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	e = tx.QueryRow(ctx, `select
  (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'sha256',encode(key_sha256,'hex'),'enabled',enabled,'allowed_models',allowed_models,'max_inflight',max_inflight) order by id),'[]') from downstream_api_keys),
  (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
+  'created_at',extract(epoch from created_at)::bigint,
   'billing',jsonb_build_object('input_usd_per_mtok',input_usd_per_mtok,'cached_input_usd_per_mtok',cached_input_usd_per_mtok,'output_usd_per_mtok',output_usd_per_mtok)) order by model_id),'[]') from models),
 	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,
   'cipher',encode(api_key_ciphertext,'base64'),'nonce',encode(api_key_nonce,'base64')) order by id),'[]') from upstreams),
@@ -306,6 +324,7 @@ func (s *Snapshots) readPolicy(last policy) policy {
 					p.Hash = Hash(raw)
 					return p
 				}
+				s.reportPolicyRejection(raw)
 			}
 		}
 	}

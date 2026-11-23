@@ -110,6 +110,10 @@
           "type": ["string", "null"],
           "format": "date"
         },
+        "created_at": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
         "billing": { "$ref": "#/$defs/billing" }
       },
       "additionalProperties": true

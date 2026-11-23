@@ -203,15 +203,15 @@ core/src/
 
 核心在 `CORE_METRICS_LISTEN`（默认 `0.0.0.0:9091`）暴露 Prometheus 文本，只在内网可达：
 
-- 进程与运行时：RSS、CPU、文件描述符、Tokio runtime 指标。
-- 运行态：`token_ne_core_inflight_requests`、`token_ne_core_spool_*`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
-- 请求分类计数：按端点、状态、重试原因；不包含 token 明细和成本。
+- 运行态：`token_ne_core_up`、`token_ne_core_inflight_requests`、`token_ne_core_requests_total`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
+- spool：`token_ne_core_spool_*`、`token_ne_core_usage_send_total`、`token_ne_core_usage_replayed_total`。
+- 核心不导出 token、成本或延迟直方图；这些只由 Go 从 usage 事件生成。
 
 边界：
 
 - 核心 `/metrics` 不作为外部 Prometheus 抓取合同；它不发布宿主端口，Caddy 不路由 9091。
 - 业务 token、成本、TTFT 直方图由 Go 从 usage 事件生成，避免两套事实。
-- 外部 Prometheus 只抓 Go `/metrics`；Go 通过 `core-control` 网络尽力抓取核心本地计数器并聚合，抓取失败只让对应指标缺失，不阻塞请求、部署或健康判断。
+- 外部 Prometheus 只抓 Go `/metrics`；Go 从 PostgreSQL 登记和心跳推导核心实例、状态、权重、在途数与配置来源指标，不转发核心本地计数器。
 - 如需本地排障，可从 API 容器或宿主机网络访问核心 9091。
 
 ### 请求管线
@@ -320,6 +320,7 @@ core/src/
       "enabled": true,
       "default_upstream_model": "gpt-5-2026-xx",
       "shutdown_date": null,
+      "created_at": 1764806400,
       "billing": {
         "input_usd_per_mtok": 1.25,
         "cached_input_usd_per_mtok": 0.125,

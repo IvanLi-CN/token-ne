@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,7 @@ type Runtime struct {
 	Peer                  Peer
 	Docker                Docker
 	Caddy                 Traffic
+	Metrics               *metrics.Registry
 	Project               string
 	Networks              []string
 	StateHostDir          string
@@ -288,6 +290,9 @@ func (r *Runtime) applyTraffic(ctx context.Context, force bool) error {
 	if applyErr == nil && refresh {
 		_, applyErr = r.database().Exec(ctx, `update core_instances set lifecycle_error=null where lifecycle_error='reload Caddy DNS'`)
 	}
+	if r.Metrics != nil {
+		r.Metrics.ObserveCaddyApply(applyErr == nil)
+	}
 	return errors.Join(e, applyErr)
 }
 
@@ -355,6 +360,12 @@ func (r *Runtime) Heartbeat(ctx context.Context, id string, h Heartbeat) error {
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return e
+	}
+	if r.Metrics != nil {
+		if c := h.Status.Config; c != nil {
+			override := c.Override != nil && *c.Override
+			r.Metrics.ObserveCoreConfig(metrics.Core{Version: h.Status.Version, Instance: id}, c.Source, c.Signature, override)
+		}
 	}
 	return r.ApplyTraffic(ctx, false)
 }

@@ -601,3 +601,22 @@ func TestMalformedAndInvalidWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownV1EndpointIsNotProxied(t *testing.T) {
+	h, _, _, _ := testAPI(t)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/unknown", nil))
+	if w.Code != 404 || !strings.Contains(w.Body.String(), `"code":"unknown_endpoint"`) {
+		t.Fatalf("unknown endpoint: %d %s", w.Code, w.Body.String())
+	}
+}
+func TestFailedLoginIsAudited(t *testing.T) {
+	h, repo, cfg, _ := testAPI(t)
+	w := request(h, cfg, nil, "POST", "/api/auth/login", `{"username":"admin","password":"wrong"}`)
+	if w.Code != 401 {
+		t.Fatalf("rejected login returned %d", w.Code)
+	}
+	if len(repo.audits) != 1 || repo.audits[0].Action != "auth.login_failed" || repo.audits[0].Actor != "admin" {
+		t.Fatalf("login failure not audited: %+v", repo.audits)
+	}
+}

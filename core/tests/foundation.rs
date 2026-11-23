@@ -12,7 +12,7 @@ use std::sync::{Arc, atomic::Ordering};
 use token_ne_core::{
     config::{Config, ConfigCache, ValidationOptions},
     proxy::{body::RequestBody, routing, upstream},
-    server::{ServerState, router},
+    server::{ServerState, metrics_router, router},
     state::{ConfigSource, CoreState, SignatureMode, StateOptions},
     telemetry::{ControlPlane, PullResult},
 };
@@ -361,6 +361,28 @@ async fn readiness_auth_catalog_and_error_priority() {
     assert!(!s.load_cache().unwrap());
     assert!(!s.load_override().unwrap());
     assert!(!s.ready());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let metrics = metrics_router(ServerState::new(s.clone(), "control".into()));
+    let response = metrics
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let s = configured();
     let app = router(ServerState::new(s.clone(), "control".into()));
     let missing = app
@@ -391,6 +413,10 @@ async fn readiness_auth_catalog_and_error_priority() {
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        body["data"][0],
+        json!({"id":"gpt-5","object":"model","created":1764806400,"owned_by":"token-ne","shutdown_date":null})
+    );
     assert_eq!(s.inflight.load(Ordering::Acquire), 0);
     let response = app
         .clone()
@@ -447,7 +473,11 @@ async fn readiness_auth_catalog_and_error_priority() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), 400);
+    assert_eq!(response.status(), 404);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "unknown_endpoint");
+    assert_eq!(body["error"]["type"], "invalid_request_error");
 }
 #[test]
 fn body_rewrite_and_header_safety() {

@@ -288,8 +288,8 @@ type OpenAIErrorResponse struct {
 }
 
 func openAIUnavailable(w http.ResponseWriter, r *http.Request) {
-	code := "upstream_unavailable"
-	writeJSON(w, 503, OpenAIErrorResponse{Error: OpenAIError{Message: "data plane is served by the core", Type: "server_error", Code: &code}})
+	code := "unknown_endpoint"
+	writeJSON(w, 404, OpenAIErrorResponse{Error: OpenAIError{Message: "unknown endpoint", Type: "invalid_request_error", Code: &code}})
 }
 
 // ProtectRoute reuses the owning router's session validation for control handlers.
