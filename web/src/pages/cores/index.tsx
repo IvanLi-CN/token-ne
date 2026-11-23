@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useLocation } from "react-router";
 import { type Column, DataTable } from "../../components/data-table";
 import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
 import { type Action, CoreActionDialog, coreError } from "../../features/cores/actions";
@@ -67,6 +68,7 @@ function pruneBlock(instance: Instance, count: number | null | undefined) {
 }
 
 export default function CoresPage() {
+  const location = useLocation();
   const [action, setAction] = useState<Action | null>(null);
   const [receipt, setReceipt] = useState("");
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -81,6 +83,17 @@ export default function CoresPage() {
     ...coresPolling,
   });
   const data = cores.isSuccess ? cores.data : undefined;
+  const cardsReady = data !== undefined;
+  useEffect(() => {
+    if (!cardsReady || !location.hash) return;
+    const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
+    card?.scrollIntoView?.({
+      block: "start",
+      behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+    });
+  }, [cardsReady, location]);
   const inProgress = data?.deployments.find(deployed);
   const spoolById = new Map(spool.isSuccess ? spool.data.map((row) => [row.instance_id, row]) : []);
   const instancesById = new Map(data?.instances.map((row) => [row.id, row]));
@@ -383,7 +396,7 @@ export default function CoresPage() {
       ) : (
         data && (
           <>
-            <section className="surface-card" aria-labelledby="core-deployments">
+            <section className="surface-card cores-card-anchor" aria-labelledby="core-deployments">
               <div className="panel-heading">
                 <div>
                   <h2 id="core-deployments">部署进度</h2>
@@ -405,7 +418,7 @@ export default function CoresPage() {
               </div>
             </section>
             <DataPlaneSettingsCard />
-            <section className="surface-card" aria-labelledby="core-instances">
+            <section className="surface-card cores-card-anchor" aria-labelledby="core-instances">
               <div className="panel-heading">
                 <h2 id="core-instances">核心实例</h2>
                 <StatusBadge>{data.instances.length} 个实例</StatusBadge>
@@ -432,7 +445,7 @@ export default function CoresPage() {
                 />
               </div>
             </section>
-            <section className="surface-card" aria-labelledby="core-versions">
+            <section className="surface-card cores-card-anchor" aria-labelledby="core-versions">
               <div className="panel-heading">
                 <h2 id="core-versions">核心版本</h2>
                 <Button onClick={(event) => open({ kind: "register" }, event)}>登记版本</Button>

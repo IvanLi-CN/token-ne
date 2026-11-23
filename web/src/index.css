@@ -836,6 +836,15 @@ kbd {
   flex-direction: column;
   gap: 24px;
 }
+.cores-card-anchor {
+  scroll-margin-top: 90px;
+}
+@media (min-width: 1280px) {
+  .system-sidebar {
+    position: sticky;
+    top: 90px;
+  }
+}
 .system-nav-title {
   padding: 0 10px;
   margin-top: 16px;
