@@ -16,7 +16,7 @@ Codex、omp 等 Agent 客户端都不在同一个地方暴露实际花费：缓�
 
 ## 第一期设计
 
-第一期是一个 OpenAI 兼容网关：用量记账、模型与上游路由、API Key 形式的上游管理，以及 Caddy 后面的多版本 Rust 转发核心。
+第一期是一个 OpenAI 兼容网关：用量记账、模型与上游路由、API Key 形式的上游管理、可选的 OIDC 管理员登录，以及 Caddy 后面的多版本 Rust 转发核心。
 
 - [术语表](./GLOSSARY.md)
 - [产品需求](./docs/prd.md)
@@ -28,6 +28,8 @@ Codex、omp 等 Agent 客户端都不在同一个地方暴露实际花费：缓�
 - [核心 spool 生命周期](./docs/spool.md)
 - [Web 设计](./DESIGN.md)
 - [技术选型](./docs/tech-selection.md)
+- [OIDC 管理员登录 Spec](./docs/specs/oidc-admin-login/SPEC.md)
+- [OIDC 管理员登录 Runbook](./docs/runbooks/admin-oidc.md)
 - [升级与回滚 Runbook](./docs/runbooks/upgrade.md)
 - [架构决策记录](./docs/adr/)
 
@@ -45,7 +47,7 @@ cd ../web && bun install && bun run build
 
 - 不做 API Key 交易市场，也不转售凭据。
 - 默认不归档 Prompt 与响应正文；Token 记账不需要保留消息内容。
-- 暂不做 OAuth 账号池、Anthropic 协议、多租户或多机高可用。
+- 暂不做上游 OAuth 账号池、Anthropic 协议、多租户或多机高可用。
 
 ## 状态
 

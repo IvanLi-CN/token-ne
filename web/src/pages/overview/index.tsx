@@ -169,7 +169,7 @@ export default function OverviewPage() {
       <section className="surface-card" aria-labelledby="overview-cores">
         <div className="panel-heading">
           <h2 id="overview-cores">核心运行状态</h2>
-          <Link className="button button-secondary" to="/cores">
+          <Link className="button button-secondary" to="/system/cores">
             管理核心
           </Link>
         </div>

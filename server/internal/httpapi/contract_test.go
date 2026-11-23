@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,16 +26,20 @@ import (
 
 type fakeRepo struct {
 	store.Repository
-	admin     store.Admin
-	models    map[string]store.Model
-	upstreams map[string]store.Upstream
-	keys      map[string]store.Key
-	audits    []store.Audit
-	pingErr   error
-	deleteErr error
-	ingestFn  func(context.Context, usage.Batch) (usage.Result, error)
-	requests  []store.RequestSummary
-	queryErr  error
+	admin             store.Admin
+	authSettings      store.AuthSettings
+	authSettingsFound bool
+	oidcBinding       *store.OIDCBinding
+	authFlows         []store.AuthFlow
+	models            map[string]store.Model
+	upstreams         map[string]store.Upstream
+	keys              map[string]store.Key
+	audits            []store.Audit
+	pingErr           error
+	deleteErr         error
+	ingestFn          func(context.Context, usage.Batch) (usage.Result, error)
+	requests          []store.RequestSummary
+	queryErr          error
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return f.pingErr }
@@ -184,9 +189,77 @@ func (f *fakeRepo) RecordAudit(_ context.Context, a store.Audit) error {
 func (f *fakeRepo) Audits(_ context.Context, c *store.Cursor, limit int) ([]store.Audit, error) {
 	return f.audits, nil
 }
+func (f *fakeRepo) AuthSettings(context.Context) (store.AuthSettings, error) {
+	if !f.authSettingsFound {
+		return store.AuthSettings{}, store.ErrNotFound
+	}
+	return f.authSettings, nil
+}
+func (f *fakeRepo) SaveAuthSettings(_ context.Context, v store.AuthSettings, expected int64, clearBinding bool, bumpAdminID string, a store.Audit) (store.AuthSettings, error) {
+	if f.authSettingsFound {
+		if expected != f.authSettings.Revision {
+			return store.AuthSettings{}, store.ErrConflict
+		}
+		v.Revision = f.authSettings.Revision + 1
+	} else {
+		if expected != 0 {
+			return store.AuthSettings{}, store.ErrConflict
+		}
+		v.Revision = 1
+	}
+	f.authSettings = v
+	f.authSettingsFound = true
+	if clearBinding {
+		f.oidcBinding = nil
+	}
+	if bumpAdminID != "" {
+		f.admin.SessionVersion++
+	}
+	f.audits = append(f.audits, a)
+	return v, nil
+}
+func (f *fakeRepo) OIDCBinding(_ context.Context, adminID string) (store.OIDCBinding, error) {
+	if f.oidcBinding == nil || f.oidcBinding.AdminID != adminID {
+		return store.OIDCBinding{}, store.ErrNotFound
+	}
+	return *f.oidcBinding, nil
+}
+func (f *fakeRepo) OIDCBindingAny(context.Context) (store.OIDCBinding, error) {
+	if f.oidcBinding == nil {
+		return store.OIDCBinding{}, store.ErrNotFound
+	}
+	return *f.oidcBinding, nil
+}
+func (f *fakeRepo) ReplaceOIDCBinding(_ context.Context, adminID, issuer, subject string, a store.Audit) (int, error) {
+	f.admin.SessionVersion++
+	f.oidcBinding = &store.OIDCBinding{AdminID: adminID, Issuer: issuer, Subject: subject, BoundAt: time.Now().UTC()}
+	f.audits = append(f.audits, a)
+	return f.admin.SessionVersion, nil
+}
+func (f *fakeRepo) CreateAuthFlow(_ context.Context, flow store.AuthFlow) error {
+	f.authFlows = append(f.authFlows, flow)
+	return nil
+}
+func (f *fakeRepo) AuthFlow(_ context.Context, stateHash []byte) (store.AuthFlow, error) {
+	for _, flow := range f.authFlows {
+		if bytes.Equal(flow.StateHash, stateHash) {
+			return flow, nil
+		}
+	}
+	return store.AuthFlow{}, store.ErrNotFound
+}
+func (f *fakeRepo) ConsumeAuthFlow(_ context.Context, id string, now time.Time) error {
+	for i := range f.authFlows {
+		if f.authFlows[i].ID == id && f.authFlows[i].ConsumedAt == nil && now.Before(f.authFlows[i].ExpiresAt) {
+			f.authFlows[i].ConsumedAt = &now
+			return nil
+		}
+	}
+	return store.ErrConflict
+}
 func testAPI(t *testing.T) (http.Handler, *fakeRepo, config.Config, *http.Cookie) {
 	t.Helper()
-	cfg := config.Config{PublicOrigin: "https://admin.example", SessionSecret: strings.Repeat("s", 32), MasterKey: make([]byte, 32), AllowPrivateUpstreams: true}
+	cfg := config.Config{PublicOrigin: "https://admin.example", SessionSecret: strings.Repeat("s", 32), MasterKey: make([]byte, 32), AllowPrivateUpstreams: true, LocalLoginEnabled: true, SessionTTLHours: 720, OIDCScopes: []string{"openid", "profile", "email"}}
 	hash, e := auth.HashPassword("password")
 	if e != nil {
 		t.Fatal(e)

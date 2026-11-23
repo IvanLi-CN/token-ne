@@ -230,3 +230,12 @@ it("blocks a force drain once the instance is no longer draining", async () => {
   fireEvent.click(confirm);
   expect(posts(fetcher, "/api/cores/instances/core-1/drain")).toHaveLength(0);
 });
+
+it("renders the core cards as one continuous list", async () => {
+  mock();
+  mount();
+  await screen.findByRole("heading", { name: "部署进度" });
+  expect(screen.getByRole("heading", { name: "核心实例" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "核心版本" })).toBeTruthy();
+  expect(document.querySelectorAll(".surface-card")).toHaveLength(3);
+});

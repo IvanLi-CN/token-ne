@@ -2,6 +2,7 @@ import {
   createBrowserRouter,
   Link,
   type LoaderFunctionArgs,
+  Navigate,
   type RouteObject,
   redirect,
   useRevalidator,
@@ -17,8 +18,10 @@ import LoginPage from "../pages/login";
 import ModelsPage from "../pages/models";
 import OverviewPage from "../pages/overview";
 import RequestsPage from "../pages/requests";
+import SettingsPage from "../pages/settings";
 import UpstreamsPage from "../pages/upstreams";
 import { AppShell } from "./shell";
+import { SystemLayout } from "./system-layout";
 
 export async function sessionLoader({ request }: LoaderFunctionArgs) {
   try {
@@ -74,7 +77,15 @@ export const routes: RouteObject[] = [
       { path: "models", Component: ModelsPage },
       { path: "upstreams", Component: UpstreamsPage },
       { path: "keys", Component: KeysPage },
-      { path: "cores", Component: CoresPage },
+      {
+        path: "system",
+        Component: SystemLayout,
+        children: [
+          { index: true, Component: () => <Navigate to="cores" replace /> },
+          { path: "cores", Component: CoresPage },
+          { path: "settings", Component: SettingsPage },
+        ],
+      },
       { path: "*", Component: NotFound },
     ],
   },

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useId, useRef, useState } from "react";
 import { type Column, DataTable } from "../../components/data-table";
-import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
 import { type Action, CoreActionDialog, coreError } from "../../features/cores/actions";
 import {
   coresApi,
@@ -370,9 +370,8 @@ export default function CoresPage() {
 
   return (
     <>
-      <PageTitle title="Cores" />
       {receipt && (
-        <p role="status" className="surface-card break-all px-6 py-4">
+        <p role="status" className="break-all text-sm text-[var(--muted)]">
           {receipt}
         </p>
       )}

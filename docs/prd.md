@@ -31,7 +31,8 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 模型名改写：全局映射 + 上游覆盖，按继承规则计算有效模型名。
 - 提交前重试：连接失败、首字节超时、可重试 HTTP 状态、SSE 错误事件。
 - 用量与延迟事实写入 PostgreSQL；Prometheus `/metrics`；外部 Grafana 仪表盘。
-- Web 后台：登录、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
+- Web 后台：本地登录与可选 OIDC 登录、系统页（Cores 与设置子页面）、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
+- 管理面 OIDC 登录：单一 OIDC Provider、显式 `iss` + `sub` 身份绑定、本地登录 break-glass、可配置会话 TTL。
 - Go 控制面动态创建/停止 Rust 核心容器；动态容器带 Compose 项目标签和网络，属于项目成员但不是 Compose 声明服务。
 - Docker Compose 部署；PostgreSQL、Caddy、Go API、Rust 核心在同一个 Compose 项目中，按 `edge`、`core-control`、`data` 网络分区。
 - Caddy 默认只监听 HTTP；TLS 由宿主上的外部反向代理终止，可选启用 Caddy 内置 TLS。
@@ -40,7 +41,8 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 ### 不包含
 
-- OAuth 账号登录、Codex 官方账号池、配额窗口、账号自动轮换、健康评分。
+- 上游 OAuth 账号池、Codex 官方账号池、配额窗口、账号自动轮换、健康评分。
+- 下游 API 的 OIDC 认证、多个 OIDC Provider、IdP-initiated login、SCIM、组成员授权。
 - Anthropic、Gemini 或其他非 OpenAI 风格协议。
 - WebSocket 代理。
 - 请求/响应正文持久化、Prompt 内容检索、会话回放。
@@ -60,6 +62,10 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 | 上游 | token-ne 转发到的 OpenAI 兼容服务，第一期是 API Key 形式。 |
 | 转发核心 | Rust 实现的 HTTP 数据面，负责认证、改写、路由、重试、透传、用量上报；请求处理不依赖控制面，配置来自控制面快照。 |
 | 控制面 | Go 实现的管理 API、Web 静态站点、用量摄入、Caddy 协调和核心编排。 |
+| 本地登录 | 使用控制面保存的管理员用户名与密码进入控制面的登录方式。 |
+| OIDC 管理登录 | 管理员通过外部 OIDC Provider 完成认证后进入控制面的登录方式；只用于管理面。 |
+| OIDC 身份绑定 | 将一个 OIDC Provider 的发行方与主体标识固定关联到唯一管理员的持久关系。 |
+| 系统设置 | 由管理员在控制面 Web 中修改、持久化并立即生效的运行时配置。 |
 | 部署版本 | 一个核心镜像版本，例如 `0.1.0`；可以有多个实例。 |
 | 实例 | 一个运行中的核心容器，具有唯一地址、权重和在途计数。 |
 | 权重 | Caddy `weighted_round_robin` 的整数权重；至少一个权重大于 0 时，`0` 表示不接受新请求。 |
@@ -253,31 +259,34 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 页面：
 
-- **登录**：用户名/密码，会话 Cookie。
+- **登录**：用户名/密码与可选 OIDC 登录，会话 Cookie；OIDC 未绑定或不可用时仍可使用本地登录。
 - **总览**：今日请求数、成功率、token、费用、p95 延迟、TTFT、按模型/上游分布、核心版本与权重。
 - **请求**：时间范围、模型、上游、状态筛选；游标分页；详情包含用量、尝试、错误摘要，不含正文。
 - **Models**：全局模型、启用状态、计费、全局映射、`shutdown_date`。
 - **Upstreams**：上游 CRUD、测试、模型能力集合、上游覆盖名称、priority/weight。
 - **Downstream Keys**：Key 创建、禁用、删除、轮换、`allowed_models` 和并发上限。
-- **Cores**：版本、实例、状态、权重、在途数、部署/切换/排水/回滚操作和进度。
+- **系统**：左侧子导航上方显示可见标题“系统”，菜单只有一级，`系统` 不是子导航的一层。同一项内的卡片连续显示为长列表，不再拆成二级页面。默认进入 `Cores`。窄屏时子导航移入全局抽屉，作为“系统”下的树状子项显示。
+  - **Cores**：连续显示部署进度、核心实例、核心版本三张卡片。
+  - **设置**：认证状态、OIDC Provider、身份绑定合并为一张卡片，含本地登录开关、会话 TTL 和强制下线。
 
-不做 Audit 页面、状态码策略页面、Grafana 页面、catalog 页面、Settings 页面；审计和策略通过 API/文件/日志查看。
+不做 Audit 页面、状态码策略页面、Grafana 页面、catalog 页面；系统 → 设置只覆盖管理员认证，不扩展为通用配置中心，审计和策略通过 API/文件/日志查看。
 
 交互要求：
 
 - 危险操作（删除上游、停核心、强制排水）需要确认。
+- 关闭本地登录、重新绑定 OIDC 身份、修改 issuer 或 client secret 需要确认；关闭本地登录还需输入当前密码。
 - 写操作使用同源校验和 CSRF 防护。
 - 数据加载失败时显示可重试错误，不显示伪造的成功状态。
 - 支持桌面宽度；窄屏可读，不要求完整移动端优化。
 
-**验收**：登录后可以完成“创建模型 → 创建上游并配置能力 → 创建下游 Key → 发起请求 → 在请求页看到记录 → 在核心页切换版本”的闭环。
+**验收**：登录后可以完成“创建模型 → 创建上游并配置能力 → 创建下游 Key → 发起请求 → 在请求页看到记录 → 在核心页切换版本”的闭环；OIDC 绑定后可以用 Authelia 登录；关闭本地登录后仍可通过 OIDC 或 CLI break-glass 恢复。
 
 ### FR-13 Prometheus 与 Grafana
 
 - Go 在独立端口暴露 `/metrics`，通过宿主机 loopback 或受控私网/VPN 提供给外部 Prometheus，使用 Bearer Token 保护，是外部 Prometheus 的唯一抓取目标。
 - 核心在内部端口暴露 `/metrics` 供排障，不发布宿主端口、不经过 Caddy，也不作为外部抓取合同。
-- Go 指标至少覆盖：请求数、成功率、延迟直方图、TTFT 直方图、token、费用、重试、上游错误、核心实例状态/权重/在途数、核心配置来源/签名告警/override、用量摄入在途请求与提交延迟、Caddy 应用结果、数据库连接池。
-- 不把 `request_id`、`api_key`、`upstream_key` 放入标签。
+- Go 指标至少覆盖：请求数、成功率、延迟直方图、TTFT 直方图、token、费用、重试、上游错误、核心实例状态/权重/在途数、核心配置来源/签名告警/override、OIDC 登录/discovery 结果、用量摄入在途请求与提交延迟、Caddy 应用结果、数据库连接池。
+- 不把 `request_id`、`api_key`、`upstream_key`、OIDC `subject` 或邮箱放入标签。
 - 提供 Grafana 仪表盘 JSON 和 Prometheus 抓取示例。
 - Grafana 和 Prometheus 是外部服务，不放入 Compose。
 
@@ -286,15 +295,23 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 ### FR-14 安全与审计
 
 - 管理员密码使用 Argon2id 哈希；首次启动从环境变量引导，之后只存哈希。
+- OIDC 使用 authorization code + PKCE `S256`、`state` 和 `nonce`；只支持一个 confidential client，默认 scopes 为 `openid profile email`。
+- OIDC 登录只接受已显式绑定的 `iss` + `sub`，不自动 provisioning，不使用邮箱或组作为准入依据。
+- client secret 使用 `MASTER_KEY` 做 AES-256-GCM 加密存储，只写不读；日志、API 响应和审计不出现明文。
+- 首次保存系统设置后认证配置以数据库为准；环境变量只在从未保存时生效，重叠字段启动告警并建议删除环境变量。
+- 会话 TTL 默认 30 天、可配置为 1 小时到 90 天；修改 TTL、issuer、client、scopes、绑定或本地登录开关时递增 `session_version`。
+- 只有 OIDC 已启用且已完成身份绑定时才能关闭本地登录；关闭后不能关闭 OIDC 或修改 issuer/client 凭据，关闭本地登录与任何 OIDC provider 配置变更不能在同一次保存中完成。
+- 本地登录关闭后提供容器内 CLI `api auth local-login enable` 作为 break-glass；OIDC 配置错误不得同时锁死两种登录方式。
 - 会话 Cookie：`HttpOnly`、`Secure`（HTTPS 时）、`SameSite=Strict`。
+- OIDC 登录/绑定使用短生命周期 `SameSite=Lax` flow cookie；应用会话 Cookie 仍为 `SameSite=Strict`。
 - 写接口校验 `Origin` 和 `Sec-Fetch-Site`；拒绝明显跨站请求。
 - 上游密钥使用 AES-256-GCM 加密；主密钥只从环境变量读取。
 - 核心配置包含上游密钥时，只通过内网令牌保护的接口传输；签名可选，默认 `warn` 模式只告警；手动 override 可以启动，但必须输出警告并记录审计；本地缓存加密。
 - 日志不记录 Authorization、上游密钥、下游 Key 明文和请求/响应正文。
 - 上游 URL 默认只允许 `https` 和公网地址，防止 SSRF；不跟随重定向；开发模式显式放开。
-- 审计记录：登录失败、模型增删改、上游增删改、能力变更、Key 变更、核心部署/切换/排水/回滚。
+- 审计记录：本地登录与 OIDC 登录成功/失败、身份绑定/重绑、认证设置变更、强制下线、break-glass、模型增删改、上游增删改、能力变更、Key 变更、核心部署/切换/排水/回滚。
 
-**验收**：日志和 API 响应中搜索不到密钥明文；跨站写请求被拒绝；审计 API 能查到关键操作。
+**验收**：日志和 API 响应中搜索不到密钥或 client secret 明文；跨站写请求被拒绝；审计 API 能查到 OIDC 登录、绑定和设置变更。
 
 ### FR-15 核心与控制面协议
 
@@ -364,6 +381,9 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 ## 验收清单
 
 - [ ] 冷启动 Compose，登录后台，创建模型、上游和模型能力。
+- [ ] 配置 Authelia client 和 OIDC 设置，测试连接成功，完成首次身份绑定，并通过 Authelia 登录后台。
+- [ ] 关闭本地登录后，错误 OIDC 配置不能保存；CLI `api auth local-login enable` 能恢复本地登录。
+- [ ] 修改会话 TTL 和强制下线后，旧会话失效，新会话按新 TTL 生效。
 - [ ] 默认 Caddy 只监听 HTTP，经外部 TLS 代理访问；未启用 TLS 时 443 不监听。
 - [ ] 创建下游 Key，调用 `/v1/chat/completions` 流式和非流式成功。
 - [ ] `/v1/models` 和 `/v1/models/{model}` 通过官方 schema 校验；只列可调用模型。
@@ -384,7 +404,8 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 ## 后续演进
 
-- 官方渠道号池：OAuth 账号、配额窗口、健康评分、自动轮换、分组。
+- 官方渠道号池：上游 OAuth 账号、配额窗口、健康评分、自动轮换、分组。
+- 多 OIDC Provider、组成员授权、SCIM 与多管理员 RBAC。
 - 上游模型目录同步：控制面按规则拉取并合并 catalog；core 只消费快照。
 - Anthropic 风格协议与协议转换。
 - 请求/响应正文的可选、脱敏、限时留证。

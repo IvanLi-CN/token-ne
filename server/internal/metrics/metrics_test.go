@@ -19,6 +19,8 @@ func TestMetricsLabelsAreBoundedAndOmitIdentities(t *testing.T) {
 		AttemptCount: 2, Duration: &d,
 	}, ModelLabel: "gpt-5", VersionLabel: "0.2.0", UpstreamLabel: "primary"}}}
 	r.Committed(result, time.Millisecond, time.Now())
+	r.OIDCLogin("success")
+	r.OIDCDiscovery("failure")
 	page := httptest.NewRecorder()
 	r.Handler("secret", nil)(page, httptest.NewRequest("GET", "/metrics", nil))
 	if page.Code != 401 {
@@ -37,6 +39,9 @@ func TestMetricsLabelsAreBoundedAndOmitIdentities(t *testing.T) {
 	}
 	if !strings.Contains(body, "token_ne_proxy_request_duration_seconds_bucket") {
 		t.Fatal("histogram buckets absent")
+	}
+	if !strings.Contains(body, `token_ne_admin_oidc_login_total{result="success"} 1`) || !strings.Contains(body, `token_ne_admin_oidc_discovery_total{result="failure"} 1`) {
+		t.Fatal("OIDC metrics absent")
 	}
 	if body == "" {
 		t.Fatal("metrics body empty")

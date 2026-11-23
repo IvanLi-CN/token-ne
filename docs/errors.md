@@ -81,3 +81,9 @@
 | 503 | `storage_unavailable` | PostgreSQL 或依赖不可用 |
 
 管理 API 的 `details[].path` 必须定位到具体字段；没有字段路径的冲突使用 `details: []`。
+
+## OIDC 测试与登录错误
+
+`POST /api/settings/auth/test` 的 discovery 成功与失败都使用 `200`，响应为 `{ok, discovery?, error?}`，不使用管理错误信封。请求格式或字段校验失败仍使用 `400`/`422`。
+
+OIDC 登录和绑定的浏览器流程失败统一重定向到通用错误状态或返回 `401 unauthorized`；state、nonce、PKCE、issuer、subject 和 IdP 错误正文只进入审计与服务端日志，不进入浏览器响应。

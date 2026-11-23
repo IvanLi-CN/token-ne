@@ -13,7 +13,6 @@ import (
 )
 
 const CookieName = "tn_session"
-const SessionTTL = 12 * time.Hour
 
 type Session struct {
 	AdminID string `json:"sub"`

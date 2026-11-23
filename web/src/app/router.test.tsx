@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, type RouteObject, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { MorphGroup, MorphPanel } from "../components/morph-panel";
@@ -12,6 +12,21 @@ import { AppProviders } from "./providers";
 import { routes } from "./router";
 
 const admin = { id: "9b39c7da-619b-4108-b7fa-8f9c5fc1b9e8", username: "operator" };
+const authConfig = { local_login_enabled: true, oidc_enabled: false, oidc_login_available: false };
+const authSettings = {
+  revision: 0,
+  oidc_enabled: false,
+  issuer_url: null,
+  client_id: null,
+  client_secret_configured: false,
+  scopes: ["openid", "profile", "email"],
+  binding: null,
+  local_login_enabled: true,
+  session_ttl_hours: 720,
+  effective_source: { local_login_enabled: "default", session_ttl_hours: "default" },
+  updated_at: null,
+  updated_by: null,
+};
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -44,35 +59,87 @@ describe("application router", () => {
     );
   });
   it("keeps failed credentials, reports a generic error and never navigates", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(response({ error: { message: "private failure" } }, 401));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/auth/config") return Promise.resolve(response(authConfig));
+      return Promise.resolve(response({ error: { message: "private failure" } }, 401));
+    });
     vi.stubGlobal("fetch", fetchMock);
     const router = mount("/login?returnTo=/models");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "wrong" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "用户名或密码错误");
     expect((screen.getByLabelText("密码") as HTMLInputElement).value).toBe("wrong");
     expect(router.state.location.pathname).toBe("/login");
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/login");
-    expect(fetchMock.mock.calls[0][1].credentials).toBe("same-origin");
+    const loginCall = fetchMock.mock.calls.find(([url]) => url === "/api/auth/login");
+    expect(loginCall?.[0]).toBe("/api/auth/login");
+    expect(loginCall?.[1].credentials).toBe("same-origin");
+  });
+  it("shows only OIDC when local login is disabled and OIDC is bound", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url === "/api/auth/config"
+          ? Promise.resolve(
+              response({
+                local_login_enabled: false,
+                oidc_enabled: true,
+                oidc_login_available: true,
+              }),
+            )
+          : Promise.resolve(response({}, 401)),
+      ),
+    );
+    mount("/login?returnTo=/system/settings");
+    const link = await screen.findByRole("link", { name: "使用 OIDC 登录" });
+    expect(link.getAttribute("href")).toBe("/api/auth/oidc/start?returnTo=%2Fsystem%2Fsettings");
+    expect(screen.queryByLabelText("用户名")).toBeNull();
+  });
+  it("shows a break-glass message when no login method is available", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          response({ local_login_enabled: false, oidc_enabled: true, oidc_login_available: false }),
+        ),
+    );
+    mount("/login");
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "当前没有可用的登录方式，请使用 break-glass 恢复本地登录。",
+    );
+  });
+  it("does not guess a login method when auth config fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 503)));
+    mount("/login");
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "无法加载登录配置，请重试。重试",
+    );
+    expect(screen.queryByLabelText("用户名")).toBeNull();
   });
   it("disables duplicate submissions until real login succeeds then opens the target", async () => {
     let finish: (value: Response) => void = () => {};
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string) =>
-        url === "/api/auth/login"
-          ? new Promise<Response>((resolve) => {
-              finish = resolve;
-            })
-          : Promise.resolve(response(admin)),
-      ),
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/config") return Promise.resolve(response(authConfig));
+        if (url === "/api/auth/login")
+          return new Promise<Response>((resolve) => {
+            finish = resolve;
+          });
+        if (url === "/api/auth/me") return Promise.resolve(response(admin));
+        if (url === "/api/cores" || url === "/api/cores/spool")
+          return Promise.resolve(
+            response({ versions: [], instances: [], deployments: [], data: [] }),
+          );
+        return Promise.resolve(response(admin));
+      }),
     );
-    const router = mount("/login?returnTo=/cores");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    const router = mount("/login?returnTo=/system/cores");
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await waitFor(() =>
       expect((screen.getByRole("button", { name: "登录中" }) as HTMLButtonElement).disabled).toBe(
@@ -80,9 +147,9 @@ describe("application router", () => {
       ),
     );
     finish(response(admin));
-    await screen.findByRole("heading", { name: "Cores" });
-    expect(router.state.location.pathname).toBe("/cores");
-    expect(screen.getByRole("link", { name: /Cores/ }).getAttribute("aria-current")).toBe("page");
+    await screen.findByRole("heading", { name: "系统" });
+    expect(router.state.location.pathname).toBe("/system/cores");
+    expect(screen.getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("operator")).toBeTruthy();
   });
   it("navigates all stable route targets and switches theme", async () => {
@@ -94,7 +161,6 @@ describe("application router", () => {
       ["/models", "Models"],
       ["/upstreams", "Upstreams"],
       ["/keys", "Downstream Keys"],
-      ["/cores", "Cores"],
     ]) {
       fireEvent.click(screen.getByRole("link", { name: title }));
       await screen.findByRole("heading", { name: title });
@@ -125,6 +191,41 @@ describe("application router", () => {
     fireEvent.click(screen.getByRole("button", { name: "浅色" }));
     expect(localStorage.getItem("token-ne.theme")).toBe("light");
   });
+  it("renders the system settings subpage inside the system layout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation((url: string) =>
+          Promise.resolve(url === "/api/settings/auth" ? response(authSettings) : response(admin)),
+        ),
+    );
+    const router = mount("/system/settings");
+    await screen.findByRole("heading", { name: "系统" });
+    expect(router.state.location.pathname).toBe("/system/settings");
+    expect(document.title).toBe("设置 · token-ne");
+    expect(screen.getByRole("link", { name: "系统" }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");
+    const tree = screen.getByRole("navigation", { name: "系统子导航" });
+    expect(within(tree).queryByText("系统")).toBeNull();
+    expect(within(tree).getByRole("link", { name: "Cores" })).toBeTruthy();
+    expect(within(tree).getByRole("link", { name: "设置" })).toBeTruthy();
+  });
+  it("redirects the system root to Cores", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") return Promise.resolve(response(admin));
+        if (url === "/api/cores")
+          return Promise.resolve(response({ versions: [], instances: [], deployments: [] }));
+        if (url === "/api/cores/spool") return Promise.resolve(response({ data: [] }));
+        return Promise.resolve(response({}));
+      }),
+    );
+    const router = mount("/system");
+    await screen.findByRole("heading", { name: "部署进度" });
+    expect(router.state.location.pathname).toBe("/system/cores");
+  });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
       .fn()
@@ -147,10 +248,19 @@ describe("application router", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
   it("does not treat malformed successful responses as an authenticated session", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({})));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation((url: string) =>
+          url === "/api/auth/config"
+            ? Promise.resolve(response(authConfig))
+            : Promise.resolve(response({})),
+        ),
+    );
     mount("/login");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await screen.findByRole("alert");
     expect(screen.getByRole("heading", { name: "管理员登录" })).toBeTruthy();
@@ -165,6 +275,22 @@ describe("application router", () => {
 });
 
 describe("shared boundaries", () => {
+  function collectRoutePaths(entries: RouteObject[], parent = ""): string[] {
+    return entries.flatMap((route) => {
+      if (route.path === "*") return [];
+      const absolute = route.path?.startsWith("/")
+        ? route.path
+        : `${parent.replace(/\/$/, "")}/${route.path}`;
+      const self = route.path ? [absolute.replace(/\/$/, "") || "/"] : [];
+      return [...self, ...collectRoutePaths(route.children ?? [], absolute)];
+    });
+  }
+  it("keeps return destinations aligned with the route table", () => {
+    for (const path of collectRoutePaths(routes)) {
+      if (path === "/login") continue;
+      expect(safeReturnPath(path), path).toBe(path);
+    }
+  });
   it("rejects unsafe return destinations", () => {
     for (const value of [
       "https://evil.test",
@@ -176,6 +302,9 @@ describe("shared boundaries", () => {
     ])
       expect(safeReturnPath(value)).toBe("/");
     expect(safeReturnPath("/requests?model=abc#details")).toBe("/requests?model=abc#details");
+    expect(safeReturnPath("/system/settings?oidc=bound")).toBe("/system/settings?oidc=bound");
+    expect(safeReturnPath("/system/cores")).toBe("/system/cores");
+    expect(safeReturnPath("/system/cores/deployments")).toBe("/");
   });
   it("rejects API paths that escape the same-origin API boundary", async () => {
     for (const path of ["//evil.test", "/../auth", "/%2e%2e/auth"] as const)
@@ -239,6 +368,28 @@ describe("shared boundaries", () => {
     expect(router.state.location.pathname).toBe("/models");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("shows the system subnavigation as a tree in mobile navigation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") return Promise.resolve(response(admin));
+        if (url === "/api/cores")
+          return Promise.resolve(response({ versions: [], instances: [], deployments: [] }));
+        if (url === "/api/cores/spool") return Promise.resolve(response({ data: [] }));
+        return Promise.resolve(response({}));
+      }),
+    );
+    const router = mount("/system/cores");
+    await screen.findByRole("heading", { name: "系统" });
+    fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
+    const drawer = screen.getByRole("dialog", { name: "token-ne" });
+    expect(within(drawer).getByRole("link", { name: "系统" })).toBeTruthy();
+    expect(within(drawer).getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    fireEvent.click(within(drawer).getByRole("link", { name: "设置" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/system/settings"));
   });
   it("expands one morph panel at a time and restores focus on Escape", () => {
     render(

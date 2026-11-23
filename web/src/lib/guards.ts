@@ -1,4 +1,13 @@
-const routePaths = new Set(["/", "/requests", "/models", "/upstreams", "/keys", "/cores"]);
+const routePaths: Record<string, true> = {
+  "/": true,
+  "/requests": true,
+  "/models": true,
+  "/upstreams": true,
+  "/keys": true,
+  "/system": true,
+  "/system/cores": true,
+  "/system/settings": true,
+};
 
 /** Only local, known application routes can be used as a post-login destination. */
 export function safeReturnPath(value: string | null | undefined): string {
@@ -9,7 +18,7 @@ export function safeReturnPath(value: string | null | undefined): string {
   )
     return "/";
   const url = new URL(value, "https://token-ne.invalid");
-  return url.origin === "https://token-ne.invalid" && routePaths.has(url.pathname)
+  return url.origin === "https://token-ne.invalid" && routePaths[url.pathname]
     ? `${url.pathname}${url.search}${url.hash}`
     : "/";
 }

@@ -795,6 +795,43 @@ kbd {
 .drawer-heading h2 {
   font-size: 20px;
 }
+.system-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.system-nav-title {
+  padding: 0 10px;
+  margin-top: 16px;
+  margin-bottom: 12px;
+  font-size: 24px;
+}
+.system-nav-title:focus-visible {
+  outline: none;
+}
+.system-subnav-link {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--fg);
+  text-decoration: none;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+.system-subnav-link:hover {
+  background: var(--surface-raised);
+}
+.system-subnav-link.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 600;
+}
 .mobile-navigation {
   display: flex;
   flex-direction: column;
@@ -804,15 +841,49 @@ kbd {
 .mobile-link {
   min-height: 48px;
   padding: 14px 16px;
-  border: 1px solid var(--border);
   border-radius: 12px;
   color: var(--fg);
   text-decoration: none;
 }
+.mobile-link:hover {
+  background: var(--surface-raised);
+}
 .mobile-link.active {
   color: var(--primary);
-  border-color: var(--primary);
   background: var(--primary-soft);
+  font-weight: 600;
+}
+.mobile-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+}
+.mobile-nav-tree {
+  list-style: none;
+  margin: 0 0 0 16px;
+  padding: 0 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 1px solid var(--border-quiet);
+}
+.mobile-sublink {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: var(--fg);
+  text-decoration: none;
+}
+.mobile-sublink:hover {
+  background: var(--surface-raised);
+}
+.mobile-sublink.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 600;
 }
 .drawer-account {
   margin-top: auto;
@@ -904,6 +975,9 @@ th {
   }
   .mobile-menu-toggle {
     display: inline-flex;
+  }
+  .system-tree {
+    display: none;
   }
 }
 @media (max-width: 767px) {

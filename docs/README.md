@@ -15,7 +15,9 @@
 - [Web 设计规格](../DESIGN.md)：页面、状态、交互和视觉边界。
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
 - [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道和恢复边界。
+- [管理员 OIDC 登录 Spec](./specs/oidc-admin-login/SPEC.md)：Authelia 管理登录、身份绑定、本地登录 break-glass、配置优先级和会话 TTL。
 - [产品版本发布 Runbook](./runbooks/release.md)：手动 target、精确镜像与 latest 验证、失败恢复和禁止事项。
+- [管理员 OIDC 登录 Runbook](./runbooks/admin-oidc.md)：Authelia client、首次绑定、私有 CA、强制下线和 break-glass。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。
 - [状态码改写策略示例](./examples/status-rewrite.yaml)：第一版 YAML 规则文件示例。
 
@@ -32,3 +34,4 @@
 - [ADR 0009：模型是全局实体，映射与上游能力分离](./adr/0009-global-models-with-upstream-capabilities.md)
 - [ADR 0010：产品版本采用 target-only 手动发布并统一 core、API、Web](./adr/0010-product-version-release.md)
 - [ADR 0011：发布同时提供不可变版本和可变部署通道](./adr/0011-mutable-deployment-channel.md)
+- [ADR 0012：管理员 OIDC 登录采用数据库优先配置与单管理员绑定](./adr/0012-oidc-admin-login.md)

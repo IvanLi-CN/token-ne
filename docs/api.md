@@ -22,7 +22,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 管理 API 使用会话 Cookie，所有写请求校验 `Origin` 与 `Sec-Fetch-Site`。路径和操作：
 
-- `/api/auth/*`：登录、退出、当前管理员。
+- `/api/auth/*`：本地登录、OIDC 登录与绑定、退出、强制下线、当前管理员和公开登录能力。
+- `/api/settings/auth`：管理员认证设置；`PUT` 使用 `revision` 前置条件，client secret 只写不读。OIDC 配置首次保存后以数据库为准，环境变量仅在该部署从未保存时生效。
 - `/api/version`：公开的 API 运行时版本、commit 和构建时间；Web 页脚消费该值。
 - `/api/models`：全局模型；`model_id` 是公开名，实体包含启用、计费、全局映射和 `shutdown_date`。
 - `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 能力集合。
@@ -58,4 +59,6 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 用 OpenAPI 校验所有管理 API 和下游模型接口的响应形状。
 - 用 `docs/schemas/*.json` 校验配置、usage、heartbeat 和错误 fixtures。
 - 管理 API 的字段错误必须带 `details[].path`。
+- OIDC 登录与绑定必须覆盖成功、非法 state/nonce/PKCE、未绑定身份、IdP 不可达和通用错误重定向。
+- 认证设置必须覆盖 revision 冲突、secret 省略/清除/替换、来源标记和本地登录锁死防护。
 - 下游错误必须是完整 OpenAI `ErrorResponse`，包括 `param`/`code` 的 `null`。
