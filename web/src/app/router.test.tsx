@@ -407,8 +407,10 @@ describe("shared boundaries", () => {
       "/system/cores#core-versions",
     );
     fireEvent.click(within(drawer).getByRole("link", { name: "核心实例" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(router.state.location.hash).toBe("#core-instances"));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.matchMedia?.("(prefers-reduced-motion: reduce)")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
     const settingsDrawer = screen.getByRole("dialog", { name: "token-ne" });
     fireEvent.click(within(settingsDrawer).getByRole("link", { name: "设置" }));
