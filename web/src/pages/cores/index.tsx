@@ -86,13 +86,28 @@ export default function CoresPage() {
   const cardsReady = data !== undefined;
   useEffect(() => {
     if (!cardsReady || !location.hash) return;
-    const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
-    card?.scrollIntoView?.({
-      block: "start",
-      behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-    });
+    const scrollToCard = () => {
+      const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
+      if (!card) return;
+      card.scrollIntoView({
+        block: "start",
+        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+      });
+    };
+    scrollToCard();
+    // The mobile drawer releases its scroll lock slightly after the navigation
+    // commits, so retry once the lock is gone instead of losing the first call.
+    const startScroll = window.scrollY;
+    const retries = [120, 400].map((delay) =>
+      window.setTimeout(() => {
+        if (window.scrollY === startScroll) scrollToCard();
+      }, delay),
+    );
+    return () => {
+      for (const timer of retries) window.clearTimeout(timer);
+    };
   }, [cardsReady, location]);
   const inProgress = data?.deployments.find(deployed);
   const spoolById = new Map(spool.isSuccess ? spool.data.map((row) => [row.instance_id, row]) : []);
@@ -396,10 +411,10 @@ export default function CoresPage() {
       ) : (
         data && (
           <>
-            <section className="surface-card cores-card-anchor" aria-labelledby="core-deployments">
+            <section id="core-deployments" className="surface-card cores-card-anchor">
               <div className="panel-heading">
                 <div>
-                  <h2 id="core-deployments">部署进度</h2>
+                  <h2>部署进度</h2>
                   <p className="muted">阶段、当前与下一阶段权重、阻塞原因。</p>
                 </div>
                 <StatusBadge tone={inProgress ? "warning" : "neutral"}>
@@ -418,9 +433,9 @@ export default function CoresPage() {
               </div>
             </section>
             <DataPlaneSettingsCard />
-            <section className="surface-card cores-card-anchor" aria-labelledby="core-instances">
+            <section id="core-instances" className="surface-card cores-card-anchor">
               <div className="panel-heading">
-                <h2 id="core-instances">核心实例</h2>
+                <h2>核心实例</h2>
                 <StatusBadge>{data.instances.length} 个实例</StatusBadge>
               </div>
               <div className="space-y-3 px-4 pb-6 sm:px-6">
@@ -445,9 +460,9 @@ export default function CoresPage() {
                 />
               </div>
             </section>
-            <section className="surface-card cores-card-anchor" aria-labelledby="core-versions">
+            <section id="core-versions" className="surface-card cores-card-anchor">
               <div className="panel-heading">
-                <h2 id="core-versions">核心版本</h2>
+                <h2>核心版本</h2>
                 <Button onClick={(event) => open({ kind: "register" }, event)}>登记版本</Button>
               </div>
               <div className="px-4 pb-6 sm:px-6">

@@ -391,6 +391,11 @@ describe("shared boundaries", () => {
     );
     const router = mount("/system/cores");
     await screen.findByRole("heading", { name: "系统" });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
     fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
     const drawer = screen.getByRole("dialog", { name: "token-ne" });
     expect(within(drawer).getByRole("link", { name: "系统" })).toBeTruthy();
@@ -410,7 +415,9 @@ describe("shared boundaries", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(router.state.location.hash).toBe("#core-instances"));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(window.matchMedia?.("(prefers-reduced-motion: reduce)")).toBeDefined();
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
     const settingsDrawer = screen.getByRole("dialog", { name: "token-ne" });
     fireEvent.click(within(settingsDrawer).getByRole("link", { name: "设置" }));
