@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ConfirmDialog } from "../../components/confirm-dialog";
-import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
 import { type AuthSettings, type AuthSettingsInput, authApi, settingsApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { errorMessage, Field, FormError } from "../models/management";
@@ -113,7 +113,6 @@ export default function SettingsPage() {
   if (settings.isPending) {
     return (
       <>
-        <PageTitle title="系统设置" />
         <Spinner label="正在加载认证设置" />
       </>
     );
@@ -121,7 +120,6 @@ export default function SettingsPage() {
   if (settings.isError || !settings.data) {
     return (
       <>
-        <PageTitle title="系统设置" />
         <ErrorState
           message={errorMessage(settings.error) ?? "认证设置加载失败"}
           onRetry={() => void settings.refetch()}
@@ -135,7 +133,6 @@ export default function SettingsPage() {
   const canBind = value.oidc_enabled && value.issuer_url && value.client_id;
   return (
     <>
-      <PageTitle title="系统设置" />
       {params.get("oidc") === "bound" && (
         <p className="px-1 py-2 text-sm text-[var(--success)]" role="status">
           OIDC 身份绑定成功。

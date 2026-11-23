@@ -7,23 +7,28 @@ const sections = [
 
 export function SystemLayout() {
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <nav className="system-tree" aria-label="系统子导航">
-        <ul className="system-tree-list">
-          {sections.map((section) => (
-            <li key={section.to}>
-              <NavLink
-                to={section.to}
-                className={({ isActive }) => `system-subnav-link${isActive ? " active" : ""}`}
-              >
-                {section.label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <div className="min-w-0">
-        <Outlet />
+    <div className="flex flex-col gap-6">
+      <h1 id="page-title" tabIndex={-1} className="system-page-title">
+        系统
+      </h1>
+      <div className="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <nav className="system-tree" aria-label="系统子导航">
+          <ul className="system-tree-list">
+            {sections.map((section) => (
+              <li key={section.to}>
+                <NavLink
+                  to={section.to}
+                  className={({ isActive }) => `system-subnav-link${isActive ? " active" : ""}`}
+                >
+                  {section.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div className="min-w-0">
+          <Outlet />
+        </div>
       </div>
     </div>
   );

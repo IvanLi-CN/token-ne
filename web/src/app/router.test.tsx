@@ -130,7 +130,7 @@ describe("application router", () => {
       ),
     );
     finish(response(admin));
-    await screen.findByRole("heading", { name: "Cores" });
+    await screen.findByRole("heading", { name: "系统" });
     expect(router.state.location.pathname).toBe("/system/cores");
     expect(screen.getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("operator")).toBeTruthy();
@@ -184,7 +184,7 @@ describe("application router", () => {
         ),
     );
     const router = mount("/system/settings");
-    await screen.findByRole("heading", { name: "系统设置" });
+    await screen.findByRole("heading", { name: "系统" });
     expect(router.state.location.pathname).toBe("/system/settings");
     expect(screen.getByRole("link", { name: "系统" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");

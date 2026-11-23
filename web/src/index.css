@@ -803,6 +803,9 @@ kbd {
   flex-direction: column;
   gap: 4px;
 }
+.system-page-title:focus-visible {
+  outline: none;
+}
 .system-subnav-link {
   display: flex;
   min-height: 40px;
