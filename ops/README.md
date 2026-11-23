@@ -80,7 +80,7 @@ docker compose --env-file ops/.env -f ops/compose.yaml config --quiet
 ## 部署检查清单
 
 - [ ] 运行全部离线检查，审阅待提交变更，确认没有实际密钥、env 文件、明文 override 或用量状态入库。
-- [ ] 生产镜像与版本已锁定，数据库备份可恢复，`MASTER_KEY`、缓存/签名密钥与策略文件已独立备份；确认迁移兼容性。
+- [ ] release identity 已锁定到精确版本或 digest；控制面部署可以使用 `latest` 通道自动更新，动态 core 仍使用精确版本；数据库备份可恢复，`MASTER_KEY`、缓存/签名密钥与策略文件已独立备份；确认迁移兼容性。
 - [ ] 宿主已预拉取 `CORE_STATE_INIT_IMAGE`（非默认值时）与回滚可能用到的旧版本核心镜像；`CORE_IMAGE_REPOSITORY` 指向实际仓库，且控制面能在部署时拉取新版本镜像。
 - [ ] 配置真实 HTTPS origin 与域名；外部 TLS 反向代理已运行并保留 Host、关闭响应缓冲；宿主防火墙未暴露 API、PostgreSQL、核心、socket-proxy、Caddy 管理面和指标端口。
 - [ ] 用宿主绝对路径预建核心状态根目录与基线实例子目录，权限 `0700`，并确认目标容器用户可写；env 与 Prometheus credentials 文件权限 `0600` 且不入库。

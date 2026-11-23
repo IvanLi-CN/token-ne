@@ -7,7 +7,7 @@
 - `main` 上的 `ci` 检查全部成功，包括 `release-policy`。
 - GitHub Actions 有 `contents: write` 和 `packages: write` 权限。
 - 已确认当前没有其他 release workflow 在运行；workflow 使用 `concurrency: release` 串行化。
-- GHCR 新 package 的默认可见性是 private；首次推送后必须在 GitHub package settings 中把 `token-ne-core` 与 `token-ne-api` 改为 public。控制面匿名拉取依赖 public，release workflow 会在创建 GitHub Release 前用匿名 `docker pull` 校验；未公开时发布会失败。
+- GHCR 新 package 的默认可见性是 private；首次推送后必须在 GitHub package settings 中把 `token-ne-core` 与 `token-ne-api` 改为 public。控制面匿名拉取依赖 public，release workflow 会在创建 GitHub Release 前用匿名 `docker pull` 校验精确标签和 `latest`；未公开时发布会失败。
 - 当前仓库没有 tag protection；如果以后添加 `v*` ruleset，必须允许 Actions 创建 tag。
 
 ## 正常发布
@@ -37,7 +37,11 @@ version=0.1.0
 gh release view "v${version}"
 docker buildx imagetools inspect "ghcr.io/ivanli-cn/token-ne-core:${version}"
 docker buildx imagetools inspect "ghcr.io/ivanli-cn/token-ne-api:${version}"
+docker buildx imagetools inspect "ghcr.io/ivanli-cn/token-ne-core:latest"
+docker buildx imagetools inspect "ghcr.io/ivanli-cn/token-ne-api:latest"
 ```
+
+`latest` 是可变部署通道，必须指向刚发布的精确版本；它不参与 release identity。控制面 API 可以使用 `latest` 自动更新，动态 core 实例仍必须使用精确版本或 digest。
 
 5. 部署后验证运行时版本：
 
@@ -62,20 +66,22 @@ curl -fsS https://$PUBLIC_DOMAIN/api/version
 1. 正常 dispatch。镜像会先推送到 GHCR，此时两个 package 默认是 private。
 2. `publish` job 的匿名 `docker pull` 会失败，workflow 在创建 GitHub Release 前停止。
 3. 在 GitHub package settings 中分别把 `token-ne-core` 和 `token-ne-api` 的 visibility 改为 public。
-4. 在原 workflow run 上选择 **Re-run all jobs**；同一 SHA/tag 会走 same-identity recovery，匿名拉取通过后才创建 GitHub Release。
+4. 在原 workflow run 上选择 **Re-run all jobs**；同一 SHA/tag 会走 same-identity recovery，精确镜像和 `latest` 的匿名拉取通过后才创建 GitHub Release。
 
 ## 失败恢复
 
 - tag 已创建后失败：保留 tag，在原 workflow run 上选择 **Re-run all jobs**。不要在主分支前进后新建 dispatch；新的 dispatch 会解析新版本。
 - 同一 SHA 已有唯一 `vX.Y.Z` tag：workflow 识别为 same-identity recovery，复用该版本；该 SHA 必须是当前 `origin/main` 的祖先。
 - 恢复时已有镜像不会被重新构建或覆盖；workflow 校验 OCI `revision`/`version` 后复用原 digest。标签或 digest 与 source 不匹配时失败。
-- 创建 GitHub Release 前会重新校验 tag 仍指向 source SHA，并校验匿名拉取到的 digest 与构建 digest 一致。
+- 创建 GitHub Release 前会重新校验 tag 仍指向 source SHA，校验精确标签的匿名 digest 与构建 digest 一致，并校验 `latest` 的 OCI version/revision 与本次 release 一致。
+- `latest` 只向前移动；恢复旧版本的同 identity 发布时，如果当前 `latest` 已是更高版本，workflow 不把通道回退。
 - GitHub Release 只在两个镜像都成功后创建；已存在时跳过重复创建。
 - 不删除 tag、不移动 tag、不重新计算 successor、不生成下一个版本。
 
 ## 禁止事项
 
-- 不使用 `latest`。
+- 不把 `latest` 当作 release identity、回滚目标或审计事实；`latest` 只是部署通道。
+- 不从 `latest` 启动动态 core；动态 core 必须使用精确版本或 digest。
 - 不使用 `<semver>-<sha>` 作为生产镜像标签。
 - 不通过修改 `main` 或版本文件触发发布。
 - 不把产品版本写入 `protocol_version`、`config_schema_version` 或数据库迁移版本。

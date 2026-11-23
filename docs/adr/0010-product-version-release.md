@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The mutable-tag prohibition is amended by [ADR 0011](./0011-mutable-deployment-channel.md).
 
 ## Context
 
@@ -25,7 +25,7 @@ Accepted.
 - 不创建 `VERSION` 文件作为版本真相源，不从 PR label、package manifest 或兼容性分类推导发布 target。
 - 发布在固定 source SHA 上创建不可变 `vX.Y.Z` tag；tag 已存在且指向其他 SHA 时失败，同 SHA 只允许 same-identity recovery。
 - core、API 和内嵌 Web 在发布构建中共享同一个 canonical version；Web 独立构建一次，API 镜像复用该 `web/dist`，不在 Docker 中重建前端。
-- 镜像使用精确 `X.Y.Z` 标签：`ghcr.io/ivanli-cn/token-ne-core:X.Y.Z` 与 `ghcr.io/ivanli-cn/token-ne-api:X.Y.Z`；不使用 `latest` 或 `-sha` 后缀。
+- 镜像使用精确 `X.Y.Z` 标签：`ghcr.io/ivanli-cn/token-ne-core:X.Y.Z` 与 `ghcr.io/ivanli-cn/token-ne-api:X.Y.Z`；不使用 `latest` 或 `-sha` 后缀。ADR 0011 已修订此条：`latest` 可作为可变部署通道，但不参与 release identity。
 - 产品版本与 `protocol_version`、`config_schema_version`、数据库迁移版本保持独立。
 
 ## Considered Options

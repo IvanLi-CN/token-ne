@@ -12,6 +12,7 @@
 
 - 早期 `docs/tech-selection.md` 使用 `<semver>-<sha>` 生产镜像标签；本主题改为精确 `X.Y.Z`，以便 core、API 和 Web 共用同一可读版本。
 - 参考资料 `manual-version-release-delivery` 主张 target-only：owner 只提供单一 release target，执行端从 trusted final tag baseline 解析版本；`VERSION`、PR label 和兼容性分类不参与 target 选择。
+- 发布身份保持精确 `X.Y.Z` 和 digest；为支持 Dockrev 等部署系统自动更新，发布同时维护 `latest` 可变通道。`latest` 仅作为部署指针，不进入 release identity 或审计事实；动态 core 仍使用精确版本。
 - 参考资料 `ui-version-display` 要求版本只计算一次，后端和前端消费同一 effective version；前端独立构建但仍复用同一 canonical version。
 - 参考资料 `semver-change-governance` 的兼容性分类是可选治理，不作为本主题的发布资格门禁。
 
