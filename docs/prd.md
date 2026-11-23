@@ -31,7 +31,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 模型名改写：全局映射 + 上游覆盖，按继承规则计算有效模型名。
 - 提交前重试：连接失败、首字节超时、可重试 HTTP 状态、SSE 错误事件。
 - 用量与延迟事实写入 PostgreSQL；Prometheus `/metrics`；外部 Grafana 仪表盘。
-- Web 后台：本地登录与可选 OIDC 登录、系统设置、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
+- Web 后台：本地登录与可选 OIDC 登录、系统页（Cores 与设置子页面）、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
 - 管理面 OIDC 登录：单一 OIDC Provider、显式 `iss` + `sub` 身份绑定、本地登录 break-glass、可配置会话 TTL。
 - Go 控制面动态创建/停止 Rust 核心容器；动态容器带 Compose 项目标签和网络，属于项目成员但不是 Compose 声明服务。
 - Docker Compose 部署；PostgreSQL、Caddy、Go API、Rust 核心在同一个 Compose 项目中，按 `edge`、`core-control`、`data` 网络分区。
@@ -265,10 +265,11 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - **Models**：全局模型、启用状态、计费、全局映射、`shutdown_date`。
 - **Upstreams**：上游 CRUD、测试、模型能力集合、上游覆盖名称、priority/weight。
 - **Downstream Keys**：Key 创建、禁用、删除、轮换、`allowed_models` 和并发上限。
-- **Cores**：版本、实例、状态、权重、在途数、部署/切换/排水/回滚操作和进度。
-- **系统设置**：OIDC provider 配置、测试连接、身份绑定、本地登录开关、会话 TTL、强制下线所有会话。
+- **系统**：左侧子导航 Cores 与设置，右侧渲染对应子页面；默认进入 Cores。
+  - **Cores**：版本、实例、状态、权重、在途数、部署/切换/排水/回滚操作和进度。
+  - **设置**：OIDC provider 配置、测试连接、身份绑定、本地登录开关、会话 TTL、强制下线所有会话。
 
-不做 Audit 页面、状态码策略页面、Grafana 页面、catalog 页面；系统设置页只覆盖管理员认证，不扩展为通用配置中心，审计和策略通过 API/文件/日志查看。
+不做 Audit 页面、状态码策略页面、Grafana 页面、catalog 页面；系统 → 设置只覆盖管理员认证，不扩展为通用配置中心，审计和策略通过 API/文件/日志查看。
 
 交互要求：
 

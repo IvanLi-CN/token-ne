@@ -69,7 +69,7 @@ if (root)
   createRoot(root).render(
     <AppProviders client={createQueryClient()}>
       <RouterProvider
-        router={createMemoryRouter(routes, { initialEntries: ["/settings?oidc=bound"] })}
+        router={createMemoryRouter(routes, { initialEntries: ["/system/settings?oidc=bound"] })}
       />
     </AppProviders>,
   );

@@ -23,8 +23,7 @@ const navigation = [
   ["/models", "Models"],
   ["/upstreams", "Upstreams"],
   ["/keys", "Downstream Keys"],
-  ["/cores", "Cores"],
-  ["/settings", "系统设置"],
+  ["/system", "系统"],
 ] as const;
 const themeModes = [
   { value: "light", label: "浅色", Icon: Sun },

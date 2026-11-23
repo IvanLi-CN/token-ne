@@ -67,7 +67,7 @@ func (a *API) oidcBindStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	admin := currentAdmin(r)
-	flow, state, verifier, e := a.newFlow(r, "bind", &admin.ID, "/settings")
+	flow, state, verifier, e := a.newFlow(r, "bind", &admin.ID, "/system/settings")
 	if e != nil {
 		storageError(w, r, e, "")
 		return
@@ -177,7 +177,7 @@ func (a *API) finishBind(w http.ResponseWriter, r *http.Request, flow store.Auth
 		a.redirectBindError(w, r)
 		return
 	}
-	http.Redirect(w, r, "/settings?oidc=bound", http.StatusFound)
+	http.Redirect(w, r, "/system/settings?oidc=bound", http.StatusFound)
 }
 
 func (a *API) newFlow(r *http.Request, mode string, adminID *string, returnTo string) (store.AuthFlow, string, string, error) {
@@ -254,7 +254,7 @@ func (a *API) redirectLoginError(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) redirectBindError(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/settings?oidc=bind_failed", http.StatusFound)
+	http.Redirect(w, r, "/system/settings?oidc=bind_failed", http.StatusFound)
 }
 
 func (a *API) redirectModeError(w http.ResponseWriter, r *http.Request, mode string) {

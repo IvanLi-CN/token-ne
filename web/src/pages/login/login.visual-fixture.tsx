@@ -32,7 +32,9 @@ if (root)
   createRoot(root).render(
     <AppProviders client={createQueryClient()}>
       <RouterProvider
-        router={createMemoryRouter(routes, { initialEntries: ["/login?returnTo=/settings"] })}
+        router={createMemoryRouter(routes, {
+          initialEntries: ["/login?returnTo=/system/settings"],
+        })}
       />
     </AppProviders>,
   );

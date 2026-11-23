@@ -62,7 +62,7 @@ func TestOIDCLoginCallback(t *testing.T) {
 	f.authSettings = store.AuthSettings{Revision: 1, OIDCEnabled: true, IssuerURL: &issuer, ClientID: &clientID, ClientSecretCiphertext: ciphertext, ClientSecretNonce: nonceBytes, Scopes: []string{"openid"}, LocalLoginEnabled: true, SessionTTLHours: 720}
 	f.authSettingsFound = true
 	f.oidcBinding = &store.OIDCBinding{AdminID: f.admin.ID, Issuer: issuer, Subject: "subject-1", BoundAt: time.Now().UTC()}
-	start := request(h, cfg, nil, "GET", "/api/auth/oidc/start?returnTo=/settings", "")
+	start := request(h, cfg, nil, "GET", "/api/auth/oidc/start?returnTo=/system/settings", "")
 	if start.Code != 302 {
 		t.Fatalf("start: %d %s", start.Code, start.Body.String())
 	}
@@ -84,7 +84,7 @@ func TestOIDCLoginCallback(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: flowCookie[0], Value: flowCookie[1]})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != 302 || w.Header().Get("Location") != "/settings" {
+	if w.Code != 302 || w.Header().Get("Location") != "/system/settings" {
 		t.Fatalf("callback: %d %s location=%s", w.Code, w.Body.String(), w.Header().Get("Location"))
 	}
 	if !strings.Contains(strings.Join(w.Header().Values("Set-Cookie"), "\n"), auth.CookieName) {

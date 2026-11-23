@@ -88,9 +88,9 @@ describe("application router", () => {
           : Promise.resolve(response({}, 401)),
       ),
     );
-    mount("/login?returnTo=/settings");
+    mount("/login?returnTo=/system/settings");
     const link = await screen.findByRole("link", { name: "使用 OIDC 登录" });
-    expect(link.getAttribute("href")).toBe("/api/auth/oidc/start?returnTo=%2Fsettings");
+    expect(link.getAttribute("href")).toBe("/api/auth/oidc/start?returnTo=%2Fsystem%2Fsettings");
     expect(screen.queryByLabelText("用户名")).toBeNull();
   });
   it("shows a break-glass message when no login method is available", async () => {
@@ -120,7 +120,7 @@ describe("application router", () => {
           : Promise.resolve(response(admin)),
       ),
     );
-    const router = mount("/login?returnTo=/cores");
+    const router = mount("/login?returnTo=/system/cores");
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
@@ -131,7 +131,7 @@ describe("application router", () => {
     );
     finish(response(admin));
     await screen.findByRole("heading", { name: "Cores" });
-    expect(router.state.location.pathname).toBe("/cores");
+    expect(router.state.location.pathname).toBe("/system/cores");
     expect(screen.getByRole("link", { name: /Cores/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("operator")).toBeTruthy();
   });
@@ -144,7 +144,6 @@ describe("application router", () => {
       ["/models", "Models"],
       ["/upstreams", "Upstreams"],
       ["/keys", "Downstream Keys"],
-      ["/cores", "Cores"],
     ]) {
       fireEvent.click(screen.getByRole("link", { name: title }));
       await screen.findByRole("heading", { name: title });
@@ -175,7 +174,7 @@ describe("application router", () => {
     fireEvent.click(screen.getByRole("button", { name: "浅色" }));
     expect(localStorage.getItem("token-ne.theme")).toBe("light");
   });
-  it("opens the system settings page from navigation", async () => {
+  it("renders the system settings subpage inside the system layout", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -184,11 +183,11 @@ describe("application router", () => {
           Promise.resolve(url === "/api/settings/auth" ? response(authSettings) : response(admin)),
         ),
     );
-    const router = mount("/");
-    await screen.findByRole("heading", { name: "总览" });
-    fireEvent.click(screen.getByRole("link", { name: "系统设置" }));
+    const router = mount("/system/settings");
+    await screen.findByRole("heading", { name: "系统" });
     await screen.findByRole("heading", { name: "系统设置" });
-    expect(router.state.location.pathname).toBe("/settings");
+    expect(router.state.location.pathname).toBe("/system/settings");
+    expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");
   });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
@@ -241,7 +240,8 @@ describe("shared boundaries", () => {
     ])
       expect(safeReturnPath(value)).toBe("/");
     expect(safeReturnPath("/requests?model=abc#details")).toBe("/requests?model=abc#details");
-    expect(safeReturnPath("/settings?oidc=bound")).toBe("/settings?oidc=bound");
+    expect(safeReturnPath("/system/settings?oidc=bound")).toBe("/system/settings?oidc=bound");
+    expect(safeReturnPath("/system/cores")).toBe("/system/cores");
   });
   it("rejects API paths that escape the same-origin API boundary", async () => {
     for (const path of ["//evil.test", "/../auth", "/%2e%2e/auth"] as const)

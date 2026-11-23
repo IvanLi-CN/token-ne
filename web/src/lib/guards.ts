@@ -4,8 +4,9 @@ const routePaths: Record<string, true> = {
   "/models": true,
   "/upstreams": true,
   "/keys": true,
-  "/cores": true,
-  "/settings": true,
+  "/system": true,
+  "/system/cores": true,
+  "/system/settings": true,
 };
 
 /** Only local, known application routes can be used as a post-login destination. */

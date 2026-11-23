@@ -795,6 +795,26 @@ kbd {
 .drawer-heading h2 {
   font-size: 20px;
 }
+.system-subnav-link {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--fg);
+  text-decoration: none;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+.system-subnav-link:hover {
+  background: var(--surface-raised);
+}
+.system-subnav-link.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 600;
+}
 .mobile-navigation {
   display: flex;
   flex-direction: column;

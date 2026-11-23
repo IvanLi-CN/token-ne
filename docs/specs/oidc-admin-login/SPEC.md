@@ -64,8 +64,8 @@
 
 ### REQ-OIDC-005
 
-- Web MUST 在主导航最后增加“系统设置”，页面路径为 `/settings`，且 MUST 只覆盖管理员认证，不扩展为通用配置中心。
-- 系统设置页 MUST 包含 OIDC 状态与绑定、provider 配置、测试连接、本地登录开关、会话 TTL 和“强制下线所有会话”。
+- Web MUST 在主导航最后增加“系统”，系统页左侧提供 Cores 与设置子导航，右侧渲染对应子页面；设置子页面路径为 `/system/settings`，且 MUST 只覆盖管理员认证，不扩展为通用配置中心。
+- 系统 → 设置子页面 MUST 包含 OIDC 状态与绑定、provider 配置、测试连接、本地登录开关、会话 TTL 和“强制下线所有会话”。
 - client secret MUST 只写不读；设置页 MUST 用“已配置/未配置”表达状态，并提供显式清除操作；未修改 secret 时请求 MUST 省略该字段，不得把空输入当作“保持不变”。
 - 关闭本地登录、重新绑定身份、修改 issuer 或 client secret MUST 要求确认；关闭本地登录还 MUST 要求输入当前本地密码。
 - 登录页 MUST 在本地登录可用时显示用户名/密码表单；OIDC 登录按钮 MUST 只在 `oidc_login_available=true` 时显示。

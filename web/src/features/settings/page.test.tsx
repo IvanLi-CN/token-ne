@@ -40,10 +40,10 @@ function response(body: unknown, status = 200) {
 function mount() {
   const router = createMemoryRouter(
     [
-      { path: "/settings", Component: SettingsPage },
+      { path: "/system/settings", Component: SettingsPage },
       { path: "/login", element: <p>login</p> },
     ],
-    { initialEntries: ["/settings"] },
+    { initialEntries: ["/system/settings"] },
   );
   render(
     <AppProviders client={createQueryClient()}>

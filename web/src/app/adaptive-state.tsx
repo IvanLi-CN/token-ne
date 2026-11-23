@@ -14,7 +14,9 @@ export const destinations = [
   { path: "/models", label: "Models" },
   { path: "/upstreams", label: "Upstreams" },
   { path: "/keys", label: "Downstream Keys" },
-  { path: "/cores", label: "Cores" },
+  { path: "/system", label: "系统" },
+  { path: "/system/cores", label: "系统 / Cores" },
+  { path: "/system/settings", label: "系统 / 设置" },
 ] as const;
 type AdaptiveState = {
   pinned: string[];

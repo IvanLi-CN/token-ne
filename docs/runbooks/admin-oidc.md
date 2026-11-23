@@ -52,7 +52,7 @@ AUTH_SESSION_TTL_HOURS=720
 OIDC_CA_FILE=/etc/token-ne/authelia-ca.pem
 ```
 
-在系统设置页点击“测试连接”，确认 discovery 返回的 issuer、authorization endpoint、token endpoint 和 JWKS URI。issuer 必须与 `OIDC_ISSUER_URL` 精确一致。
+在“系统 → 设置”页点击“测试连接”，确认 discovery 返回的 issuer、authorization endpoint、token endpoint 和 JWKS URI。issuer 必须与 `OIDC_ISSUER_URL` 精确一致。
 
 `OIDC_ISSUER_URL` 与 discovery 返回的 authorization endpoint 必须能被管理员浏览器访问；token endpoint 与 JWKS URI 必须能被 API 容器访问。两者可以走不同的 DNS 或网络路径，但不能只在一侧可达。
 
@@ -61,7 +61,7 @@ OIDC_CA_FILE=/etc/token-ne/authelia-ca.pem
 ## 首次绑定
 
 1. 使用本地管理员密码登录 token-ne。
-2. 打开“系统设置”，确认 OIDC Provider 配置已保存且测试连接成功。
+2. 打开“系统 → 设置”，确认 OIDC Provider 配置已保存且测试连接成功。
 3. 点击“绑定 OIDC 身份”，按 Authelia 提示重新认证。
 4. 回调成功后，设置页显示绑定状态；此时登录页才显示 OIDC 登录按钮。
 
@@ -89,7 +89,7 @@ docker compose run --rm --no-deps api auth local-login enable
 
 ## 强制下线
 
-在系统设置页点击“强制下线所有会话”，或在拥有管理员会话时调用：
+在“系统 → 设置”页点击“强制下线所有会话”，或在拥有管理员会话时调用：
 
 ```bash
 curl -X POST -b "tn_session=<cookie>" \

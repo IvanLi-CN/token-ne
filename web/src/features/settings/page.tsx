@@ -47,7 +47,7 @@ export default function SettingsPage() {
     mutationFn: settingsApi.update,
     onSuccess: () => {
       client.clear();
-      void navigate("/login?returnTo=%2Fsettings", { replace: true });
+      void navigate("/login?returnTo=%2Fsystem%2Fsettings", { replace: true });
     },
   });
   const test = useMutation({
