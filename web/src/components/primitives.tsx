@@ -79,7 +79,6 @@ const sectionLabels: Record<string, string> = {
   Upstreams: "Upstreams",
   "Downstream Keys": "Downstream Keys",
   Cores: "Cores",
-  系统: "系统",
   系统设置: "系统设置",
 };
 export function PageTitle({ title }: { title: string }) {

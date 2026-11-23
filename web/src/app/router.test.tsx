@@ -184,9 +184,9 @@ describe("application router", () => {
         ),
     );
     const router = mount("/system/settings");
-    await screen.findByRole("heading", { name: "系统" });
     await screen.findByRole("heading", { name: "系统设置" });
     expect(router.state.location.pathname).toBe("/system/settings");
+    expect(screen.getByRole("link", { name: "系统" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");
   });
   it("only leaves the shell when logout succeeds", async () => {
