@@ -807,7 +807,7 @@ kbd {
   padding: 0 10px;
   margin-top: 16px;
   margin-bottom: 12px;
-  font-size: 20px;
+  font-size: 24px;
 }
 .system-nav-title:focus-visible {
   outline: none;
