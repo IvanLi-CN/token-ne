@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useLocation } from "react-router";
 import { type Column, DataTable } from "../../components/data-table";
 import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
 import { type Action, CoreActionDialog, coreError } from "../../features/cores/actions";
@@ -67,6 +68,7 @@ function pruneBlock(instance: Instance, count: number | null | undefined) {
 }
 
 export default function CoresPage() {
+  const location = useLocation();
   const [action, setAction] = useState<Action | null>(null);
   const [receipt, setReceipt] = useState("");
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -81,6 +83,67 @@ export default function CoresPage() {
     ...coresPolling,
   });
   const data = cores.isSuccess ? cores.data : undefined;
+  const cardsReady = data !== undefined;
+  useEffect(() => {
+    if (!cardsReady || !location.hash) return;
+    const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
+    if (!(card instanceof HTMLElement)) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const scrollToCard = (fallback = false) =>
+      card.scrollIntoView({ block: "start", behavior: fallback || reduced ? "instant" : "smooth" });
+    scrollToCard();
+    const animation = new AbortController();
+    let cleanupTimer = 0;
+    let pulseFallback = 0;
+    if (!reduced) {
+      // Glow once the card has come to rest, not while it is still travelling.
+      let pulsed = false;
+      const startPulse = () => {
+        if (pulsed) return;
+        pulsed = true;
+        card.classList.remove("cores-card-focus");
+        void card.offsetWidth;
+        card.classList.add("cores-card-focus");
+        window.clearTimeout(pulseFallback);
+        card.addEventListener("animationend", () => card.classList.remove("cores-card-focus"), {
+          once: true,
+          signal: animation.signal,
+        });
+        // Belt and braces: some environments never dispatch animationend.
+        cleanupTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 3400);
+      };
+      const began = performance.now();
+      let restingScroll = window.scrollY;
+      let steadyFrames = 0;
+      const watchRest = () => {
+        if (animation.signal.aborted) return;
+        steadyFrames = window.scrollY === restingScroll ? steadyFrames + 1 : 0;
+        restingScroll = window.scrollY;
+        if (steadyFrames >= 3 && performance.now() - began > 250) startPulse();
+        else requestAnimationFrame(watchRest);
+      };
+      requestAnimationFrame(watchRest);
+      window.addEventListener("scrollend", startPulse, { once: true, signal: animation.signal });
+      pulseFallback = window.setTimeout(startPulse, 1500);
+    }
+    // The mobile drawer releases its scroll lock slightly after the navigation
+    // commits, so retry once the lock is gone instead of losing the first call.
+    // The last retry skips animation: some environments suppress smooth scrolls,
+    // and the card must still land in view.
+    const startScroll = window.scrollY;
+    const retries = [120, 400].map((delay) =>
+      window.setTimeout(() => {
+        if (window.scrollY === startScroll) scrollToCard(delay >= 400);
+      }, delay),
+    );
+    return () => {
+      animation.abort();
+      window.clearTimeout(cleanupTimer);
+      window.clearTimeout(pulseFallback);
+      card.classList.remove("cores-card-focus");
+      for (const timer of retries) window.clearTimeout(timer);
+    };
+  }, [cardsReady, location]);
   const inProgress = data?.deployments.find(deployed);
   const spoolById = new Map(spool.isSuccess ? spool.data.map((row) => [row.instance_id, row]) : []);
   const instancesById = new Map(data?.instances.map((row) => [row.id, row]));
@@ -383,10 +446,10 @@ export default function CoresPage() {
       ) : (
         data && (
           <>
-            <section className="surface-card" aria-labelledby="core-deployments">
+            <section id="core-deployments" className="surface-card cores-card-anchor">
               <div className="panel-heading">
                 <div>
-                  <h2 id="core-deployments">部署进度</h2>
+                  <h2>部署进度</h2>
                   <p className="muted">阶段、当前与下一阶段权重、阻塞原因。</p>
                 </div>
                 <StatusBadge tone={inProgress ? "warning" : "neutral"}>
@@ -405,9 +468,9 @@ export default function CoresPage() {
               </div>
             </section>
             <DataPlaneSettingsCard />
-            <section className="surface-card" aria-labelledby="core-instances">
+            <section id="core-instances" className="surface-card cores-card-anchor">
               <div className="panel-heading">
-                <h2 id="core-instances">核心实例</h2>
+                <h2>核心实例</h2>
                 <StatusBadge>{data.instances.length} 个实例</StatusBadge>
               </div>
               <div className="space-y-3 px-4 pb-6 sm:px-6">
@@ -432,9 +495,9 @@ export default function CoresPage() {
                 />
               </div>
             </section>
-            <section className="surface-card" aria-labelledby="core-versions">
+            <section id="core-versions" className="surface-card cores-card-anchor">
               <div className="panel-heading">
-                <h2 id="core-versions">核心版本</h2>
+                <h2>核心版本</h2>
                 <Button onClick={(event) => open({ kind: "register" }, event)}>登记版本</Button>
               </div>
               <div className="px-4 pb-6 sm:px-6">
