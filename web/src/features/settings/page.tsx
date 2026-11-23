@@ -83,7 +83,6 @@ export default function SettingsPage() {
       if (currentPasswordRef.current) currentPasswordRef.current.value = "";
       if (passwordRejected) {
         setSaveConfirmError("当前密码不正确，请重新输入。");
-        currentPasswordRef.current?.focus();
       } else if (error instanceof ApiError && error.status === 409) {
         setSaveConflict(true);
         setSaveConfirmError(
@@ -108,6 +107,11 @@ export default function SettingsPage() {
       setClearSecret(false);
     }
   }, [settings.data]);
+  useEffect(() => {
+    // The field is disabled while the mutation is pending, so focus it only after it settles.
+    if (save.isPending || !saveConfirmError.startsWith("当前密码")) return;
+    currentPasswordRef.current?.focus();
+  }, [save.isPending, saveConfirmError]);
   const providerLocked = !localLoginEnabled;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,7 +164,7 @@ export default function SettingsPage() {
     if (saveChanges.includes("关闭本地登录")) {
       const password = currentPasswordRef.current?.value ?? "";
       if (!password) {
-        setSaveConfirmError("请输入当前密码。");
+        setSaveConfirmError("当前密码不能为空，请重新输入。");
         currentPasswordRef.current?.focus();
         return;
       }

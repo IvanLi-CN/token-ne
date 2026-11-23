@@ -106,7 +106,8 @@ describe("system settings", () => {
     const dialog = await screen.findByRole("dialog", { name: "关闭本地登录？" });
     const confirm = within(dialog).getByRole("button", { name: "验证并保存" });
     fireEvent.click(confirm);
-    expect(within(dialog).getByRole("alert").textContent).toBe("请输入当前密码。");
+    expect(within(dialog).getByRole("alert").textContent).toBe("当前密码不能为空，请重新输入。");
+    expect(screen.getByLabelText("当前密码").getAttribute("aria-invalid")).toBe("true");
     expect(saved).toBeUndefined();
 
     fireEvent.change(within(dialog).getByLabelText("当前密码"), {
@@ -167,6 +168,7 @@ describe("system settings", () => {
     fireEvent.click(confirm);
 
     expect(await within(dialog).findByText("当前密码不正确，请重新输入。")).toBeTruthy();
+    expect(password.disabled).toBe(false);
     expect(document.activeElement).toBe(password);
     expect(password.getAttribute("aria-invalid")).toBe("true");
     expect(password.value).toBe("");
