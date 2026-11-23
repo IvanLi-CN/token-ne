@@ -536,6 +536,52 @@ func TestReadPolicyKeepsLastValidOnInvalidFile(t *testing.T) {
 	if kept.Hash != accepted.Hash || kept.Source != "file" {
 		t.Fatalf("invalid file replaced the last valid policy: %+v", kept)
 	}
+	if e = os.Remove(path); e != nil {
+		t.Fatal(e)
+	}
+	deleted := s.readPolicy(accepted)
+	if deleted.Source != "default" {
+		t.Fatalf("deleted file must fall back to the built-in policy: %+v", deleted)
+	}
+}
+
+func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
+	features := func(injection *bool) map[string]any {
+		db := &fakeDB{}
+		db.row = func(q string, _ []any) fakeRow {
+			switch {
+			case strings.Contains(q, "core_config_generation"):
+				return fakeRow{err: pgx.ErrNoRows}
+			case strings.Contains(q, "config_schema_min"):
+				return fakeRow{values: []any{1, 1, 1}}
+			case strings.Contains(q, "jsonb_agg"):
+				return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
+			}
+			return fakeRow{err: pgx.ErrNoRows}
+		}
+		s := Snapshots{DB: db, Token: "token", BaseURL: "http://api:8080", StreamUsageInjection: injection}
+		snapshot, e := s.Build(context.Background(), uuid.NewString(), false)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var body struct {
+			Features map[string]any `json:"features"`
+		}
+		if e = json.Unmarshal(snapshot.Body, &body); e != nil {
+			t.Fatal(e)
+		}
+		return body.Features
+	}
+	if got := features(nil)["stream_usage_injection"]; got != true {
+		t.Fatalf("default snapshot disabled stream usage injection: %v", got)
+	}
+	disabled := false
+	if got := features(&disabled)["stream_usage_injection"]; got != false {
+		t.Fatalf("snapshot ignored the disabled switch: %v", got)
+	}
+	if got := features(&disabled)["status_rewrite"]; got != true {
+		t.Fatalf("policy-driven feature changed with the injection switch: %v", got)
+	}
 }
 
 func TestRollbackRestoresOldAndZerosNew(t *testing.T) {

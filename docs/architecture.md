@@ -220,7 +220,7 @@ core/src/
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
 4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用且 `weight > 0`，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
-5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 注入 `include_usage`。
+5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或部署开关 `STREAM_USAGE_INJECTION=false` 时跳过。
 6. **尝试**：构造上游 URL、认证头、透传头；发送请求；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
@@ -661,7 +661,7 @@ $CORE_STATE_DIR/
 第一版不把策略写死在代码里，也不要求先有数据库：
 
 1. **配置文件（v1 默认）**：控制面启动时读取 `STATUS_REWRITE_CONFIG`，默认 `/etc/token-ne/status-rewrite.yaml`；支持 YAML 和 JSON，按扩展名/内容识别。
-2. **内置安全默认（fallback）**：只有从未加载或持久化过有效策略，且文件缺失或无效时才使用内置策略；保留告警，不阻止网关启动。
+2. **内置安全默认（fallback）**：文件缺失或从未加载过有效策略时使用内置策略，不阻止网关启动；文件存在但校验失败时保留上一份有效策略（控制面重启后从 `system_state` 复用）并告警。
 3. **数据库 + 界面（后续）**：策略存入 `status_rewrite_policies`，Web 编辑、校验、发布；数据库策略优先于文件。
 
 配置文件是**控制面的输入**，不是核心直接读取的文件。控制面校验后把策略放进配置快照，随 revision 推送给所有核心；核心继续用缓存快照工作，不直接读 YAML。
@@ -1513,6 +1513,7 @@ services:
       CORE_STATE_INIT_IMAGE: ${CORE_STATE_INIT_IMAGE:-busybox:1.37}
       CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
       ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
+      STREAM_USAGE_INJECTION: ${STREAM_USAGE_INJECTION:-true}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
@@ -1675,6 +1676,7 @@ networks:
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
+| `STREAM_USAGE_INJECTION` | 是否在快照的 `features` 中启用流式 `stream_options.include_usage` 注入，默认 `true`；关闭后核心不再注入，用量依赖上游返回的 usage | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
 | `METRICS_TOKEN` | Prometheus 抓取 Token | 是 |
 | `CORE_IMAGE` | 基线核心镜像；动态实例由 `CORE_IMAGE_REPOSITORY` 与版本决定 | 是 |

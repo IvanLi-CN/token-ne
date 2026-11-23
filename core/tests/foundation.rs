@@ -498,6 +498,11 @@ fn body_rewrite_and_header_safety() {
     .unwrap();
     let v: Value = serde_json::from_slice(&b.rewrite("mapped", true).unwrap()).unwrap();
     assert_eq!(v["stream_options"]["include_usage"], false);
+    let b =
+        RequestBody::parse(bytes(&json!({"model":"public","stream":true,"messages":[]})).into())
+            .unwrap();
+    let v: Value = serde_json::from_slice(&b.rewrite("mapped", false).unwrap()).unwrap();
+    assert!(v.get("stream_options").is_none());
     let c = parse(&fixture()).unwrap();
     let mut incoming = axum::http::HeaderMap::new();
     for (n, v) in [

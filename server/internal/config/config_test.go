@@ -13,7 +13,15 @@ func TestLoad(t *testing.T) {
 	if _, e := Load(); e != nil {
 		t.Fatal(e)
 	}
-	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}} {
+	if c, _ := Load(); !c.StreamUsageInjection {
+		t.Fatal("stream usage injection must default to enabled")
+	}
+	t.Setenv("STREAM_USAGE_INJECTION", "false")
+	if c, _ := Load(); c.StreamUsageInjection {
+		t.Fatal("STREAM_USAGE_INJECTION=false was ignored")
+	}
+	t.Setenv("STREAM_USAGE_INJECTION", "")
+	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}, {"STREAM_USAGE_INJECTION", "maybe"}} {
 		t.Run(tc.k, func(t *testing.T) {
 			t.Setenv(tc.k, tc.v)
 			if _, e := Load(); e == nil {

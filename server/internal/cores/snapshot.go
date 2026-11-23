@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"strings"
@@ -23,8 +24,11 @@ type Snapshots struct {
 	DB                                                    Database
 	Master                                                []byte
 	Token, SigningKey, SignatureMode, BaseURL, PolicyPath string
-	warnMu                                                sync.Mutex
-	warnHash                                              string
+	// StreamUsageInjection mirrors the deployment switch for
+	// stream_options.include_usage injection; nil means enabled.
+	StreamUsageInjection *bool
+	warnMu               sync.Mutex
+	warnHash             string
 }
 
 // warnPolicyOnce deduplicates policy rejection warnings across the 5-second
@@ -38,6 +42,19 @@ func (s *Snapshots) reportPolicyRejection(raw []byte) {
 	}
 	s.warnHash = h
 	slog.Warn("status rewrite policy rejected; keeping the previous valid policy", "path", s.PolicyPath, "content_hash", h)
+}
+
+// featuresEnabled derives snapshot capabilities. Deployment switches decide the
+// injectable behaviours; the rewritten-status feature follows the policy file.
+func featuresEnabled(name string, streamInjection *bool, rewrite bool) bool {
+	switch name {
+	case "status_rewrite":
+		return rewrite
+	case "stream_usage_injection":
+		return streamInjection == nil || *streamInjection
+	default:
+		return true
+	}
 }
 
 type configBody struct {
@@ -115,7 +132,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 			"spool": map[string]any{"dir": "/var/lib/token-ne/state/spool", "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
 	}
 	for _, f := range features {
-		c.Features[f] = f != "status_rewrite" || *p.Enabled
+		c.Features[f] = featuresEnabled(f, s.StreamUsageInjection, *p.Enabled)
 	}
 	// One database statement gives the entire routing catalog a single MVCC view.
 	var encrypted []struct {
@@ -313,24 +330,42 @@ type policyRule struct {
 }
 
 func (s *Snapshots) readPolicy(last policy) policy {
-	if s.PolicyPath != "" {
-		if f, e := os.Open(s.PolicyPath); e == nil {
-			raw, e := io.ReadAll(io.LimitReader(f, (1<<20)+1))
-			f.Close()
-			if e == nil && len(raw) <= 1<<20 {
-				var p policy
-				if yaml.Unmarshal(raw, &p) == nil && p.valid() {
-					p.Source = "file"
-					p.Hash = Hash(raw)
-					return p
-				}
-				s.reportPolicyRejection(raw)
-			}
+	if s.PolicyPath == "" {
+		return defaultPolicyValue()
+	}
+	f, openErr := os.Open(s.PolicyPath)
+	if openErr != nil {
+		if errors.Is(openErr, fs.ErrNotExist) {
+			// A missing file is not an invalid edit: fall back to the built-in
+			// safe policy instead of replaying rules an operator removed.
+			return defaultPolicyValue()
+		}
+		s.reportPolicyRejection(nil)
+		return keepOrDefault(last)
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	f.Close()
+	if readErr == nil && len(raw) <= 1<<20 {
+		var p policy
+		if yaml.Unmarshal(raw, &p) == nil && p.valid() {
+			p.Source = "file"
+			p.Hash = Hash(raw)
+			return p
 		}
 	}
+	// An invalid edit keeps the previous valid policy and raises a warning.
+	s.reportPolicyRejection(raw)
+	return keepOrDefault(last)
+}
+
+func keepOrDefault(last policy) policy {
 	if last.valid() {
 		return last
 	}
+	return defaultPolicyValue()
+}
+
+func defaultPolicyValue() policy {
 	var p policy
 	_ = yaml.Unmarshal([]byte(defaultPolicy), &p)
 	p.Source = "default"

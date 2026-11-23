@@ -47,6 +47,7 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `COMPOSE_PROJECT_NAME` | 示例为 `token-ne`；动态容器的项目标签必须与之相符，固定网络名不会随项目名变化 |
 | `CADDY_HTTP_PORT`、`METRICS_PORT` | 默认 `8080` / `9090`，均仅绑定 loopback |
 | `CADDY_TLS_MODE` | 默认 `off`，生产基线依赖外部 TLS 反向代理 |
+| `STREAM_USAGE_INJECTION` | 默认 `true`；设为 `false` 时控制面不再向核心配置启用流式 `stream_options.include_usage` 注入 |
 
 Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS`、`STATUS_REWRITE_CONFIG` 与核心内部监听地址，不需要在 `.env` 再配置。基线实例 ID 为 `0193f0c2-7b1a-7c3e-9f00-0000000000b1`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
 

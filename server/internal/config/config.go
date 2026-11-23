@@ -37,7 +37,8 @@ type Config struct {
 	LocalLoginEnabled bool
 	SessionTTLHours   int
 
-	AuthEnv AuthEnvSet
+	AuthEnv              AuthEnvSet
+	StreamUsageInjection bool
 }
 
 func Load() (Config, error) {
@@ -104,6 +105,13 @@ func Load() (Config, error) {
 		}
 	}
 	c.OIDCCaFile = os.Getenv("OIDC_CA_FILE")
+	c.StreamUsageInjection = true
+	if s := os.Getenv("STREAM_USAGE_INJECTION"); s != "" {
+		c.StreamUsageInjection, e = strconv.ParseBool(s)
+		if e != nil {
+			return c, errors.New("STREAM_USAGE_INJECTION must be boolean")
+		}
+	}
 	return c, c.Validate()
 }
 
