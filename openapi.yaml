@@ -1872,6 +1872,58 @@ paths:
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
 
+  /api/data-plane-settings:
+    get:
+      tags: [system]
+      summary: 读取数据面设置
+      operationId: getDataPlaneSettings
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 当前生效的数据面开关
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataPlaneSettings"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    put:
+      tags: [system]
+      summary: 修改数据面设置
+      operationId: putDataPlaneSettings
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataPlaneSettings"
+      responses:
+        "200":
+          description: 已保存的开关值；快照在下一个发布周期生效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataPlaneSettings"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
   /v1/models:
     get:
       tags: [downstream]
@@ -2501,6 +2553,13 @@ components:
               type: string
             message:
               type: string
+    DataPlaneSettings:
+      type: object
+      required: [stream_usage_injection]
+      properties:
+        stream_usage_injection:
+          type: boolean
+          description: 是否由核心为流式 chat.completions 追加 stream_options.include_usage；默认 true
     RuntimeVersion:
       type: object
       required: [version, commit, built_at]

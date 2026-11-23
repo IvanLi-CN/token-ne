@@ -203,15 +203,15 @@ core/src/
 
 核心在 `CORE_METRICS_LISTEN`（默认 `0.0.0.0:9091`）暴露 Prometheus 文本，只在内网可达：
 
-- 进程与运行时：RSS、CPU、文件描述符、Tokio runtime 指标。
-- 运行态：`token_ne_core_inflight_requests`、`token_ne_core_spool_*`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
-- 请求分类计数：按端点、状态、重试原因；不包含 token 明细和成本。
+- 运行态：`token_ne_core_up`、`token_ne_core_inflight_requests`、`token_ne_core_requests_total`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
+- spool：`token_ne_core_spool_*`、`token_ne_core_usage_send_total`、`token_ne_core_usage_replayed_total`。
+- 核心不导出 token、成本或延迟直方图；这些只由 Go 从 usage 事件生成。
 
 边界：
 
 - 核心 `/metrics` 不作为外部 Prometheus 抓取合同；它不发布宿主端口，Caddy 不路由 9091。
 - 业务 token、成本、TTFT 直方图由 Go 从 usage 事件生成，避免两套事实。
-- 外部 Prometheus 只抓 Go `/metrics`；Go 通过 `core-control` 网络尽力抓取核心本地计数器并聚合，抓取失败只让对应指标缺失，不阻塞请求、部署或健康判断。
+- 外部 Prometheus 只抓 Go `/metrics`；Go 从 PostgreSQL 登记和心跳推导核心实例、状态、权重、在途数与配置来源指标，不转发核心本地计数器。
 - 如需本地排障，可从 API 容器或宿主机网络访问核心 9091。
 
 ### 请求管线
@@ -320,6 +320,7 @@ core/src/
       "enabled": true,
       "default_upstream_model": "gpt-5-2026-xx",
       "shutdown_date": null,
+      "created_at": 1764806400,
       "billing": {
         "input_usd_per_mtok": 1.25,
         "cached_input_usd_per_mtok": 0.125,
@@ -660,7 +661,7 @@ $CORE_STATE_DIR/
 第一版不把策略写死在代码里，也不要求先有数据库：
 
 1. **配置文件（v1 默认）**：控制面启动时读取 `STATUS_REWRITE_CONFIG`，默认 `/etc/token-ne/status-rewrite.yaml`；支持 YAML 和 JSON，按扩展名/内容识别。
-2. **内置安全默认（fallback）**：只有从未加载或持久化过有效策略，且文件缺失或无效时才使用内置策略；保留告警，不阻止网关启动。
+2. **内置安全默认（fallback）**：文件缺失或校验失败时优先复用已持久化的有效策略；仅在从未加载过有效策略时使用内置策略，不阻止网关启动。
 3. **数据库 + 界面（后续）**：策略存入 `status_rewrite_policies`，Web 编辑、校验、发布；数据库策略优先于文件。
 
 配置文件是**控制面的输入**，不是核心直接读取的文件。控制面校验后把策略放进配置快照，随 revision 推送给所有核心；核心继续用缓存快照工作，不直接读 YAML。
@@ -806,6 +807,7 @@ server/
 | POST | `/api/cores/prune` | 清理已停止且 spool 已清零的实例 |
 | GET | `/api/cores/spool` | 查看各实例 spool 摘要 |
 | GET | `/api/audit` | 审计查询 |
+| GET/PUT | `/api/data-plane-settings` | 读取/修改数据面开关（`stream_usage_injection`），写入 `system_state` 并入库审计 |
 
 分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。目录、路由、策略和价格使用独立 API，但目录项不会隐式成为可路由模型，价格报价不会直接覆盖当前价格。
 
@@ -1532,6 +1534,7 @@ services:
       CORE_STATE_INIT_IMAGE: ${CORE_STATE_INIT_IMAGE:-busybox:1.37}
       CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
       ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
+      STREAM_USAGE_INJECTION: ${STREAM_USAGE_INJECTION:-true}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
@@ -1694,6 +1697,7 @@ networks:
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
+| `STREAM_USAGE_INJECTION` | 数据面开关的部署默认值，默认 `true`；Cores 页或 `PUT /api/data-plane-settings` 保存的选择优先于它。关闭后核心不再注入 `stream_options.include_usage`，流式用量依赖上游返回 | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
 | `METRICS_TOKEN` | Prometheus 抓取 Token | 是 |
 | `CORE_IMAGE` | 基线核心镜像；动态实例由 `CORE_IMAGE_REPOSITORY` 与版本决定 | 是 |

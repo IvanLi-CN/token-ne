@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Globe, Menu, Monitor, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  Link,
   NavLink,
   Outlet,
   useLoaderData,
@@ -133,6 +134,21 @@ export function AppShell() {
                           >
                             {section.label}
                           </NavLink>
+                          {section.children && (
+                            <ul className="mobile-nav-subtree">
+                              {section.children.map((child) => (
+                                <li key={child.href}>
+                                  <Link
+                                    to={child.href}
+                                    className="mobile-sub-sublink"
+                                    onClick={() => setMobileOpen(false)}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </li>
                       ))}
                     </ul>

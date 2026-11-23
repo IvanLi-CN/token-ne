@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -49,3 +50,30 @@ func TestMetricsLabelsAreBoundedAndOmitIdentities(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestCoreAndCaddyMetricsAreExported(t *testing.T) {
+	r := New()
+	r.ObserveCoreConfig(Core{Version: "0.2.0", Instance: "i1"}, "cache", "invalid", true)
+	r.ObserveCaddyApply(false)
+	cores := []Core{{Version: "0.2.0", Instance: "i1", State: "running", Weight: 10}}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	r.Handler("secret", &staticSource{cores: cores})(page, req)
+	body := page.Body.String()
+	for _, want := range []string{
+		`token_ne_core_config_source{version="0.2.0",instance="i1",source="cache"} 1`,
+		`token_ne_core_config_override_active{version="0.2.0",instance="i1"} 1`,
+		`token_ne_core_config_signature_invalid_total{version="0.2.0",instance="i1"} 1`,
+		`token_ne_caddy_apply_total{result="error"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in %s", want, body)
+		}
+	}
+}
+
+type staticSource struct{ cores []Core }
+
+func (s *staticSource) UsageMetricCores(context.Context) ([]Core, error) { return s.cores, nil }
+func (s *staticSource) UsageMetricPool() map[string]int32                { return nil }

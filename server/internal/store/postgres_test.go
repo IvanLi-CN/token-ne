@@ -20,6 +20,14 @@ type fakeDB struct {
 
 func (d fakeDB) Begin(context.Context) (pgx.Tx, error) { return d.tx, nil }
 
+func (d fakeDB) QueryRow(ctx context.Context, q string, args ...any) pgx.Row {
+	return d.tx.QueryRow(ctx, q, args...)
+}
+
+type boolRow bool
+
+func (b boolRow) Scan(dst ...any) error { *dst[0].(*bool) = bool(b); return nil }
+
 type fakeTx struct {
 	pgx.Tx
 	queries               []string
@@ -88,6 +96,31 @@ func TestMutationAuditAtomic(t *testing.T) {
 		}
 	}
 }
+func TestStreamUsageInjectionStorage(t *testing.T) {
+	tx := &fakeTx{row: boolRow(true)}
+	s := &Store{fakeDB{tx: tx}}
+	enabled, e := s.StreamUsageInjection(context.Background())
+	if e != nil || !enabled || len(tx.queries) != 1 || !strings.Contains(tx.queries[0], "system_state") {
+		t.Fatalf("read switch: %v %v %v", enabled, e, tx.queries)
+	}
+	missing := &Store{fakeDB{tx: &fakeTx{row: fakeRowErr{pgx.ErrNoRows}}}}
+	if _, e = missing.StreamUsageInjection(context.Background()); !errors.Is(e, ErrNotFound) {
+		t.Fatalf("absent switch must map to ErrNotFound: %v", e)
+	}
+	write := &fakeTx{}
+	if e = (&Store{fakeDB{tx: write}}).SetStreamUsageInjection(context.Background(), false, Audit{ID: auditID()}); e != nil {
+		t.Fatal(e)
+	}
+	if !write.commit || len(write.queries) != 2 || !strings.HasPrefix(write.queries[0], "insert into system_state") || !strings.HasPrefix(write.queries[1], "insert into audit_events") {
+		t.Fatalf("write switch transaction: %v", write.queries)
+	}
+}
+
+type fakeRowErr struct{ err error }
+
+func (r fakeRowErr) Scan(...any) error { return r.err }
+
+func auditID() string { return "0193f0c2-7b1a-7c3e-9f00-0000000000aa" }
 func TestUpstreamReplacementRollback(t *testing.T) {
 	tx := &fakeTx{row: upstreamRow{}}
 	s := &Store{fakeDB{tx: tx}}

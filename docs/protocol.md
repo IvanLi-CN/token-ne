@@ -346,7 +346,7 @@ Idempotency-Key: <batch_id>
 - 第二期配置用 `features.model_name_routing` 标记 `model_routes`，用 `features.upstream_model_policy` 标记 `upstream_policies`。当对应数组非空时，能力标记必须为 `true`。标记和配置不符返回 `422`。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
-- `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`。
+- `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
 - `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
 - `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。全局 Model ID 保留给对应 Model。启用的 exact 规则按 `pattern` 唯一。同优先级 Glob 规则的范围重叠时，目标和上游限制必须相同。
 - `upstream_policies[]` 按 `upstream_id` 唯一，`default_action` 取 `allow` 或 `deny`。两个列表分别校验 Glob 语法及去重。省略某个上游的策略时保留该上游的现有能力范围。

@@ -69,16 +69,15 @@ pub fn router(state: ServerState) -> Router {
         )
         .route("/internal/v1/status", get(status))
         .route_layer(middleware::from_fn_with_state(state.clone(), control_auth));
-    Router::new()
+    let public = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(ready))
-        .route("/metrics", get(metrics))
+        // 核心 /metrics 只发布在独立内部端口，不能随数据面端口暴露。
         .merge(downstream)
+        .fallback(unknown_endpoint)
+        .method_not_allowed_fallback(unknown_endpoint);
+    public
         .merge(internal)
-        .fallback(|| async { api_error(StatusCode::BAD_REQUEST, "invalid_request") })
-        .method_not_allowed_fallback(|| async {
-            api_error(StatusCode::BAD_REQUEST, "invalid_request")
-        })
         .layer(middleware::from_fn(request_id))
         .with_state(state)
 }
@@ -186,7 +185,7 @@ async fn status(State(s): State<ServerState>) -> Json<Value> {
     Json(s.core.status())
 }
 fn catalog(m: &crate::config::Model) -> Value {
-    json!({"id":m.model_id,"object":"model","created":0,"owned_by":"token-ne"})
+    json!({"id":m.model_id,"object":"model","created":m.created_at.unwrap_or(0),"owned_by":"token-ne","shutdown_date":m.shutdown_date})
 }
 async fn models(req: Request) -> Response {
     let auth = req
@@ -272,6 +271,14 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
     })
     .await
 }
+// 未实现的 /v1 端点与错误方法必须显式拒绝，不能落入 SPA 静态路由或静默透传。
+async fn unknown_endpoint() -> Response {
+    api_error_with_type(
+        StatusCode::NOT_FOUND,
+        "invalid_request_error",
+        "unknown_endpoint",
+    )
+}
 pub fn api_error(status: StatusCode, code: &str) -> Response {
     let kind = match status.as_u16() {
         400 | 413 => "invalid_request_error",
@@ -281,6 +288,10 @@ pub fn api_error(status: StatusCode, code: &str) -> Response {
         429 => "rate_limit_error",
         _ => "server_error",
     };
+    api_error_with_type(status, kind, code)
+}
+
+pub fn api_error_with_type(status: StatusCode, kind: &str, code: &str) -> Response {
     (
         status,
         Json(

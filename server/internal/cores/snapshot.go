@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
@@ -21,6 +24,51 @@ type Snapshots struct {
 	DB                                                    Database
 	Master                                                []byte
 	Token, SigningKey, SignatureMode, BaseURL, PolicyPath string
+	// StreamUsageInjection mirrors the deployment switch for
+	// stream_options.include_usage injection; nil means enabled.
+	StreamUsageInjection *bool
+	warnMu               sync.Mutex
+	warnHash             string
+}
+
+// warnPolicyOnce deduplicates policy rejection warnings across the 5-second
+// publication loop without a persistent state change.
+func (s *Snapshots) reportPolicyRejection(raw []byte) {
+	h := Hash(raw)
+	s.warnMu.Lock()
+	defer s.warnMu.Unlock()
+	if s.warnHash == h {
+		return
+	}
+	s.warnHash = h
+	slog.Warn("status rewrite policy rejected; keeping the previous valid policy", "path", s.PolicyPath, "content_hash", h)
+}
+
+// featuresEnabled derives snapshot capabilities. Deployment switches decide the
+// injectable behaviours; the rewritten-status feature follows the policy file.
+func featuresEnabled(name string, streamInjection *bool, rewrite bool) bool {
+	switch name {
+	case "status_rewrite":
+		return rewrite
+	case "stream_usage_injection":
+		return streamInjection == nil || *streamInjection
+	default:
+		return true
+	}
+}
+
+// streamUsageInjection prefers the operator's stored switch and falls back to
+// the deployment default only when it was never set.
+func (s *Snapshots) streamUsageInjection(ctx context.Context, tx pgx.Tx) (*bool, error) {
+	var enabled bool
+	e := tx.QueryRow(ctx, `select (value)::boolean from system_state where key='stream_usage_injection'`).Scan(&enabled)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return s.StreamUsageInjection, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	return &enabled, nil
 }
 
 type configBody struct {
@@ -91,6 +139,10 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		return Snapshot{}, ErrCompatibility
 	}
 	p := s.readPolicy(last.Policy)
+	injection, e := s.streamUsageInjection(ctx, tx)
+	if e != nil {
+		return Snapshot{}, e
+	}
 	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []upstream{}, Policy: p,
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
@@ -98,7 +150,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 			"spool": map[string]any{"dir": "/var/lib/token-ne/state/spool", "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
 	}
 	for _, f := range features {
-		c.Features[f] = f != "status_rewrite" || *p.Enabled
+		c.Features[f] = featuresEnabled(f, injection, *p.Enabled)
 	}
 	// One database statement gives the entire routing catalog a single MVCC view.
 	var encrypted []struct {
@@ -117,6 +169,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	e = tx.QueryRow(ctx, `select
  (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'sha256',encode(key_sha256,'hex'),'enabled',enabled,'allowed_models',allowed_models,'max_inflight',max_inflight) order by id),'[]') from downstream_api_keys),
  (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
+  'created_at',extract(epoch from created_at)::bigint,
   'billing',jsonb_build_object('input_usd_per_mtok',input_usd_per_mtok,'cached_input_usd_per_mtok',cached_input_usd_per_mtok,'output_usd_per_mtok',output_usd_per_mtok)) order by model_id),'[]') from models),
 	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,
   'cipher',encode(api_key_ciphertext,'base64'),'nonce',encode(api_key_nonce,'base64')) order by id),'[]') from upstreams),
@@ -295,23 +348,41 @@ type policyRule struct {
 }
 
 func (s *Snapshots) readPolicy(last policy) policy {
-	if s.PolicyPath != "" {
-		if f, e := os.Open(s.PolicyPath); e == nil {
-			raw, e := io.ReadAll(io.LimitReader(f, (1<<20)+1))
-			f.Close()
-			if e == nil && len(raw) <= 1<<20 {
-				var p policy
-				if yaml.Unmarshal(raw, &p) == nil && p.valid() {
-					p.Source = "file"
-					p.Hash = Hash(raw)
-					return p
-				}
-			}
+	if s.PolicyPath == "" {
+		return keepOrDefault(last)
+	}
+	f, openErr := os.Open(s.PolicyPath)
+	if openErr != nil {
+		if errors.Is(openErr, fs.ErrNotExist) {
+			// A missing file must not replace a persisted valid policy.
+			return keepOrDefault(last)
+		}
+		s.reportPolicyRejection(nil)
+		return keepOrDefault(last)
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	f.Close()
+	if readErr == nil && len(raw) <= 1<<20 {
+		var p policy
+		if yaml.Unmarshal(raw, &p) == nil && p.valid() {
+			p.Source = "file"
+			p.Hash = Hash(raw)
+			return p
 		}
 	}
+	// An invalid edit keeps the previous valid policy and raises a warning.
+	s.reportPolicyRejection(raw)
+	return keepOrDefault(last)
+}
+
+func keepOrDefault(last policy) policy {
 	if last.valid() {
 		return last
 	}
+	return defaultPolicyValue()
+}
+
+func defaultPolicyValue() policy {
 	var p policy
 	_ = yaml.Unmarshal([]byte(defaultPolicy), &p)
 	p.Source = "default"

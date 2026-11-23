@@ -87,6 +87,8 @@ pub struct Model {
     pub enabled: bool,
     pub default_upstream_model: Option<String>,
     pub shutdown_date: Option<String>,
+    // OpenAI 目录的 `created` 取自模型创建时间（Unix 秒）；缺失时按 0 发布。
+    pub created_at: Option<i64>,
     pub billing: Billing,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -293,6 +295,9 @@ impl Config {
             text(&m.model_id, 256, "models.model_id")?;
             if let Some(s) = &m.default_upstream_model {
                 require(s.chars().count() <= 256, "models.default_upstream_model")?;
+            }
+            if let Some(t) = m.created_at {
+                require((0..=253_402_300_799).contains(&t), "models.created_at")?;
             }
             if let Some(d) = &m.shutdown_date {
                 require(
