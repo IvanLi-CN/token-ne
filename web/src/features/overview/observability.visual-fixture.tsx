@@ -178,7 +178,9 @@ window.fetch = async (input, options) => {
 
 const page = new URLSearchParams(location.search).get("page");
 const router = createMemoryRouter(routes, {
-  initialEntries: [page === "requests" ? "/requests" : page === "cores" ? "/system/cores" : "/"],
+  initialEntries: [
+    page === "requests" ? "/requests" : page === "cores" ? "/system/cores/deployments" : "/",
+  ],
 });
 const root = document.getElementById("root");
 if (root) {

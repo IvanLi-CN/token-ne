@@ -137,20 +137,22 @@ export default function SettingsPage() {
     <>
       <PageTitle title="系统设置" />
       {params.get("oidc") === "bound" && (
-        <p className="surface-card p-4 text-[var(--success)]" role="status">
+        <p className="px-1 py-2 text-sm text-[var(--success)]" role="status">
           OIDC 身份绑定成功。
         </p>
       )}
       {params.get("oidc") === "bind_failed" && (
-        <p className="surface-card p-4 text-[var(--error)]" role="alert">
+        <p className="px-1 py-2 text-sm text-[var(--error)]" role="alert">
           OIDC 身份绑定失败，请检查 provider 配置后重试。
         </p>
       )}
-      <section className="surface-card" aria-labelledby="auth-status">
+      <section className="surface-card" aria-labelledby="auth-settings">
         <div className="panel-heading">
           <div>
-            <h2 id="auth-status">认证状态</h2>
-            <p className="muted">绑定前 OIDC 登录不可用；关闭本地登录前请先验证 OIDC 登录。</p>
+            <h2 id="auth-settings">认证设置</h2>
+            <p className="muted">
+              OIDC、本地登录与会话。绑定前 OIDC 登录不可用；关闭本地登录前请先验证 OIDC 登录。
+            </p>
           </div>
         </div>
         <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -190,219 +192,224 @@ export default function SettingsPage() {
             </span>
           ))}
         </div>
-      </section>
-      <form ref={formRef} onSubmit={submit} className="flex flex-col gap-6">
-        <section className="surface-card" aria-labelledby="oidc-provider">
-          <div className="panel-heading">
-            <div>
-              <h2 id="oidc-provider">OIDC Provider</h2>
-              <p className="muted">
-                当前部署只支持一个 Provider。测试连接只验证 discovery，不验证 secret 或登录。
-              </p>
+        <form ref={formRef} onSubmit={submit} className="flex flex-col">
+          <section
+            className="border-t border-[var(--border-quiet)]"
+            aria-labelledby="oidc-provider"
+          >
+            <div className="panel-heading">
+              <div>
+                <h2 id="oidc-provider">OIDC Provider</h2>
+                <p className="muted">
+                  当前部署只支持一个 Provider。测试连接只验证 discovery，不验证 secret 或登录。
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="grid gap-5 px-6 pb-6 sm:grid-cols-2">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="oidc_enabled" defaultChecked={value.oidc_enabled} />
-              启用 OIDC 登录
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                name="local_login_enabled"
-                checked={localLoginEnabled}
-                onChange={(event) => setLocalLoginEnabled(event.target.checked)}
-              />
-              允许本地用户名/密码登录
-            </label>
-            {providerLocked && (
-              <>
-                <input type="hidden" name="issuer_url" value={value.issuer_url ?? ""} />
-                <input type="hidden" name="client_id" value={value.client_id ?? ""} />
-                <input type="hidden" name="scopes" value={value.scopes.join(" ")} />
-              </>
-            )}
-            <Field label="Issuer URL" hint={`来源：${sourceText(value, "issuer_url")}`}>
-              <input
-                className="input rounded-xl"
-                name="issuer_url"
-                type="url"
-                defaultValue={value.issuer_url ?? ""}
-                placeholder="https://auth.example.com"
-                disabled={providerLocked}
-              />
-            </Field>
-            <Field label="Client ID" hint={`来源：${sourceText(value, "client_id")}`}>
-              <input
-                className="input rounded-xl"
-                name="client_id"
-                defaultValue={value.client_id ?? ""}
-                disabled={providerLocked}
-              />
-            </Field>
-            <Field
-              label="Client secret"
-              hint={
-                value.client_secret_configured
-                  ? "已配置。留空保持不变；填写则替换。"
-                  : "尚未配置。首次保存时写入数据库。"
-              }
-            >
-              <input
-                className="input rounded-xl"
-                name="client_secret"
-                type="password"
-                autoComplete="new-password"
-                disabled={providerLocked}
-              />
-            </Field>
-            {value.client_secret_configured && (
+            <div className="grid gap-5 px-6 pb-6 sm:grid-cols-2">
               <label className="flex items-center gap-2">
-                <input type="checkbox" name="clear_client_secret" disabled={providerLocked} />
-                清除已配置的 client secret
+                <input type="checkbox" name="oidc_enabled" defaultChecked={value.oidc_enabled} />
+                启用 OIDC 登录
               </label>
-            )}
-            <Field label="Scopes" hint="空白分隔；必须包含 openid。">
-              <input
-                className="input rounded-xl"
-                name="scopes"
-                defaultValue={value.scopes.join(" ")}
-                disabled={providerLocked}
-              />
-            </Field>
-            <Field label="会话 TTL（天）" hint="允许 1–90 天；保存后当前会话会失效。">
-              <input
-                className="input rounded-xl"
-                name="session_ttl_days"
-                type="number"
-                min={1}
-                max={90}
-                step={1}
-                defaultValue={Math.round(value.session_ttl_hours / 24)}
-              />
-            </Field>
-            {showPassword && (
-              <Field label="当前密码" hint="关闭本地登录前必须验证当前密码。">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="local_login_enabled"
+                  checked={localLoginEnabled}
+                  onChange={(event) => setLocalLoginEnabled(event.target.checked)}
+                />
+                允许本地用户名/密码登录
+              </label>
+              {providerLocked && (
+                <>
+                  <input type="hidden" name="issuer_url" value={value.issuer_url ?? ""} />
+                  <input type="hidden" name="client_id" value={value.client_id ?? ""} />
+                  <input type="hidden" name="scopes" value={value.scopes.join(" ")} />
+                </>
+              )}
+              <Field label="Issuer URL" hint={`来源：${sourceText(value, "issuer_url")}`}>
                 <input
                   className="input rounded-xl"
-                  name="current_password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
+                  name="issuer_url"
+                  type="url"
+                  defaultValue={value.issuer_url ?? ""}
+                  placeholder="https://auth.example.com"
+                  disabled={providerLocked}
                 />
               </Field>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border-quiet)] px-6 py-4">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={runTest}
-              disabled={providerLocked || test.isPending}
-            >
-              {test.isPending ? "测试中…" : "测试连接"}
-            </Button>
-            {test.data && (
-              <span
-                className={test.data.ok ? "text-[var(--success)]" : "field-error"}
-                role="status"
+              <Field label="Client ID" hint={`来源：${sourceText(value, "client_id")}`}>
+                <input
+                  className="input rounded-xl"
+                  name="client_id"
+                  defaultValue={value.client_id ?? ""}
+                  disabled={providerLocked}
+                />
+              </Field>
+              <Field
+                label="Client secret"
+                hint={
+                  value.client_secret_configured
+                    ? "已配置。留空保持不变；填写则替换。"
+                    : "尚未配置。首次保存时写入数据库。"
+                }
               >
-                {test.data.ok
-                  ? `discovery 成功：${test.data.discovery?.issuer}${test.data.warnings?.length ? `；${test.data.warnings.join("；")}` : ""}`
-                  : `discovery 失败：${test.data.error?.message ?? test.data.error?.code}`}
-              </span>
-            )}
-          </div>
-        </section>
-        <section className="surface-card" aria-labelledby="auth-binding">
-          <div className="panel-heading">
-            <div>
-              <h2 id="auth-binding">OIDC 身份绑定</h2>
-              <p className="muted">
-                绑定使用 Authelia 的 issuer 与 subject；未绑定时 OIDC 登录不可用。
-              </p>
+                <input
+                  className="input rounded-xl"
+                  name="client_secret"
+                  type="password"
+                  autoComplete="new-password"
+                  disabled={providerLocked}
+                />
+              </Field>
+              {value.client_secret_configured && (
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" name="clear_client_secret" disabled={providerLocked} />
+                  清除已配置的 client secret
+                </label>
+              )}
+              <Field label="Scopes" hint="空白分隔；必须包含 openid。">
+                <input
+                  className="input rounded-xl"
+                  name="scopes"
+                  defaultValue={value.scopes.join(" ")}
+                  disabled={providerLocked}
+                />
+              </Field>
+              <Field label="会话 TTL（天）" hint="允许 1–90 天；保存后当前会话会失效。">
+                <input
+                  className="input rounded-xl"
+                  name="session_ttl_days"
+                  type="number"
+                  min={1}
+                  max={90}
+                  step={1}
+                  defaultValue={Math.round(value.session_ttl_hours / 24)}
+                />
+              </Field>
+              {showPassword && (
+                <Field label="当前密码" hint="关闭本地登录前必须验证当前密码。">
+                  <input
+                    className="input rounded-xl"
+                    name="current_password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </Field>
+              )}
             </div>
+            <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border-quiet)] px-6 py-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={runTest}
+                disabled={providerLocked || test.isPending}
+              >
+                {test.isPending ? "测试中…" : "测试连接"}
+              </Button>
+              {test.data && (
+                <span
+                  className={test.data.ok ? "text-[var(--success)]" : "field-error"}
+                  role="status"
+                >
+                  {test.data.ok
+                    ? `discovery 成功：${test.data.discovery?.issuer}${test.data.warnings?.length ? `；${test.data.warnings.join("；")}` : ""}`
+                    : `discovery 失败：${test.data.error?.message ?? test.data.error?.code}`}
+                </span>
+              )}
+            </div>
+          </section>
+          <section className="border-t border-[var(--border-quiet)]" aria-labelledby="auth-binding">
+            <div className="panel-heading">
+              <div>
+                <h2 id="auth-binding">OIDC 身份绑定</h2>
+                <p className="muted">
+                  绑定使用 Authelia 的 issuer 与 subject；未绑定时 OIDC 登录不可用。
+                </p>
+              </div>
+              <ConfirmDialog
+                trigger={
+                  <Button type="button" variant="secondary" disabled={!canBind || bind.isPending}>
+                    {bind.isPending ? "处理中…" : value.binding ? "重新绑定" : "绑定 OIDC 身份"}
+                  </Button>
+                }
+                title={value.binding ? "重新绑定 OIDC 身份？" : "绑定 OIDC 身份？"}
+                description="将打开 Authelia 重新认证，并把新的 issuer 与 subject 绑定到当前管理员。重新绑定会使其他会话失效。"
+                pending={bind.isPending}
+                error={bind.isError ? errorMessage(bind.error) : undefined}
+                confirmLabel={value.binding ? "继续重新绑定" : "继续绑定"}
+                onConfirm={() => bind.mutate()}
+              />
+            </div>
+            <dl className="grid gap-3 px-6 pb-6 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="section-label">Issuer</dt>
+                <dd className="break-all">{value.binding?.issuer ?? "未绑定"}</dd>
+              </div>
+              <div>
+                <dt className="section-label">Subject</dt>
+                <dd className="break-all font-mono">{value.binding?.subject ?? "未绑定"}</dd>
+              </div>
+            </dl>
+          </section>
+          <div className="border-t border-[var(--border-quiet)] px-6 py-4">
+            <FormError error={save.error} />
             <ConfirmDialog
               trigger={
-                <Button type="button" variant="secondary" disabled={!canBind || bind.isPending}>
-                  {bind.isPending ? "处理中…" : value.binding ? "重新绑定" : "绑定 OIDC 身份"}
-                </Button>
+                <button type="button" tabIndex={-1} className="visually-hidden">
+                  确认认证设置变更
+                </button>
               }
-              title={value.binding ? "重新绑定 OIDC 身份？" : "绑定 OIDC 身份？"}
-              description="将打开 Authelia 重新认证，并把新的 issuer 与 subject 绑定到当前管理员。重新绑定会使其他会话失效。"
-              pending={bind.isPending}
-              error={bind.isError ? errorMessage(bind.error) : undefined}
-              confirmLabel={value.binding ? "继续重新绑定" : "继续绑定"}
-              onConfirm={() => bind.mutate()}
-            />
-          </div>
-          <dl className="grid gap-3 px-6 pb-6 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="section-label">Issuer</dt>
-              <dd className="break-all">{value.binding?.issuer ?? "未绑定"}</dd>
-            </div>
-            <div>
-              <dt className="section-label">Subject</dt>
-              <dd className="break-all font-mono">{value.binding?.subject ?? "未绑定"}</dd>
-            </div>
-          </dl>
-        </section>
-        <FormError error={save.error} />
-        <ConfirmDialog
-          trigger={
-            <button type="button" tabIndex={-1} className="visually-hidden">
-              确认认证设置变更
-            </button>
-          }
-          title="确认认证设置变更？"
-          description={`以下变更需要确认：${saveChanges.join("、")}。保存后当前会话可能失效，需要重新登录。`}
-          open={saveConfirmOpen}
-          onOpenChange={setSaveConfirmOpen}
-          pending={save.isPending}
-          confirmLabel="确认保存"
-          onConfirm={() => {
-            if (pendingSave) save.mutate(pendingSave);
-            setSaveConfirmOpen(false);
-          }}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="muted text-xs">保存认证配置或 TTL 后当前会话会失效，需要重新登录。</p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? "保存中…" : "保存认证设置"}
-            </Button>
-            <ConfirmDialog
-              trigger={
-                <Button variant="danger" type="button">
-                  强制下线所有会话
-                </Button>
-              }
-              title="强制下线所有会话？"
-              description="将递增 session_version，使所有未过期 token-ne 会话失效。Authelia 会话不受影响。"
-              open={logoutOpen}
-              onOpenChange={(open) => {
-                setLogoutOpen(open);
-                if (!open) setLogoutError(undefined);
-              }}
-              pending={loggingOut}
-              error={logoutError ? errorMessage(logoutError) : undefined}
-              confirmLabel="下线所有会话"
+              title="确认认证设置变更？"
+              description={`以下变更需要确认：${saveChanges.join("、")}。保存后当前会话可能失效，需要重新登录。`}
+              open={saveConfirmOpen}
+              onOpenChange={setSaveConfirmOpen}
+              pending={save.isPending}
+              confirmLabel="确认保存"
               onConfirm={() => {
-                setLoggingOut(true);
-                setLogoutError(undefined);
-                void authApi
-                  .logout()
-                  .then(() => {
-                    client.clear();
-                    void navigate("/login", { replace: true });
-                  })
-                  .catch(setLogoutError)
-                  .finally(() => setLoggingOut(false));
+                if (pendingSave) save.mutate(pendingSave);
+                setSaveConfirmOpen(false);
               }}
             />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="muted text-xs">保存认证配置或 TTL 后当前会话会失效，需要重新登录。</p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={save.isPending}>
+                  {save.isPending ? "保存中…" : "保存认证设置"}
+                </Button>
+                <ConfirmDialog
+                  trigger={
+                    <Button variant="danger" type="button">
+                      强制下线所有会话
+                    </Button>
+                  }
+                  title="强制下线所有会话？"
+                  description="将递增 session_version，使所有未过期 token-ne 会话失效。Authelia 会话不受影响。"
+                  open={logoutOpen}
+                  onOpenChange={(open) => {
+                    setLogoutOpen(open);
+                    if (!open) setLogoutError(undefined);
+                  }}
+                  pending={loggingOut}
+                  error={logoutError ? errorMessage(logoutError) : undefined}
+                  confirmLabel="下线所有会话"
+                  onConfirm={() => {
+                    setLoggingOut(true);
+                    setLogoutError(undefined);
+                    void authApi
+                      .logout()
+                      .then(() => {
+                        client.clear();
+                        void navigate("/login", { replace: true });
+                      })
+                      .catch(setLogoutError)
+                      .finally(() => setLoggingOut(false));
+                  }}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </form>
+        </form>
+      </section>
     </>
   );
 }

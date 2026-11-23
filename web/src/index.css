@@ -795,7 +795,15 @@ kbd {
 .drawer-heading h2 {
   font-size: 20px;
 }
-.system-tree > details > summary {
+.system-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.system-tree-group > .system-tree-parent {
   display: flex;
   min-height: 36px;
   align-items: center;
@@ -807,19 +815,19 @@ kbd {
   cursor: pointer;
   list-style: none;
 }
-.system-tree > details > summary::-webkit-details-marker {
+.system-tree-group > .system-tree-parent::-webkit-details-marker {
   display: none;
 }
-.system-tree > details > summary::before {
+.system-tree-group > .system-tree-parent::before {
   content: "▾";
   width: 14px;
   margin-right: 6px;
   color: var(--muted);
 }
-.system-tree > details:not([open]) > summary::before {
+.system-tree-group:not([open]) > .system-tree-parent::before {
   content: "▸";
 }
-.system-tree > details > summary:hover {
+.system-tree-group > .system-tree-parent:hover {
   background: var(--surface-raised);
 }
 .system-tree-children {

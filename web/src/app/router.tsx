@@ -81,8 +81,16 @@ export const routes: RouteObject[] = [
         path: "system",
         Component: SystemLayout,
         children: [
-          { index: true, Component: () => <Navigate to="cores" replace /> },
-          { path: "cores", Component: CoresPage },
+          { index: true, Component: () => <Navigate to="cores/deployments" replace /> },
+          {
+            path: "cores",
+            children: [
+              { index: true, Component: () => <Navigate to="deployments" replace /> },
+              { path: "deployments", Component: () => <CoresPage section="deployments" /> },
+              { path: "instances", Component: () => <CoresPage section="instances" /> },
+              { path: "versions", Component: () => <CoresPage section="versions" /> },
+            ],
+          },
           { path: "settings", Component: SettingsPage },
         ],
       },

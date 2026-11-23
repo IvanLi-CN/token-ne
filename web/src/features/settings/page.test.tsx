@@ -74,6 +74,7 @@ describe("system settings", () => {
     );
     mount();
     await screen.findByDisplayValue("https://auth.example.com");
+    expect(document.querySelectorAll(".surface-card")).toHaveLength(1);
     expect(screen.getAllByText(/数据库/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
     await waitFor(() => expect(saved).toBeDefined());

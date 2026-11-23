@@ -56,10 +56,10 @@ function mock(handler?: Handler): FetchMock {
   vi.stubGlobal("fetch", fetcher);
   return fetcher;
 }
-function mount() {
+function mount(section?: "deployments" | "instances" | "versions") {
   const client = createQueryClient();
   client.setDefaultOptions({ queries: { retry: false }, mutations: { retry: false } });
-  const router = createMemoryRouter([{ path: "/", Component: CoresPage }], {
+  const router = createMemoryRouter([{ path: "/", element: <CoresPage section={section} /> }], {
     initialEntries: ["/"],
   });
   render(
@@ -229,4 +229,13 @@ it("blocks a force drain once the instance is no longer draining", async () => {
   expect((confirm as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(confirm);
   expect(posts(fetcher, "/api/cores/instances/core-1/drain")).toHaveLength(0);
+});
+
+it("renders only the selected core leaf card", async () => {
+  mock();
+  mount("instances");
+  await screen.findByRole("heading", { name: "核心实例" });
+  expect(screen.queryByRole("heading", { name: "部署进度" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "核心版本" })).toBeNull();
+  expect(document.querySelectorAll(".surface-card")).toHaveLength(1);
 });

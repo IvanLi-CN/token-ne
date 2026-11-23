@@ -15,7 +15,9 @@ export const destinations = [
   { path: "/upstreams", label: "Upstreams" },
   { path: "/keys", label: "Downstream Keys" },
   { path: "/system", label: "系统" },
-  { path: "/system/cores", label: "系统 / Cores" },
+  { path: "/system/cores/deployments", label: "系统 / 部署进度" },
+  { path: "/system/cores/instances", label: "系统 / 核心实例" },
+  { path: "/system/cores/versions", label: "系统 / 核心版本" },
   { path: "/system/settings", label: "系统 / 设置" },
 ] as const;
 type AdaptiveState = {

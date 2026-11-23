@@ -5,7 +5,9 @@ const routePaths: Record<string, true> = {
   "/upstreams": true,
   "/keys": true,
   "/system": true,
-  "/system/cores": true,
+  "/system/cores/deployments": true,
+  "/system/cores/instances": true,
+  "/system/cores/versions": true,
   "/system/settings": true,
 };
 

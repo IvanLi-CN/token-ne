@@ -65,7 +65,9 @@ function pruneBlock(instance: Instance, count: number | null | undefined) {
   return undefined;
 }
 
-export default function CoresPage() {
+type CoresSection = "deployments" | "instances" | "versions";
+
+export default function CoresPage({ section }: { section?: CoresSection } = {}) {
   const [action, setAction] = useState<Action | null>(null);
   const [receipt, setReceipt] = useState("");
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -372,7 +374,7 @@ export default function CoresPage() {
     <>
       <PageTitle title="Cores" />
       {receipt && (
-        <p role="status" className="surface-card break-all px-6 py-4">
+        <p role="status" className="break-all text-sm text-[var(--muted)]">
           {receipt}
         </p>
       )}
@@ -383,70 +385,76 @@ export default function CoresPage() {
       ) : (
         data && (
           <>
-            <section className="surface-card" aria-labelledby="core-deployments">
-              <div className="panel-heading">
-                <div>
-                  <h2 id="core-deployments">部署进度</h2>
-                  <p className="muted">阶段、当前与下一阶段权重、阻塞原因。</p>
-                </div>
-                <StatusBadge tone={inProgress ? "warning" : "neutral"}>
-                  {inProgress ? "部署进行中" : "当前没有进行中的部署"}
-                </StatusBadge>
-              </div>
-              <div className="px-4 pb-6 sm:px-6">
-                <DataTable
-                  caption="部署记录"
-                  rows={data.deployments}
-                  columns={deployments}
-                  rowKey={(row) => row.id}
-                  emptyTitle="暂无部署记录"
-                  emptyDescription="登记版本后可开始部署。"
-                />
-              </div>
-            </section>
-            <section className="surface-card" aria-labelledby="core-instances">
-              <div className="panel-heading">
-                <h2 id="core-instances">核心实例</h2>
-                <StatusBadge>{data.instances.length} 个实例</StatusBadge>
-              </div>
-              <div className="space-y-3 px-4 pb-6 sm:px-6">
-                {spool.isPending && <Spinner label="正在加载 Spool 摘要" />}
-                {spool.isError && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span role="alert">
-                      独立 Spool 摘要加载失败：{coreError(spool.error)}。表内仅显示实例上报值。
-                    </span>
-                    <Button variant="secondary" onClick={() => void spool.refetch()}>
-                      重试 Spool
-                    </Button>
+            {(!section || section === "deployments") && (
+              <section className="surface-card" aria-labelledby="core-deployments">
+                <div className="panel-heading">
+                  <div>
+                    <h2 id="core-deployments">部署进度</h2>
+                    <p className="muted">阶段、当前与下一阶段权重、阻塞原因。</p>
                   </div>
-                )}
-                <DataTable
-                  caption="实例运行状态"
-                  rows={data.instances}
-                  columns={instances}
-                  rowKey={(row) => row.id}
-                  emptyTitle="暂无核心实例"
-                  emptyDescription="可从已登记版本开始部署。"
-                />
-              </div>
-            </section>
-            <section className="surface-card" aria-labelledby="core-versions">
-              <div className="panel-heading">
-                <h2 id="core-versions">核心版本</h2>
-                <Button onClick={(event) => open({ kind: "register" }, event)}>登记版本</Button>
-              </div>
-              <div className="px-4 pb-6 sm:px-6">
-                <DataTable
-                  caption="版本登记表"
-                  rows={data.versions}
-                  columns={versions}
-                  rowKey={(row) => row.id}
-                  emptyTitle="暂无核心版本"
-                  emptyDescription="登记镜像、协议和配置 Schema 范围后开始部署。"
-                />
-              </div>
-            </section>
+                  <StatusBadge tone={inProgress ? "warning" : "neutral"}>
+                    {inProgress ? "部署进行中" : "当前没有进行中的部署"}
+                  </StatusBadge>
+                </div>
+                <div className="px-4 pb-6 sm:px-6">
+                  <DataTable
+                    caption="部署记录"
+                    rows={data.deployments}
+                    columns={deployments}
+                    rowKey={(row) => row.id}
+                    emptyTitle="暂无部署记录"
+                    emptyDescription="登记版本后可开始部署。"
+                  />
+                </div>
+              </section>
+            )}
+            {(!section || section === "instances") && (
+              <section className="surface-card" aria-labelledby="core-instances">
+                <div className="panel-heading">
+                  <h2 id="core-instances">核心实例</h2>
+                  <StatusBadge>{data.instances.length} 个实例</StatusBadge>
+                </div>
+                <div className="space-y-3 px-4 pb-6 sm:px-6">
+                  {spool.isPending && <Spinner label="正在加载 Spool 摘要" />}
+                  {spool.isError && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span role="alert">
+                        独立 Spool 摘要加载失败：{coreError(spool.error)}。表内仅显示实例上报值。
+                      </span>
+                      <Button variant="secondary" onClick={() => void spool.refetch()}>
+                        重试 Spool
+                      </Button>
+                    </div>
+                  )}
+                  <DataTable
+                    caption="实例运行状态"
+                    rows={data.instances}
+                    columns={instances}
+                    rowKey={(row) => row.id}
+                    emptyTitle="暂无核心实例"
+                    emptyDescription="可从已登记版本开始部署。"
+                  />
+                </div>
+              </section>
+            )}
+            {(!section || section === "versions") && (
+              <section className="surface-card" aria-labelledby="core-versions">
+                <div className="panel-heading">
+                  <h2 id="core-versions">核心版本</h2>
+                  <Button onClick={(event) => open({ kind: "register" }, event)}>登记版本</Button>
+                </div>
+                <div className="px-4 pb-6 sm:px-6">
+                  <DataTable
+                    caption="版本登记表"
+                    rows={data.versions}
+                    columns={versions}
+                    rowKey={(row) => row.id}
+                    emptyTitle="暂无核心版本"
+                    emptyDescription="登记镜像、协议和配置 Schema 范围后开始部署。"
+                  />
+                </div>
+              </section>
+            )}
           </>
         )
       )}
