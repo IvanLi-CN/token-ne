@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import { Button, ErrorState, Spinner, StatusBadge } from "../../components/primitives";
@@ -12,8 +12,10 @@ import { coresApi, coresPolling } from "./api";
 export function DataPlaneSettingsCard() {
   const [confirming, setConfirming] = useState(false);
   const [receipt, setReceipt] = useState("");
+  const queryClient = useQueryClient();
+  const settingsKey = [...queryKeys.cores, "data-plane"] as const;
   const settings = useQuery({
-    queryKey: [...queryKeys.cores, "data-plane"],
+    queryKey: settingsKey,
     queryFn: ({ signal }) => coresApi.dataPlane(signal),
     ...coresPolling,
   });
@@ -21,8 +23,8 @@ export function DataPlaneSettingsCard() {
     mutationFn: coresApi.setStreamUsageInjection,
     onSuccess: (result) => {
       setConfirming(false);
-      void settings.refetch();
-      if (!result.stream_usage_injection) setReceipt("已关闭流式 usage 注入");
+      queryClient.setQueryData(settingsKey, result);
+      setReceipt(result.stream_usage_injection ? "" : "已关闭流式 usage 注入");
     },
   });
   const enabled = settings.data?.stream_usage_injection;
@@ -78,9 +80,16 @@ export function DataPlaneSettingsCard() {
         {receipt && <p className="muted text-xs">{receipt}</p>}
       </div>
       <ConfirmDialog
-        trigger={<span hidden aria-hidden="true" />}
+        trigger={
+          <button type="button" tabIndex={-1} className="visually-hidden">
+            关闭流式 usage 注入
+          </button>
+        }
         open={confirming}
-        onOpenChange={setConfirming}
+        onOpenChange={(next) => {
+          setConfirming(next);
+          if (!next) update.reset();
+        }}
         title="关闭流式 usage 注入？"
         description="关闭后核心不再为流式 chat.completions 追加 stream_options.include_usage。客户端未主动要求时，上游通常不返回 usage，这批请求的 token 与费用将记为空值；开启状态下该字段由核心自动补齐。"
         confirmLabel="确认关闭"

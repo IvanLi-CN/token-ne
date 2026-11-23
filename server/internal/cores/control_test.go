@@ -502,6 +502,39 @@ func TestTrafficApplyAndHeartbeatExportCoreMetrics(t *testing.T) {
 	}
 }
 
+func TestCaddyMetricIgnoresCleanupFailure(t *testing.T) {
+	db := &fakeDB{
+		row: func(q string, _ []any) fakeRow {
+			if strings.Contains(q, "exists") {
+				return fakeRow{values: []any{true}}
+			}
+			return fakeRow{err: pgx.ErrNoRows}
+		},
+		exec: func(q string, _ []any) error {
+			if strings.Contains(q, "lifecycle_error=null") {
+				return errors.New("cleanup failed")
+			}
+			return nil
+		},
+	}
+	registry := metrics.New()
+	r := Runtime{Pool: db, Caddy: &fakeTraffic{}, Metrics: registry}
+	if e := r.ApplyTraffic(context.Background(), false); e == nil {
+		t.Fatal("cleanup failure was not propagated")
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	registry.Handler("secret", staticCores{instance: uuid.NewString()})(page, req)
+	body := page.Body.String()
+	if !strings.Contains(body, `token_ne_caddy_apply_total{result="success"} 1`) {
+		t.Fatalf("successful Caddy apply was not recorded: %s", body)
+	}
+	if strings.Contains(body, `token_ne_caddy_apply_total{result="error"}`) {
+		t.Fatalf("database cleanup failure was classified as Caddy failure: %s", body)
+	}
+}
+
 type staticCores struct{ instance string }
 
 func (s staticCores) UsageMetricCores(context.Context) ([]metrics.Core, error) {
@@ -540,8 +573,12 @@ func TestReadPolicyKeepsLastValidOnInvalidFile(t *testing.T) {
 		t.Fatal(e)
 	}
 	deleted := s.readPolicy(accepted)
-	if deleted.Source != "default" {
-		t.Fatalf("deleted file must fall back to the built-in policy: %+v", deleted)
+	if deleted.Hash != accepted.Hash || deleted.Source != "file" {
+		t.Fatalf("deleted file replaced the last valid policy: %+v", deleted)
+	}
+	emptyPath := (&Snapshots{}).readPolicy(accepted)
+	if emptyPath.Hash != accepted.Hash || emptyPath.Source != "file" {
+		t.Fatalf("empty policy path replaced the last valid policy: %+v", emptyPath)
 	}
 }
 

@@ -82,6 +82,7 @@ fn invalid_fixtures() {
         ("/downstream_keys/0/allowed_models", json!(["*", "gpt-5"])),
         ("/models/0/billing/input_usd_per_mtok", json!(-1)),
         ("/models/0/shutdown_date", json!("2026-02-30")),
+        ("/models/0/created_at", json!(253_402_300_800_i64)),
         ("/retry/max_attempts", json!(11)),
         ("/retry/retry_statuses", json!([599])),
         ("/retry/retry_statuses", json!([503, 503])),
@@ -478,6 +479,35 @@ async fn readiness_auth_catalog_and_error_priority() {
         serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
     assert_eq!(body["error"]["code"], "unknown_endpoint");
     assert_eq!(body["error"]["type"], "invalid_request_error");
+}
+#[tokio::test]
+async fn model_catalog_defaults_missing_created_at() {
+    let s = state();
+    let mut f = fixture();
+    f["models"][0]["created_at"] = Value::Null;
+    f["downstream_keys"][0]["sha256"] = hex::encode(Sha256::digest(b"test-key")).into();
+    s.apply(&bytes(&f), ConfigSource::ControlPlane, None)
+        .unwrap();
+    let response = router(ServerState::new(s, "control".into()))
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header("authorization", "Bearer test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    let model = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "gpt-5")
+        .unwrap();
+    assert_eq!(model["created"], 0);
 }
 #[test]
 fn body_rewrite_and_header_safety() {

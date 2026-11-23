@@ -286,12 +286,13 @@ func (r *Runtime) applyTraffic(ctx context.Context, force bool) error {
 	if scanErr := r.database().QueryRow(ctx, `select exists(select 1 from core_instances where lifecycle_error='reload Caddy DNS')`).Scan(&refresh); scanErr != nil {
 		return scanErr
 	}
-	applyErr := r.Caddy.Apply(ctx, backends, force || refresh)
-	if applyErr == nil && refresh {
+	caddyErr := r.Caddy.Apply(ctx, backends, force || refresh)
+	applyErr := caddyErr
+	if caddyErr == nil && refresh {
 		_, applyErr = r.database().Exec(ctx, `update core_instances set lifecycle_error=null where lifecycle_error='reload Caddy DNS'`)
 	}
 	if r.Metrics != nil {
-		r.Metrics.ObserveCaddyApply(applyErr == nil)
+		r.Metrics.ObserveCaddyApply(caddyErr == nil)
 	}
 	return errors.Join(e, applyErr)
 }

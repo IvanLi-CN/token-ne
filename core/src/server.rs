@@ -185,7 +185,7 @@ async fn status(State(s): State<ServerState>) -> Json<Value> {
     Json(s.core.status())
 }
 fn catalog(m: &crate::config::Model) -> Value {
-    json!({"id":m.model_id,"object":"model","created":m.created_at,"owned_by":"token-ne","shutdown_date":m.shutdown_date})
+    json!({"id":m.model_id,"object":"model","created":m.created_at.unwrap_or(0),"owned_by":"token-ne","shutdown_date":m.shutdown_date})
 }
 async fn models(req: Request) -> Response {
     let auth = req

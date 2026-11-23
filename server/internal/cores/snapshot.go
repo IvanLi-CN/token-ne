@@ -349,14 +349,13 @@ type policyRule struct {
 
 func (s *Snapshots) readPolicy(last policy) policy {
 	if s.PolicyPath == "" {
-		return defaultPolicyValue()
+		return keepOrDefault(last)
 	}
 	f, openErr := os.Open(s.PolicyPath)
 	if openErr != nil {
 		if errors.Is(openErr, fs.ErrNotExist) {
-			// A missing file is not an invalid edit: fall back to the built-in
-			// safe policy instead of replaying rules an operator removed.
-			return defaultPolicyValue()
+			// A missing file must not replace a persisted valid policy.
+			return keepOrDefault(last)
 		}
 		s.reportPolicyRejection(nil)
 		return keepOrDefault(last)

@@ -242,9 +242,23 @@ it("renders the core cards as one continuous list", async () => {
 });
 
 it("confirms before disabling stream usage injection", async () => {
+  let stored = true;
   const fetcher = mock((url, options) => {
-    if (url.pathname === "/api/data-plane-settings" && options.method === "PUT")
-      return json({ stream_usage_injection: false });
+    if (url.pathname === "/api/data-plane-settings") {
+      if (options.method === "PUT") {
+        const payload = JSON.parse(String(options.body)) as unknown;
+        if (
+          payload === null ||
+          typeof payload !== "object" ||
+          !("stream_usage_injection" in payload) ||
+          typeof payload.stream_usage_injection !== "boolean"
+        ) {
+          throw new Error("invalid stream usage injection payload");
+        }
+        stored = payload.stream_usage_injection;
+      }
+      return json({ stream_usage_injection: stored });
+    }
   });
   mount();
   const toggle = await screen.findByRole("switch", { name: /流式 usage 注入/ });
@@ -256,6 +270,16 @@ it("confirms before disabling stream usage injection", async () => {
   await waitFor(() =>
     expect(fetcher.mock.calls.filter(([, options]) => options?.method === "PUT")).toHaveLength(1),
   );
-  const put = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
-  expect(JSON.parse(String(put?.[1]?.body))).toEqual({ stream_usage_injection: false });
+  const firstPut = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
+  expect(JSON.parse(String(firstPut?.[1]?.body))).toEqual({ stream_usage_injection: false });
+  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+  expect(screen.getByText("注入已关闭")).toBeTruthy();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(fetcher.mock.calls.filter(([, options]) => options?.method === "PUT")).toHaveLength(2),
+  );
+  const putCalls = fetcher.mock.calls.filter(([, options]) => options?.method === "PUT");
+  expect(JSON.parse(String(putCalls[1]?.[1]?.body))).toEqual({ stream_usage_injection: true });
+  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
