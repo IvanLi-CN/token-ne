@@ -530,11 +530,7 @@ func (r *Runtime) Run(ctx context.Context) {
 		slog.Warn("core startup reconciliation failed", "error", e)
 	}
 	cancel()
-	bootstrap, cancelBootstrap := context.WithTimeout(ctx, imagePullTimeout+2*time.Minute)
-	if e := r.EnsureCurrent(bootstrap); e != nil {
-		slog.Warn("current core bootstrap failed", "version", r.CurrentVersion, "error", e)
-	}
-	cancelBootstrap()
+	go r.runCurrent(ctx)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -546,7 +542,7 @@ func (r *Runtime) Run(ctx context.Context) {
 			operations := []struct {
 				name string
 				run  func(context.Context) error
-			}{{"config", r.PushAll}, {"drain", r.observeDrains}, {"deployment", r.advance}, {"current", r.EnsureCurrent}, {"reconcile", r.Reconcile}}
+			}{{"config", r.PushAll}, {"drain", r.observeDrains}, {"deployment", r.advance}, {"reconcile", r.Reconcile}}
 			for _, op := range operations {
 				if e := op.run(c); e != nil {
 					slog.Warn("core control reconciliation failed", "operation", op.name, "error", e)
@@ -556,6 +552,27 @@ func (r *Runtime) Run(ctx context.Context) {
 			cancel()
 		}
 	}
+}
+
+func (r *Runtime) runCurrent(ctx context.Context) {
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		attempt, cancel := currentCoreAttemptContext(ctx)
+		if err := r.EnsureCurrent(attempt); err != nil {
+			slog.Warn("current core bootstrap failed", "version", r.CurrentVersion, "error", err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func currentCoreAttemptContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, imagePullTimeout+2*time.Minute)
 }
 
 func (r *Runtime) Reconcile(ctx context.Context) error {
@@ -688,7 +705,8 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		delete(byInstance, id)
 		if row.deploymentID == nil {
 			if row.weight > 0 {
-				return fmt.Errorf("%w: legacy Compose core %s still carries traffic", ErrConflict, c.Name)
+				slog.Warn("legacy Compose core retirement deferred because traffic weight is nonzero", "instance", id, "container", c.Name, "weight", row.weight)
+				continue
 			}
 			// Keep legacy core state until an authenticated status confirms it is safe to stop.
 			var status *Status
@@ -701,11 +719,13 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				observed, statusErr := r.Peer.Status(statusCtx, legacyName+":8080", id)
 				cancel()
 				if statusErr != nil || observed.Validate(time.Now()) != nil || observed.Instance != id || *observed.Inflight != 0 || observed.Spool.Unacked == nil || *observed.Spool.Unacked != 0 {
-					return fmt.Errorf("%w: legacy Compose core %s has unconfirmed in-flight requests or usage spool", ErrConflict, legacyName)
+					slog.Warn("legacy Compose core retirement deferred until status confirms zero inflight and spool", "instance", id, "container", legacyName, "error", statusErr)
+					continue
 				}
 				status = &observed
 				if e = r.Docker.Stop(ctx, c.ID, 30*time.Second); e != nil {
-					return e
+					slog.Warn("legacy Compose core retirement stop failed", "instance", id, "container", legacyName, "error", e)
+					continue
 				}
 			}
 			if status != nil {

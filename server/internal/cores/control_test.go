@@ -415,6 +415,21 @@ func TestMissingLegacyComposeCoreIsNotRecreated(t *testing.T) {
 	}
 }
 
+func TestLegacyComposeCoreWithTrafficIsNotStopped(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "legacy", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
+	db := &fakeDB{rows: func(string, []any) [][]any {
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 100, nil}}
+	}}
+	r := Runtime{Pool: db, Docker: docker, Project: "test"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if docker.stops != 0 || strings.Contains(strings.Join(db.writes, "\n"), "legacy Compose core retired") {
+		t.Fatalf("traffic-serving legacy core was changed: stops=%d writes=%v", docker.stops, db.writes)
+	}
+}
+
 func TestLegacyComposeCoreWithPendingSpoolIsNotStopped(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "legacy", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
@@ -425,8 +440,8 @@ func TestLegacyComposeCoreWithPendingSpoolIsNotStopped(t *testing.T) {
 	status.Instance, status.Version = id, "0.0.3"
 	status.Spool.Unacked = ptr(int64(2))
 	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: status}, Project: "test"}
-	if err := r.reconcile(context.Background()); !errors.Is(err, ErrConflict) {
-		t.Fatalf("legacy core with pending spool was not blocked: %v", err)
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatalf("unsafe legacy core retirement blocked reconciliation: %v", err)
 	}
 	if docker.stops != 0 || strings.Contains(strings.Join(db.writes, "\n"), "legacy Compose core retired") {
 		t.Fatalf("legacy core with pending spool was changed: stops=%d writes=%v", docker.stops, db.writes)
@@ -499,6 +514,15 @@ func TestEnsureCurrentDoesNotRetryFailedDeployment(t *testing.T) {
 	}
 	if docker.pulls != 0 || len(docker.created) != 0 {
 		t.Fatalf("failed current deployment was retried automatically: pulls=%d created=%d", docker.pulls, len(docker.created))
+	}
+}
+
+func TestCurrentCoreAttemptContextAllowsRegistryPull(t *testing.T) {
+	ctx, cancel := currentCoreAttemptContext(context.Background())
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) <= 30*time.Second {
+		t.Fatalf("current core attempt budget is too short for a registry pull: deadline=%v ok=%t", deadline, ok)
 	}
 }
 
