@@ -12,7 +12,7 @@
 
 `/v1/models` 严格使用 OpenAI `ListModelsResponse`：`object="list"` + `Model` 数组；`Model` 必填 `id`、`object="model"`、`created`、`owned_by`，可选 `shutdown_date`。`created` 取模型 `created_at` 的 Unix 秒，`owned_by` 固定为 `token-ne`。
 
-只返回全局 `enabled=true` 且至少有一个候选的模型；候选谓词固定为 `upstream.enabled && upstream_models.enabled && weight > 0`。按 Key 的 `allowed_models` 过滤；空结果为 `200` + 空 `data`。`shutdown_date` 第一期只作公告元数据，不改变可见性或路由；到期后是否隐藏留到后续版本。
+只返回 Key 允许、全局启用且至少有一个候选的全局 Model。候选要求上游和能力均启用且 `weight > 0`，第二期还需通过承接策略。空结果返回 `200` 和空 `data`。`shutdown_date` 第一期仅作公告元数据。
 
 `/v1/models/{model}` 返回同一个 `Model` 字段集合；不可见模型返回 `404`。两个模型接口都不访问上游。
 
@@ -26,11 +26,11 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `/api/settings/auth`：管理员认证设置；`PUT` 使用 `revision` 前置条件，client secret 只写不读。OIDC 配置首次保存后以数据库为准，环境变量仅在该部署从未保存时生效。
 - `/api/version`：公开的 API 运行时版本、commit 和构建时间；Web 页脚消费该值。
 - `/api/models`：全局模型；`model_id` 是公开名，实体包含启用、计费、全局映射和 `shutdown_date`。
-- `/api/models/routes`：模型名称路由规则；规则解析到全局模型，可选限制上游，支持精确和 Glob。
+- `/api/model-routes`：模型名称路由规则；规则解析到全局模型，可选限制上游，支持精确和 Glob。
 - `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 能力集合。
-- `/api/upstreams/{id}/models/catalog`、`/sync`、`/import`：上游模型目录、同步和显式导入/绑定。
+- `/api/upstreams/{id}/models/*` 提供目录查询、同步和绑定。
 - `/api/upstreams/{id}/model-policy`：该上游针对全局模型的默认动作、白名单和黑名单。
-- `/api/prices`、`/api/price-sources`、`/api/price-sync-runs`：全局/上游价格、受控价格源、报价差异和原子应用。
+- `/api/prices`、`/api/price-sources` 和 `/api/price-sync-runs` 提供上游价格覆盖查询、受控价格源和报价批次管理。
 - `/api/downstream-keys`：下游 Key；明文只在创建和轮换响应出现一次。
 - `/api/cores`：核心版本、实例、部署、权重、排水、prune 和 spool 状态。
 - `/api/overview`、`/api/usage/*`、`/api/requests/*`：用量与请求查询。
@@ -45,7 +45,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 上游能力 `upstream_models` 决定候选；`upstream_model_name` 覆盖全局映射。
 - 上游模型目录只保存上游最近一次成功发现结果；同步失败保留旧快照，stale 项不自动删除或禁用能力。
 - 目录项必须通过显式导入或绑定才会产生 Model 或能力关系；导入/绑定默认不接流量。
-- 模型名称解析顺序为：启用全局 Model 精确 ID、精确路由规则、按 priority 升序的 Glob 路由规则；同优先级歧义在写入时拒绝。
+- 模型名称依次匹配全局 Model 精确 ID、启用的 exact 规则、按 `priority` 升序的启用 Glob 规则。目标未启用时返回 `404`。Key 权限按解析后的全局 `model_id` 检查。
 - 路由规则只能指向全局 Model，可选限制候选上游；它不能直接指向裸上游模型名。
 - 上游策略按全局 Model ID 使用完整字符串 Glob；deny 命中优先于 allow，未命中时使用 `default_action`，策略不创建能力。
 - 有效名称：上游能力名称 > 全局映射 > `model_id`。
@@ -54,31 +54,34 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 上游模型目录与策略 API
 
-- `GET /api/upstreams/{upstream_id}/models/catalog` 返回该上游的目录项、最近成功同步和同步状态；目录项至少包含 `upstream_model_id`、`last_seen_at`、`current_in_latest_sync`、绑定状态和 stale 状态。
-- `POST /api/upstreams/{upstream_id}/models/sync` 执行单个上游同步；`POST /api/upstreams/models/sync` 批量同步启用上游。同步失败不改变上一份成功目录或路由配置。
-- `POST /api/upstreams/{upstream_id}/models/import` 显式创建全局 Model 或绑定已有 Model；请求必须声明目标和是否创建能力，响应返回变更摘要。
+- `POST /api/upstreams/{upstream_id}/models/sync` 同步单个上游。`POST /api/upstreams/models/sync` 批量同步启用的上游。各 run ID 可通过 `GET /api/upstreams/{upstream_id}/models/sync-runs/{run_id}` 查询。目录 GET 的 `latest_run` 是最近一次尝试，`data` 来自最近一次成功同步及其 stale 项。
+- `POST /api/upstreams/{upstream_id}/models/import` 必须带目录项和目标 `model_id`。`create_model` 要求目标 ID 尚不存在，`bind_existing` 要求目标 Model 已存在。导入返回 `model_id`、是否新建能力和更新后的 `capabilities_revision`。
+- `PUT /api/upstreams/{upstream_id}` 携带当前 `capabilities_revision`，冲突返回 `409`。全量替换保留留存能力的目录绑定。客户端重取能力集合后显示差异，供管理员合并。
 - `GET/PUT /api/upstreams/{upstream_id}/model-policy` 读取或原子替换 `default_action`、`allow_patterns` 和 `deny_patterns`。保存前校验 Glob、重复规则和影响范围。
-- 删除、禁用和 stale 处理不由同步任务隐式执行；能力关系仍由现有上游编辑 API 管理。
+- 目录的 `bound_model_id` 为单个全局 ID 或 `null`。绑定身份独立于上游名称改写字段。目录项或能力已绑定其他目标时返回 `409`。
+- 能力、路由规则或当前上游价格覆盖阻塞删除 Model。路由限制或当前价格覆盖阻塞删除 Upstream。阻塞时返回 `409` 并在 `details` 列出引用。删除 Upstream 时级联清理其能力、目录、策略和同步记录。历史价格修订及用量继续可查。
 
 ## 模型路由 API
 
-- `GET/POST /api/models/routes` 列出或创建规则；`PUT/DELETE /api/models/routes/{route_id}` 更新或删除规则。
+- `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、可选 `upstream_id`、`priority`、`enabled` 和描述。
-- `POST /api/models/routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。
-- 全局 Model 精确 ID 不可被路由规则覆盖；同优先级 Glob 规则出现不同目标时保存失败并返回字段路径。
+- `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。
+- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。同优先级 Glob 规则有交集且目标或上游限制不同时，保存失败并返回字段路径。
 
 ## 价格 API
 
-- `GET /api/prices` 返回全局默认和上游级有效价格；`PUT /api/models/{model_id}/prices` 修改全局默认价格；`PUT /api/upstreams/{upstream_id}/models/{model_id}/price` 修改上游级价格。
-- 有效价格按上游级覆盖、全局默认、未知的顺序选择；`null` 是未知，`0` 是免费。
+- `GET /api/models` 返回全局默认价格和 `billing_state`。通过原有 `PUT /api/models/{model_id}` 的 `billing` 和 `billing_locked` 字段修改全局价格和锁定状态。
+- `GET /api/prices` 返回上游级覆盖。`PUT /api/upstreams/{upstream_id}/models/{model_id}/price` 设置覆盖与锁定状态。`DELETE` 移除已解锁的覆盖。修改或解锁已锁定的档案时需显式传入 `confirm_locked`。
+- 改价或改变锁定状态时追加不可变修订。用量摄入选择整份上游级覆盖或全局默认价格，并引用当时的修订 ID。`null` 表示未知，`0` 表示免费。
 - `GET /api/price-sources` 返回受控内置源；`POST /api/price-sources/{source_id}/sync` 生成报价批次，不直接覆盖价格。
-- `GET /api/price-sync-runs/{run_id}` 返回当前值、建议值、来源、匹配方式和冲突；`POST /api/price-sync-runs/{run_id}/apply` 只应用显式选择的报价，并在一个事务中生成 `price_revision_id`。
-- 缺失报价、同步失败和人工锁定价格不会清空或覆盖当前价格；应用失败整体回滚。
+- `GET /api/price-sync-runs/{run_id}` 返回当前值、建议值、来源、匹配方式和冲突。报价的 `upstream_id` 为 `null` 时指向全局默认价格，否则指向该上游的覆盖。
+- `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内记录全部新修订 ID。覆盖锁定价格需逐项确认并传入 `force_locked=true`。缺失报价和未能解析目标的冲突不可应用。应用失败时整个事务回滚。
 
 ## 模型与用量归因
 
 - 第二期用量事实同时保留 `requested_model`、`resolved_model`、`upstream_model`、`upstream_id` 和 `price_revision_id`。
 - `requested_model` 用于还原客户端请求，`resolved_model` 用于权限、统计和费用模型归属，`upstream_model` 用于还原实际发送名称。
+- `GET /api/requests` 用 `model` 筛选请求名，用 `resolved_model` 筛选解析后的全局 ID。
 - 价格修改只影响后续事件；历史 `cost_usd` 不重算。
 
 ## 分页与幂等

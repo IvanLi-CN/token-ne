@@ -14,7 +14,7 @@
 
 ## Related Changes
 
-- None
+- [PR #28](https://github.com/IvanLi-CN/token-ne/pull/28) settles the second-phase management contract and records the review corrections.
 
 ## References
 

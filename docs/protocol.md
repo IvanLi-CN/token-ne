@@ -106,7 +106,7 @@
 }
 ```
 
-控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。第一期只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系；第二期要求 `model_name_routing` 对应 `model_routes`、`upstream_model_policy` 对应 `upstream_policies`。能力声明与配置内容冲突时返回 `422`；控制面不得向未声明所需能力的核心发送依赖该能力的配置，缺少能力返回 `409 unsupported_feature`。价格源、价格报价和 `price_revision_id` 由控制面在用量摄入时处理。
+`/meta` 的 `features` 是能力名数组。配置快照用同名布尔键标记启用的能力。控制面根据核心声明和 schema 范围选择可发布的配置，缺少所需能力时返回 `409 unsupported_feature`。价格源、报价和摄入时选定的 `price_revision_id` 由控制面持有。
 
 ### `GET /internal/v1/config?instance_id=<id>`
 
@@ -343,12 +343,13 @@ Idempotency-Key: <batch_id>
 - `revision` 必须大于已应用 revision；相同且请求体字节与已应用版本完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。比较不依赖可选签名；核心保留已应用 revision 的原始字节或 SHA-256。
 - `config_schema_version` 必须在核心声明的范围内。
 - 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记自身权威。控制面不得向未声明能力的核心发送依赖该能力的配置。
+- 第二期配置用 `features.model_name_routing` 标记 `model_routes`，用 `features.upstream_model_policy` 标记 `upstream_policies`。当对应数组非空时，能力标记必须为 `true`。标记和配置不符返回 `422`。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`。
 - `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
-- `model_routes[]` 的 `pattern`、`match_type`、`target_model_id`、priority 和 enabled 必须有效；`match_type` 只允许 `exact`、`glob`；目标 Model 和可选 upstream 必须存在；全局 Model 精确 ID 不得被规则覆盖；同优先级 Glob 规则不能产生多个目标。
-- `upstream_policies[]` 的 `(upstream_id)` 必须唯一；`default_action` 只允许 `allow`、`deny`；allow/deny pattern 必须是有效 Glob；deny 命中优先；策略不创建缺失的能力关系。
+- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。全局 Model ID 保留给对应 Model。启用的 exact 规则按 `pattern` 唯一。同优先级 Glob 规则的范围重叠时，目标和上游限制必须相同。
+- `upstream_policies[]` 按 `upstream_id` 唯一，`default_action` 取 `allow` 或 `deny`。两个列表分别校验 Glob 语法及去重。省略某个上游的策略时保留该上游的现有能力范围。
 - 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。
 - `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
@@ -367,7 +368,7 @@ Idempotency-Key: <batch_id>
 - `attempt_count` 0 到 10；`outcome=local_error` 且未发起任何上游尝试时允许 0，其余情况至少为 1。`error_message` 最多 1024 字符，仅错误结果非空。
 - `error_class` 只允许 `connect_error`、`dns_error`、`tls_error`、`first_byte_timeout`、`idle_timeout`、`upstream_http_error`、`upstream_stream_error`、`local_validation_error`、`client_disconnected`、`aborted`、`unknown`，或空值。
 - `http_status` 100 到 599 或空。
-- `resolved_model` 可空；存在时必须是配置中的全局 Model ID，并表示名称路由后的模型。
+- `resolved_model` 可空。存在时取核心处理该请求所用配置快照中的全局 Model ID。目录绑定身份和价格修订 ID 由控制面维护。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
 - `status_rewritten_from` 只在确实发生状态码改写且存在真实上游 HTTP 状态时非空；非空时 `http_status` 必须与它不同且在 100 到 599 之间。连接/DNS/TLS/超时等无上游响应的情况必须为 `null`；控制面不重新执行改写策略。

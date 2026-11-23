@@ -40,8 +40,8 @@
         "responses": { "type": "boolean" },
         "embeddings": { "type": "boolean" },
         "stream_usage_injection": { "type": "boolean" },
-        "status_rewrite": { "type": "boolean" }
-        ,"model_name_routing": { "type": "boolean" },
+        "status_rewrite": { "type": "boolean" },
+        "model_name_routing": { "type": "boolean" },
         "upstream_model_policy": { "type": "boolean" }
       },
       "additionalProperties": true
