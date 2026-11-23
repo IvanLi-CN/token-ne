@@ -41,6 +41,8 @@
         "embeddings": { "type": "boolean" },
         "stream_usage_injection": { "type": "boolean" },
         "status_rewrite": { "type": "boolean" }
+        ,"model_name_routing": { "type": "boolean" },
+        "upstream_model_policy": { "type": "boolean" }
       },
       "additionalProperties": true
     },
@@ -59,6 +61,14 @@
     "upstream_models": {
       "type": "array",
       "items": { "$ref": "#/$defs/upstreamModel" }
+    },
+    "model_routes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/modelRoute" }
+    },
+    "upstream_policies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/upstreamPolicy" }
     },
     "retry": { "$ref": "#/$defs/retry" },
     "status_rewrite": { "$ref": "#/$defs/statusRewrite" },
@@ -150,6 +160,32 @@
         "enabled": { "type": "boolean" },
         "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
         "weight": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      },
+      "additionalProperties": true
+    },
+    "modelRoute": {
+      "type": "object",
+      "required": ["id", "pattern", "match_type", "target_model_id", "priority", "enabled"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "pattern": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "match_type": { "enum": ["exact", "glob"] },
+        "target_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "upstream_id": { "type": ["string", "null"], "format": "uuid" },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "enabled": { "type": "boolean" },
+        "description": { "type": ["string", "null"], "maxLength": 1024 }
+      },
+      "additionalProperties": true
+    },
+    "upstreamPolicy": {
+      "type": "object",
+      "required": ["upstream_id", "default_action", "allow_patterns", "deny_patterns"],
+      "properties": {
+        "upstream_id": { "type": "string", "format": "uuid" },
+        "default_action": { "enum": ["allow", "deny"] },
+        "allow_patterns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "uniqueItems": true },
+        "deny_patterns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "uniqueItems": true }
       },
       "additionalProperties": true
     },

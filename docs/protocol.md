@@ -18,6 +18,7 @@
 核心还声明：
 
 - `features`：固定能力列表：`chat_completions`、`responses`、`embeddings`、`stream_usage_injection`、`status_rewrite`。
+  第二期新增 `model_name_routing` 和 `upstream_model_policy`；未声明这些能力的核心不能接收依赖对应语义的配置。价格源、价格报价和价格修订属于控制面。
 - `build`：版本、commit、构建时间。
 - `config_schema_min` / `config_schema_max`：支持的配置 schema 范围。
 
@@ -105,7 +106,7 @@
 }
 ```
 
-控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。第一期只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，两者冲突时返回 `422`；其余能力标记自身权威，没有策略对象 `enabled` 可比较。控制面不得向未声明某项能力的核心发送依赖该能力的配置；缺少所需能力返回 `409 unsupported_feature`。
+控制面用它确认实例能力和配置 schema。`/meta` 的 `features` 是数组；配置快照的 `features` 是同名布尔对象。第一期只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系；第二期要求 `model_name_routing` 对应 `model_routes`、`upstream_model_policy` 对应 `upstream_policies`。能力声明与配置内容冲突时返回 `422`；控制面不得向未声明所需能力的核心发送依赖该能力的配置，缺少能力返回 `409 unsupported_feature`。价格源、价格报价和 `price_revision_id` 由控制面在用量摄入时处理。
 
 ### `GET /internal/v1/config?instance_id=<id>`
 
@@ -196,6 +197,7 @@ Idempotency-Key: <batch_id>
         "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
         "endpoint": "/v1/chat/completions",
         "requested_model": "gpt-5",
+        "resolved_model": "gpt-5",
         "upstream_model": "gpt-5-2026-xx",
         "stream": true,
         "http_status": 200,
@@ -317,9 +319,9 @@ Idempotency-Key: <batch_id>
 }
 ```
 
-完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；`upstreams[].base_url` 不含隐式版本段，core 按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
+完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；第二期配置可以增加 `model_routes` 和 `upstream_policies`；上游目录、报价批次和价格修订不进入 core 配置。`upstreams[].base_url` 不含隐式版本段，core 按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
 
-配置中的未知字段必须忽略；缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
+配置中的未知字段必须忽略；但核心声明为安全或路由语义的字段不能被静默忽略。缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、未知的路由匹配类型、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
 
 ## 严格校验规则
 
@@ -345,6 +347,8 @@ Idempotency-Key: <batch_id>
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`。
 - `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
+- `model_routes[]` 的 `pattern`、`match_type`、`target_model_id`、priority 和 enabled 必须有效；`match_type` 只允许 `exact`、`glob`；目标 Model 和可选 upstream 必须存在；全局 Model 精确 ID 不得被规则覆盖；同优先级 Glob 规则不能产生多个目标。
+- `upstream_policies[]` 的 `(upstream_id)` 必须唯一；`default_action` 只允许 `allow`、`deny`；allow/deny pattern 必须是有效 Glob；deny 命中优先；策略不创建缺失的能力关系。
 - 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。
 - `retry.max_attempts` 1 到 10；`retry_statuses` 只允许已知 HTTP 状态。
@@ -363,6 +367,7 @@ Idempotency-Key: <batch_id>
 - `attempt_count` 0 到 10；`outcome=local_error` 且未发起任何上游尝试时允许 0，其余情况至少为 1。`error_message` 最多 1024 字符，仅错误结果非空。
 - `error_class` 只允许 `connect_error`、`dns_error`、`tls_error`、`first_byte_timeout`、`idle_timeout`、`upstream_http_error`、`upstream_stream_error`、`local_validation_error`、`client_disconnected`、`aborted`、`unknown`，或空值。
 - `http_status` 100 到 599 或空。
+- `resolved_model` 可空；存在时必须是配置中的全局 Model ID，并表示名称路由后的模型。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
 - `status_rewritten_from` 只在确实发生状态码改写且存在真实上游 HTTP 状态时非空；非空时 `http_status` 必须与它不同且在 100 到 599 之间。连接/DNS/TLS/超时等无上游响应的情况必须为 `null`；控制面不重新执行改写策略。
@@ -378,6 +383,7 @@ Idempotency-Key: <batch_id>
   - 行为/展示类字段：映射为 `unknown` 并告警。
   - 认证、路由、安全、状态码改写类字段：拒绝，避免按错误语义运行。
 - 新增字段必须有安全默认值，旧核心不配置时行为不变。
+- 路由和策略字段没有安全的“忽略”默认，因此必须由能力协商保护。
 - 控制面可以给旧核心发送新配置，但必须去掉旧核心不支持的字段或保持默认；不能依赖旧核心理解新语义。
 - 核心不能假设控制面一定发送最新字段；缺失字段按默认值处理。
 
@@ -438,6 +444,7 @@ Idempotency-Key: <batch_id>
 ## 测试
 
 - Golden fixtures：v1 配置、用量批次、心跳、错误响应。
+- 第二期 fixtures 增加包含模型路由、上游策略和 `resolved_model` 的配置/用量样例，以及旧核心缺少能力时的 `unsupported_feature` 错误。价格修订归因由控制面摄入测试覆盖。
 - 兼容测试：v1 控制面 × v1 核心；v1 控制面 × v2 核心；v2 控制面 × v1 核心。
 - 校验负例：未知安全枚举、重复 ID、非法 URL、负数 token、超时范围、schema 不匹配。
 - 模糊测试：未知字段、未知可选枚举、截断 JSON、超大字符串。

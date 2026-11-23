@@ -68,6 +68,10 @@
           "type": ["string", "null"],
           "maxLength": 256
         },
+        "resolved_model": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
         "upstream_model": {
           "type": ["string", "null"],
           "maxLength": 256

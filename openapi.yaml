@@ -21,9 +21,11 @@ tags:
   - name: settings
     description: 管理员认证与系统设置
   - name: models
-    description: 全局模型、计费和全局映射
+    description: 全局模型、名称路由、计费和全局映射
   - name: upstreams
     description: 上游、模型能力和测试
+  - name: prices
+    description: 全局/上游价格、受控价格源和报价应用
   - name: downstream-keys
     description: 下游 API Key 生命周期
   - name: cores
@@ -644,6 +646,500 @@ paths:
         "404":
           $ref: "#/components/responses/AdminNotFound"
 
+  /api/models/routes:
+    get:
+      tags: [models]
+      summary: 列出模型名称路由规则
+      operationId: listModelRoutes
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 路由规则
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModelRoute"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    post:
+      tags: [models]
+      summary: 创建模型名称路由规则
+      operationId: createModelRoute
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelRouteInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRoute"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/models/routes/preview:
+    post:
+      tags: [models]
+      summary: 预览模型名称解析
+      operationId: previewModelRoute
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requested_model]
+              properties:
+                requested_model:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+      responses:
+        "200":
+          description: 解析预览
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutePreview"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+  /api/models/routes/{route_id}:
+    parameters:
+      - $ref: "#/components/parameters/RouteId"
+    put:
+      tags: [models]
+      summary: 更新模型名称路由规则
+      operationId: updateModelRoute
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelRouteInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRoute"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+    delete:
+      tags: [models]
+      summary: 删除模型名称路由规则
+      operationId: deleteModelRoute
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已删除
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+  /api/models/{model_id}/prices:
+    parameters:
+      - $ref: "#/components/parameters/ModelId"
+    put:
+      tags: [prices]
+      summary: 更新全局默认价格
+      operationId: updateGlobalModelPrice
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceProfileInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceProfile"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+  /api/upstreams/models/sync:
+    post:
+      tags: [upstreams]
+      summary: 批量同步启用上游模型目录
+      operationId: syncAllUpstreamModels
+      security:
+        - cookieAuth: []
+      responses:
+        "202":
+          description: 同步任务已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UpstreamModelSyncRun"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/upstreams/{upstream_id}/models/catalog:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    get:
+      tags: [upstreams]
+      summary: 查看上游模型目录
+      operationId: listUpstreamModelCatalog
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 上游模型目录
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UpstreamModelCatalogItem"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+  /api/upstreams/{upstream_id}/models/sync:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    post:
+      tags: [upstreams]
+      summary: 同步单个上游模型目录
+      operationId: syncUpstreamModels
+      security:
+        - cookieAuth: []
+      responses:
+        "202":
+          description: 同步任务已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpstreamModelSyncRun"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/upstreams/{upstream_id}/models/import:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    post:
+      tags: [upstreams]
+      summary: 从目录导入或绑定模型
+      operationId: importUpstreamModel
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpstreamModelImportInput"
+      responses:
+        "200":
+          description: 导入或绑定结果
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [model_id, capability_created]
+                properties:
+                  model_id:
+                    type: string
+                  capability_created:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+  /api/upstreams/{upstream_id}/model-policy:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+    get:
+      tags: [upstreams]
+      summary: 获取上游模型承接策略
+      operationId: getUpstreamModelPolicy
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 承接策略
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpstreamModelPolicy"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+    put:
+      tags: [upstreams]
+      summary: 替换上游模型承接策略
+      operationId: updateUpstreamModelPolicy
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpstreamModelPolicyInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpstreamModelPolicy"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+  /api/upstreams/{upstream_id}/models/{model_id}/price:
+    parameters:
+      - $ref: "#/components/parameters/UpstreamId"
+      - $ref: "#/components/parameters/ModelId"
+    put:
+      tags: [prices]
+      summary: 更新上游级价格
+      operationId: updateUpstreamModelPrice
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceProfileInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceProfile"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+  /api/prices:
+    get:
+      tags: [prices]
+      summary: 列出有效价格
+      operationId: listPrices
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 有效价格
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PriceProfile"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+  /api/price-sources:
+    get:
+      tags: [prices]
+      summary: 列出受控价格源
+      operationId: listPriceSources
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 价格源
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PriceSource"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+  /api/price-sources/{source_id}/sync:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [prices]
+      summary: 获取价格报价
+      operationId: syncPriceSource
+      security:
+        - cookieAuth: []
+      responses:
+        "202":
+          description: 报价同步批次已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSyncRun"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sync-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/PriceSyncRunId"
+    get:
+      tags: [prices]
+      summary: 查看价格同步差异
+      operationId: getPriceSyncRun
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 价格同步批次
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSyncRun"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+  /api/price-sync-runs/{run_id}/apply:
+    parameters:
+      - $ref: "#/components/parameters/PriceSyncRunId"
+    post:
+      tags: [prices]
+      summary: 应用选中的价格报价
+      operationId: applyPriceSyncRun
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceApplyInput"
+      responses:
+        "200":
+          description: 已应用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSyncRun"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
   /api/downstream-keys:
     get:
       tags: [downstream-keys]
@@ -1555,6 +2051,27 @@ components:
       schema:
         type: string
         format: uuid
+    RouteId:
+      name: route_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SourceId:
+      name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 128
+    PriceSyncRunId:
+      name: run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     KeyId:
       name: key_id
       in: path
@@ -2055,6 +2572,336 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
+    ModelRoute:
+      type: object
+      required: [id, pattern, match_type, target_model_id, priority, enabled, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        pattern:
+          type: string
+          maxLength: 256
+        match_type:
+          type: string
+          enum: [exact, glob]
+        target_model_id:
+          type: string
+          maxLength: 256
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        enabled:
+          type: boolean
+        description:
+          type: [string, "null"]
+          maxLength: 1024
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ModelRouteInput:
+      type: object
+      required: [pattern, match_type, target_model_id, priority, enabled]
+      properties:
+        pattern:
+          type: string
+          minLength: 1
+          maxLength: 256
+        match_type:
+          type: string
+          enum: [exact, glob]
+        target_model_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        enabled:
+          type: boolean
+        description:
+          type: [string, "null"]
+          maxLength: 1024
+    RoutePreview:
+      type: object
+      required: [requested_model, resolved_model, matched_rule, candidates]
+      properties:
+        requested_model:
+          type: string
+        resolved_model:
+          type: [string, "null"]
+        matched_rule:
+          type: [string, "null"]
+          format: uuid
+        candidates:
+          type: array
+          items:
+            type: object
+            required: [upstream_id, upstream_model_name]
+            properties:
+              upstream_id:
+                type: string
+                format: uuid
+              upstream_model_name:
+                type: string
+              allowed:
+                type: boolean
+              reason:
+                type: [string, "null"]
+    UpstreamModelCatalogItem:
+      type: object
+      required: [upstream_id, upstream_model_id, first_seen_at, last_seen_at, current_in_latest_sync, stale]
+      properties:
+        upstream_id:
+          type: string
+          format: uuid
+        upstream_model_id:
+          type: string
+          maxLength: 256
+        object:
+          type: [string, "null"]
+        owned_by:
+          type: [string, "null"]
+        provider_created:
+          type: [integer, "null"]
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        current_in_latest_sync:
+          type: boolean
+        stale:
+          type: boolean
+        bound_model_ids:
+          type: array
+          items:
+            type: string
+    UpstreamModelSyncRun:
+      type: object
+      required: [id, upstream_id, state, started_at, discovered_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        upstream_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [running, succeeded, failed]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        discovered_count:
+          type: integer
+          minimum: 0
+        error:
+          type: [string, "null"]
+    UpstreamModelImportInput:
+      type: object
+      required: [upstream_model_id, mode]
+      properties:
+        upstream_model_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        mode:
+          type: string
+          enum: [create_model, bind_existing]
+        model_id:
+          type: [string, "null"]
+          maxLength: 256
+        enabled:
+          type: boolean
+          default: false
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+    UpstreamModelPolicy:
+      type: object
+      required: [upstream_id, default_action, allow_patterns, deny_patterns]
+      properties:
+        upstream_id:
+          type: string
+          format: uuid
+        default_action:
+          type: string
+          enum: [allow, deny]
+        allow_patterns:
+          type: array
+          items:
+            type: string
+            maxLength: 256
+        deny_patterns:
+          type: array
+          items:
+            type: string
+            maxLength: 256
+        updated_at:
+          type: string
+          format: date-time
+    UpstreamModelPolicyInput:
+      type: object
+      required: [default_action, allow_patterns, deny_patterns]
+      properties:
+        default_action:
+          type: string
+          enum: [allow, deny]
+        allow_patterns:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+        deny_patterns:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+    PriceProfile:
+      type: object
+      required: [model_id, upstream_id, input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok, source, locked, price_revision_id, updated_at]
+      properties:
+        model_id:
+          type: string
+          maxLength: 256
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+        input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        cached_input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        output_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        source:
+          type: string
+          enum: [manual, price_source]
+        locked:
+          type: boolean
+        price_revision_id:
+          type: string
+          format: uuid
+        updated_at:
+          type: string
+          format: date-time
+    PriceProfileInput:
+      type: object
+      required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok, locked]
+      properties:
+        input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        cached_input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        output_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        locked:
+          type: boolean
+    PriceSource:
+      type: object
+      required: [id, name, enabled]
+      properties:
+        id:
+          type: string
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        last_synced_at:
+          type: [string, "null"]
+          format: date-time
+    PriceSyncRun:
+      type: object
+      required: [id, source_id, state, items]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          maxLength: 128
+        state:
+          type: string
+          enum: [running, ready, applied, failed]
+        fetched_at:
+          type: [string, "null"]
+          format: date-time
+        applied_at:
+          type: [string, "null"]
+          format: date-time
+        price_revision_id:
+          type: [string, "null"]
+          format: uuid
+        error:
+          type: [string, "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceQuote"
+    PriceQuote:
+      type: object
+      required: [id, model_id, upstream_id, match_method, status]
+      properties:
+        id:
+          type: string
+        model_id:
+          type: string
+          maxLength: 256
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+        source_model_id:
+          type: string
+          maxLength: 256
+        match_method:
+          type: string
+          enum: [explicit, upstream_exact, model_exact, normalized, fuzzy, none]
+        status:
+          type: string
+          enum: [safe, needs_review, conflict, missing, ignored]
+        current:
+          $ref: "#/components/schemas/PriceProfileInput"
+        proposed:
+          $ref: "#/components/schemas/PriceProfileInput"
+    PriceApplyInput:
+      type: object
+      required: [quote_ids]
+      properties:
+        quote_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        force_locked:
+          type: boolean
+          default: false
     Upstream:
       type: object
       required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
@@ -2496,8 +3343,13 @@ components:
           type: string
         requested_model:
           type: [string, "null"]
+        resolved_model:
+          type: [string, "null"]
         upstream_model:
           type: [string, "null"]
+        price_revision_id:
+          type: [string, "null"]
+          format: uuid
         upstream_id:
           type: [string, "null"]
           format: uuid
