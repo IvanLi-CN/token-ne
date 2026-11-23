@@ -126,6 +126,33 @@ const spool: Spool[] = instances.map((instance) => ({
   dropped_total: 0,
 }));
 
+const authSettings = {
+  revision: 3,
+  oidc_enabled: true,
+  issuer_url: "https://auth.example.test",
+  client_id: "token-ne",
+  client_secret_configured: true,
+  scopes: ["openid", "profile", "email"],
+  binding: {
+    issuer: "https://auth.example.test",
+    subject: "7f3c2f64-40f5-4d6c-9c3a-0f9f4e6c2a11",
+    bound_at: timestamp,
+  },
+  local_login_enabled: true,
+  session_ttl_hours: 720,
+  effective_source: {
+    oidc_enabled: "database",
+    issuer_url: "database",
+    client_id: "database",
+    client_secret: "database",
+    scopes: "database",
+    local_login_enabled: "database",
+    session_ttl_hours: "database",
+  },
+  updated_at: timestamp,
+  updated_by: "fixture-admin",
+};
+
 function fixtureError(status: number, code: string, message: string) {
   return Response.json(
     { error: { code, message, request_id: "fixture", details: [] } },
@@ -154,6 +181,8 @@ window.fetch = async (input, options) => {
       return Response.json({ versions, instances, deployments });
     case "/api/cores/spool":
       return Response.json({ data: spool });
+    case "/api/settings/auth":
+      return Response.json(authSettings);
     case "/api/requests": {
       const { searchParams } = url;
       const model = searchParams.get("model");
@@ -177,11 +206,15 @@ window.fetch = async (input, options) => {
 };
 
 const page = new URLSearchParams(location.search).get("page");
-const router = createMemoryRouter(routes, {
-  initialEntries: [
-    page === "requests" ? "/requests" : page === "cores" ? "/system/cores/deployments" : "/",
-  ],
-});
+const initialEntry =
+  page === "settings"
+    ? "/system/settings"
+    : page === "requests"
+      ? "/requests"
+      : page === "cores"
+        ? "/system/cores/deployments"
+        : "/";
+const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
