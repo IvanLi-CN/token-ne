@@ -93,18 +93,38 @@ export default function CoresPage() {
       card.scrollIntoView({ block: "start", behavior: fallback || reduced ? "instant" : "smooth" });
     scrollToCard();
     const animation = new AbortController();
-    let pulseTimer = 0;
+    let cleanupTimer = 0;
+    let pulseFallback = 0;
     if (!reduced) {
-      // One pulse per navigation: restart the glow even for a repeated anchor.
-      card.classList.remove("cores-card-focus");
-      void card.offsetWidth;
-      card.classList.add("cores-card-focus");
-      card.addEventListener("animationend", () => card.classList.remove("cores-card-focus"), {
-        once: true,
-        signal: animation.signal,
-      });
-      // Belt and braces: some environments never dispatch animationend.
-      pulseTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 1400);
+      // Glow once the card has come to rest, not while it is still travelling.
+      let pulsed = false;
+      const startPulse = () => {
+        if (pulsed) return;
+        pulsed = true;
+        card.classList.remove("cores-card-focus");
+        void card.offsetWidth;
+        card.classList.add("cores-card-focus");
+        window.clearTimeout(pulseFallback);
+        card.addEventListener("animationend", () => card.classList.remove("cores-card-focus"), {
+          once: true,
+          signal: animation.signal,
+        });
+        // Belt and braces: some environments never dispatch animationend.
+        cleanupTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 2400);
+      };
+      const began = performance.now();
+      let restingScroll = window.scrollY;
+      let steadyFrames = 0;
+      const watchRest = () => {
+        if (animation.signal.aborted) return;
+        steadyFrames = window.scrollY === restingScroll ? steadyFrames + 1 : 0;
+        restingScroll = window.scrollY;
+        if (steadyFrames >= 3 && performance.now() - began > 250) startPulse();
+        else requestAnimationFrame(watchRest);
+      };
+      requestAnimationFrame(watchRest);
+      window.addEventListener("scrollend", startPulse, { once: true, signal: animation.signal });
+      pulseFallback = window.setTimeout(startPulse, 1500);
     }
     // The mobile drawer releases its scroll lock slightly after the navigation
     // commits, so retry once the lock is gone instead of losing the first call.
@@ -118,7 +138,8 @@ export default function CoresPage() {
     );
     return () => {
       animation.abort();
-      window.clearTimeout(pulseTimer);
+      window.clearTimeout(cleanupTimer);
+      window.clearTimeout(pulseFallback);
       card.classList.remove("cores-card-focus");
       for (const timer of retries) window.clearTimeout(timer);
     };
