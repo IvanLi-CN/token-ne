@@ -72,7 +72,7 @@
           "type": ["string", "null"],
           "minLength": 1,
           "maxLength": 256,
-          "description": "Optional for phase-one and local-error events. For a phase-two request with a successfully resolved model, the producer must send the existing global model ID. Semantic validation checks membership in the applied config."
+          "description": "Optional for phase-one and local-error events. For a second-phase request the producer sends the global model ID resolved from its own applied config snapshot. Ingest must not reject an unknown value: membership is checked against the producer's snapshot, and the control plane falls back to requested_model for cost attribution when the value no longer matches the current config."
         },
         "upstream_model": {
           "type": ["string", "null"],

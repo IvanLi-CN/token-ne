@@ -10,7 +10,7 @@
 - `https://gateway.example.com/openai` + `/v1/embeddings` → `https://gateway.example.com/openai/v1/embeddings`
 - 只做尾部斜杠归一化；不自动插入 `/v1`，也不自动剥离 `/v1`。
 - 保留下游查询字符串；不增加隐式 `api-version`。
-- 下游 `/v1/models` 和 `/v1/models/{model}` 由控制面全局 Model 目录提供，不访问上游；第二期控制面可以在管理 API 触发对上游 `/v1/models` 的独立目录同步，不能把上游响应直接透传给下游。
+- 下游 `/v1/models` 和 `/v1/models/{model}` 由控制面发布的全局 Model 配置提供，不访问上游；第二期控制面可以在管理 API 触发对上游 `/v1/models` 的独立目录同步，不能把上游响应直接透传给下游。
 
 `base_url` 必须是 `https`，不能包含用户名/密码，不能指向 loopback、link-local、私网或云元数据地址。开发模式可显式放开；core 在每次请求前再次校验解析后的目标地址，防止 DNS rebinding。
 

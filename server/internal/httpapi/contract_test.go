@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -452,9 +453,6 @@ func contract(t *testing.T, path, method string, w *httptest.ResponseRecorder) {
 		t.Fatal(e)
 	}
 	components := spec["components"].(map[string]any)
-	if strings.EqualFold(method, http.MethodPut) && path == "/api/upstreams/{upstream_id}" {
-		spec["paths"].(map[string]any)[path].(map[string]any)["put"].(map[string]any)["requestBody"] = map[string]any{"content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/UpstreamUpdateInputPhaseOne"}}}}
-	}
 	response := spec["paths"].(map[string]any)[path].(map[string]any)[strings.ToLower(method)].(map[string]any)["responses"].(map[string]any)[strconv.Itoa(w.Code)]
 	if response == nil {
 		t.Fatalf("undocumented status %s %s: %d %s", method, path, w.Code, w.Body.String())
@@ -485,6 +483,89 @@ func contract(t *testing.T, path, method string, w *httptest.ResponseRecorder) {
 	}
 	if e = s.Validate(value); e != nil {
 		t.Fatalf("%s %s: %s\n%v", method, path, w.Body.String(), e)
+	}
+}
+
+func TestConfigSchemaRestrictsGlobRoutes(t *testing.T) {
+	b, e := os.ReadFile("../../../docs/schemas/config.schema.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	var schema map[string]any
+	if e = json.Unmarshal(b, &schema); e != nil {
+		t.Fatal(e)
+	}
+	defs := schema["$defs"].(map[string]any)
+	c := jsonschema.NewCompiler()
+	if e = c.AddResource("https://contract.test/config-route.json", map[string]any{"$defs": defs, "allOf": []any{defs["modelRoute"]}}); e != nil {
+		t.Fatal(e)
+	}
+	s, e := c.Compile("https://contract.test/config-route.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	route := `{"id":"0192f2f4-0000-7000-8000-000000000001","match_type":"%s","pattern":"%s","target_model_id":"gpt-4o","priority":10,"enabled":true}`
+	for _, tc := range []struct {
+		matchType string
+		pattern   string
+		valid     bool
+	}{
+		{"glob", "gpt-[45]", false},
+		{"glob", "gpt-4o*", true},
+		{"exact", "gpt-[45]", true},
+	} {
+		value, e := jsonschema.UnmarshalJSON(strings.NewReader(fmt.Sprintf(route, tc.matchType, tc.pattern)))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if got := s.Validate(value) == nil; got != tc.valid {
+			t.Fatalf("%s %q: valid=%v, want %v", tc.matchType, tc.pattern, got, tc.valid)
+		}
+	}
+}
+
+func TestUpstreamUpdateInputPhaseSchemas(t *testing.T) {
+	b, e := os.ReadFile("../../../openapi.yaml")
+	if e != nil {
+		t.Fatal(e)
+	}
+	var spec map[string]any
+	if e = yaml.Unmarshal(b, &spec); e != nil {
+		t.Fatal(e)
+	}
+	components := spec["components"].(map[string]any)
+	phaseOne := map[string]any{"$ref": "#/components/schemas/UpstreamUpdateInputPhaseOne"}
+	phaseTwo := map[string]any{"$ref": "#/components/schemas/UpstreamUpdateInputPhaseTwo"}
+	base := `{"name":"upstream-a","kind":"api_key","base_url":"https://api.example/v1","auth_style":"bearer","api_key":null,"enabled":true,"models":[]}`
+	withRevision := `{"name":"upstream-a","kind":"api_key","base_url":"https://api.example/v1","auth_style":"bearer","api_key":null,"enabled":true,"models":[],"capabilities_revision":3}`
+	cases := []struct {
+		name   string
+		schema map[string]any
+		raw    string
+		valid  bool
+	}{
+		{"phase one payload, phase one schema", phaseOne, base, true},
+		{"phase one payload, phase two schema", phaseTwo, base, false},
+		{"phase two payload, phase two schema", phaseTwo, withRevision, true},
+		{"phase two payload, phase one schema", phaseOne, withRevision, false},
+	}
+	for _, tc := range cases {
+		doc := map[string]any{"components": components, "allOf": []any{tc.schema}}
+		c := jsonschema.NewCompiler()
+		if e = c.AddResource("https://contract.test/upstream-update.json", doc); e != nil {
+			t.Fatal(e)
+		}
+		s, e := c.Compile("https://contract.test/upstream-update.json")
+		if e != nil {
+			t.Fatal(e)
+		}
+		value, e := jsonschema.UnmarshalJSON(strings.NewReader(tc.raw))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if got := s.Validate(value) == nil; got != tc.valid {
+			t.Fatalf("%s: valid=%v, want %v", tc.name, got, tc.valid)
+		}
 	}
 }
 func TestAdminOpenAPIContracts(t *testing.T) {

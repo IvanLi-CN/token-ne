@@ -14,7 +14,7 @@
 
 ## Related Changes
 
-- [PR #28](https://github.com/IvanLi-CN/token-ne/pull/28) settles the second-phase management contract and records the review corrections.
+- [PR #28](https://github.com/IvanLi-CN/token-ne/pull/28) settles the second-phase management contract, including stateless policy publication, producer-side `resolved_model` validation, price-revision backfill, and the shared restricted Glob language.
 
 ## References
 

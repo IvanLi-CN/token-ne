@@ -30,7 +30,7 @@
       "then": { "properties": { "features": { "required": ["upstream_model_policy"], "properties": { "upstream_model_policy": { "const": true } } } } }
     }
   ],
-  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid.",
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing or upstream_model_policy is absent or false, its corresponding array must be absent or empty. Route and policy object schemas reject unknown fields because silently ignoring a misspelled routing field is unsafe.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -87,7 +87,6 @@
     "usage": { "$ref": "#/$defs/usage" },
     "limits": { "$ref": "#/$defs/limits" }
   },
-  "$comment": "Before configuration publication, the control plane and core perform semantic checks JSON Schema cannot express: policy items are unique by upstream_id; each route and policy reference resolves; allow_patterns/deny_patterns use full-string Glob syntax where only * and ? are wildcards; brackets, braces, backslash and control characters are rejected. When model-name-routing or upstream-model-policy is absent or false, its corresponding array must be absent or empty. Route and policy object schemas reject unknown fields because silently ignoring a misspelled routing field is unsafe.",
   "$defs": {
     "downstreamKey": {
       "type": "object",
@@ -194,7 +193,13 @@
         "enabled": { "type": "boolean" },
         "description": { "type": ["string", "null"], "maxLength": 1024 }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "match_type": { "const": "glob" } }, "required": ["match_type"] },
+          "then": { "properties": { "pattern": { "$ref": "#/$defs/globPattern" } } }
+        }
+      ]
     },
     "globPattern": {
       "type": "string",

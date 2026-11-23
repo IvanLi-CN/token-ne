@@ -744,10 +744,12 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
-        "404":
-          $ref: "#/components/responses/AdminNotFound"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/model-routes/{route_id}:
     parameters:
       - $ref: "#/components/parameters/RouteId"
@@ -780,6 +782,10 @@ paths:
           $ref: "#/components/responses/AdminConflict"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
     delete:
       tags: [models]
       summary: 删除模型名称路由规则
@@ -795,6 +801,10 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/models/sync:
     post:
       tags: [upstreams]
@@ -804,7 +814,7 @@ paths:
         - cookieAuth: []
       responses:
         "202":
-          description: 同步任务已创建
+          description: 每个启用上游的同步结果；已存在运行中同步的上游以 skipped 返回，不新建 run
           content:
             application/json:
               schema:
@@ -814,7 +824,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: "#/components/schemas/UpstreamModelSyncRun"
+                      $ref: "#/components/schemas/UpstreamModelSyncBatchItem"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -855,6 +865,10 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/models/sync:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
@@ -880,6 +894,8 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "409":
           $ref: "#/components/responses/AdminConflict"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/model-sync-runs/{run_id}:
@@ -905,6 +921,10 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/models/import:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
@@ -946,6 +966,10 @@ paths:
           $ref: "#/components/responses/AdminConflict"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/model-policy:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
@@ -968,6 +992,10 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
     put:
       tags: [upstreams]
       summary: 替换上游模型承接策略
@@ -995,6 +1023,10 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/models/{model_id}/price:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
@@ -1034,6 +1066,14 @@ paths:
       operationId: deleteUpstreamModelPrice
       security:
         - cookieAuth: []
+      parameters:
+        - name: confirm_locked
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: 已锁定的覆盖必须显式传入 true 才能删除；缺失或为 false 时返回 409 price_profile_locked。
       responses:
         "204":
           description: 已移除覆盖
@@ -1045,6 +1085,10 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "409":
           $ref: "#/components/responses/AdminConflict"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/prices:
     get:
       tags: [prices]
@@ -1069,6 +1113,10 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sources:
     get:
       tags: [prices]
@@ -1093,6 +1141,10 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sources/{source_id}/sync:
     parameters:
       - $ref: "#/components/parameters/SourceId"
@@ -1139,6 +1191,10 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sync-runs/{run_id}/apply:
     parameters:
       - $ref: "#/components/parameters/SyncRunId"
@@ -1146,6 +1202,7 @@ paths:
       tags: [prices]
       summary: 应用选中的价格报价
       operationId: applyPriceSyncRun
+      description: 可能的拒绝码：`409 stale_price_quote`（目标价格已变化）、`409 quote_review_required`（非安全报价未逐项审核）、`409 price_profile_locked`（锁定档案未单独确认）、`409 price_run_not_ready`（批次已失败或仍在获取）、`422 quote_not_applicable`（缺失报价或未能解析目标）。任一拒绝均不修改任何价格，批次保持可重试状态。
       security:
         - cookieAuth: []
       requestBody:
@@ -1171,6 +1228,10 @@ paths:
           $ref: "#/components/responses/AdminConflict"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/downstream-keys:
     get:
       tags: [downstream-keys]
@@ -2583,6 +2644,12 @@ components:
         built_at:
           type: string
           description: RFC3339 构建时间；非发布构建为 unknown
+        features:
+          type: object
+          properties:
+            upstream_capabilities_revision:
+              type: boolean
+              description: 为 true 表示管理 API 处于第二期严格模式：PUT /api/upstreams/{upstream_id} 必须按 UpstreamUpdateInputPhaseTwo 提交（缺失返回 422、过期返回 409），模型响应返回 billing_state。为 false 表示接受第一期载荷并省略 billing_state。默认 false，只在 Web 客户端已发布严格载荷后才允许启用。
     Billing:
       type: object
       required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok]
@@ -2689,6 +2756,7 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 等于已存在或之后新建/导入的全局 Model ID 时视为冲突。
         match_type:
           type: string
           enum: [exact, glob]
@@ -2721,6 +2789,7 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 等于已有或之后新建/导入的全局 Model ID 时按冲突处理。
         match_type:
           type: string
           enum: [exact, glob]
@@ -2740,6 +2809,15 @@ components:
         description:
           type: [string, "null"]
           maxLength: 1024
+      allOf:
+        - if: { properties: { match_type: { const: glob } }, required: [match_type] }
+          then: { properties: { pattern: { $ref: "#/components/schemas/GlobPattern" } } }
+    GlobPattern:
+      type: string
+      minLength: 1
+      maxLength: 256
+      pattern: '^[^\[\]{}\\\x00-\x1f\x7f]+$'
+      description: 完整字符串 Glob。只允许 * 与 ? 作为通配符，区分大小写；方括号、花括号、反斜线和控制字符非法。
     RoutePreview:
       type: object
       required: [requested_model, resolved_model, matched_rule, rule_kind, candidates]
@@ -2822,6 +2900,24 @@ components:
           minimum: 0
         error:
           type: [string, "null"]
+    UpstreamModelSyncBatchItem:
+      type: object
+      required: [upstream_id, state, run_id, reason]
+      properties:
+        upstream_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [started, skipped]
+          description: started 表示已创建 run；skipped 表示该上游已有运行中的同步，未新建 run。
+        run_id:
+          type: [string, "null"]
+          format: uuid
+          description: state 为 started 时是新 run ID，skipped 时为 null。
+        reason:
+          type: [string, "null"]
+          description: state 为 skipped 时固定为 catalog_sync_running。
     UpstreamModelImportInput:
       type: object
       required: [upstream_model_id, mode, model_id]
@@ -2873,18 +2969,12 @@ components:
           type: array
           uniqueItems: true
           items:
-            type: string
-            minLength: 1
-            maxLength: 256
-            pattern: '^[^\[\]{}\\\x00-\x1f\x7f]+$'
+            $ref: "#/components/schemas/GlobPattern"
         deny_patterns:
           type: array
           uniqueItems: true
           items:
-            type: string
-            minLength: 1
-            maxLength: 256
-            pattern: '^[^\[\]{}\\\x00-\x1f\x7f]+$'
+            $ref: "#/components/schemas/GlobPattern"
     PriceRevisionState:
       type: object
       required: [source, source_id, locked, price_revision_id, revision_created_at, updated_at]
@@ -2899,6 +2989,7 @@ components:
         price_revision_id:
           type: string
           format: uuid
+          description: 创建模型时在同一事务内生成初始修订；第二期迁移为一期既有模型回填一条 scope=global、source=manual、locked=false 的修订。模型的全局默认价格始终有当前修订，因此该字段不会为空。
         revision_created_at:
           type: string
           format: date-time
@@ -2993,7 +3084,7 @@ components:
           maxLength: 256
         match_method:
           type: string
-          enum: [explicit, upstream_exact, model_exact, normalized, fuzzy, none]
+          enum: [explicit, upstream_exact, model_exact, normalized, none]
         status:
           type: string
           enum: [safe, needs_review, conflict, missing, ignored]
@@ -3002,7 +3093,7 @@ components:
         base_price_revision_id:
           type: [string, "null"]
           format: uuid
-          description: Current target price revision when the quote was generated. The control plane rejects an apply if this revision has changed.
+          description: 报价生成时目标价格档案的当前修订。null 表示生成时目标覆盖尚不存在，应用前目标必须仍然不存在；目标已被创建即视为已变化。非 null 时，应用前目标的当前修订必须与之一致，否则拒绝。
         base_updated_at:
           type: [string, "null"]
           format: date-time
@@ -3032,7 +3123,7 @@ components:
           uniqueItems: true
           items:
             type: string
-      description: The control plane requires every selected non-safe quote to appear in reviewed_quote_ids, validates that reviewed_quote_ids is a subset of quote_ids, and rejects the entire apply transaction if a selected quote's base revision is stale. force_locked is a separate confirmation for locked profiles and does not imply per-quote review.
+      description: 控制面要求每个被选中的非安全报价都出现在 `reviewed_quote_ids` 中，且该列表必须是 `quote_ids` 的子集；任一目标的当前修订与报价基线不一致就整批拒绝。`force_locked` 只单独确认锁定档案，不代替逐项审核。应用事务先锁定批次行和全部目标行，成功后追加本批 `price_revision_ids`、更新 `applied_at`，不覆盖之前的批次结果；拒绝时批次保持 `ready`。
     Upstream:
       type: object
       required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
