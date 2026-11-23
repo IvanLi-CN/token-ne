@@ -12,6 +12,22 @@ _Avoid_: Proxy, agent, worker
 负责管理 API、Web、用量摄入、Caddy 协调、核心编排和配置分发的服务端。
 _Avoid_: Backend, admin server
 
+**Local login**:
+使用控制面保存的管理员用户名与密码进入控制面的登录方式，不依赖外部身份提供方。
+_Avoid_: Password login, fallback login
+
+**OIDC admin login**:
+管理员通过外部 OIDC Provider 完成认证后进入控制面的登录方式；只用于管理面，不用于下游 API 或上游账号池。
+_Avoid_: OAuth login, SSO account pool
+
+**OIDC identity binding**:
+将一个 OIDC Provider 的发行方与主体标识固定关联到唯一管理员的持久关系；未绑定的身份不能登录。
+_Avoid_: Account mapping, user sync
+
+**System settings**:
+由管理员在控制面 Web 中修改、持久化并立即生效的运行时配置；与环境变量提供的部署默认值相区分。
+_Avoid_: Environment config, config file
+
 **Core image repository**:
 存放全部核心版本镜像的单一仓库；每个版本的镜像由该仓库加版本标签或 digest 组成，控制面不按版本使用不同仓库，也不构建镜像。
 _Avoid_: Registry mirror, per-version image prefix

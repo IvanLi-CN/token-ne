@@ -31,3 +31,4 @@
 |Topic|Lifecycle|Implementation|Spec|Successor|Notes|
 |---|---|---|---|---|---|
 |product-version-release|active|已实现并发布 0.0.3；latest 通道已纳入|`product-version-release/SPEC.md`|-|target-only 手动发布、统一版本、不可变身份与可变部署通道|
+|oidc-admin-login|active|已实现，待实机 Authelia 验证；视觉证据已落盘|`oidc-admin-login/SPEC.md`|-|Authelia 管理面 OIDC、本地登录 break-glass、30 天会话|

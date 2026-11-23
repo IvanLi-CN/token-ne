@@ -65,6 +65,8 @@ var families = []family{
 	{"usage_ingest_inflight_requests", "gauge", "Usage ingestion requests in flight."},
 	{"usage_ingest_lag_seconds", "histogram", "Age of events at durable acceptance."},
 	{"usage_ingest_commit_duration_seconds", "histogram", "Time to persist a usage batch."},
+	{"admin_oidc_login_total", "counter", "Admin OIDC login attempts by result."},
+	{"admin_oidc_discovery_total", "counter", "Admin OIDC discovery attempts by result."},
 	{"core_instances", "gauge", "Registered core instances by version and state."},
 	{"core_inflight_requests", "gauge", "Requests in flight at each registered core."},
 	{"core_weight", "gauge", "Configured routing weight at each registered core."},
@@ -126,6 +128,18 @@ func (r *Registry) IngestFailure() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.mutate("usage_events_ingested_total", labels("result", "storage_error"), 1, false)
+}
+
+func (r *Registry) OIDCLogin(result string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mutate("admin_oidc_login_total", labels("result", result), 1, false)
+}
+
+func (r *Registry) OIDCDiscovery(result string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mutate("admin_oidc_discovery_total", labels("result", result), 1, false)
 }
 
 func (r *Registry) Committed(result usage.Result, elapsed time.Duration, now time.Time) {

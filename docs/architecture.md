@@ -737,7 +737,8 @@ server/
   cmd/api/main.go
   internal/
     config/          环境变量与启动校验
-    auth/            Argon2id、会话 Cookie、CSRF/Origin 校验
+    auth/            Argon2id、OIDC discovery、PKCE、ID token 校验、会话 Cookie、CSRF/Origin
+    authsettings/    认证设置优先级、首次保存快照、锁死防护与 break-glass
     httpapi/         管理 API、内部 API、健康检查
     store/           pgx、查询、迁移、审计
     usage/           摄入校验、事务写入、费用计算、指标
@@ -755,8 +756,14 @@ server/
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | POST | `/api/auth/login` | 用户名/密码登录 |
-| POST | `/api/auth/logout` | 清会话 |
+| POST | `/api/auth/logout` | 清会话；递增 `session_version`，使所有 token-ne 会话失效 |
 | GET | `/api/auth/me` | 当前管理员 |
+| GET | `/api/auth/config` | 公开的本地/OIDC 登录能力 |
+| GET | `/api/auth/oidc/start` | 发起 OIDC 登录 |
+| GET | `/api/auth/oidc/callback` | OIDC 登录或绑定回调 |
+| POST | `/api/auth/oidc/bind/start` | 发起当前管理员的 OIDC 身份绑定 |
+| GET/PUT | `/api/settings/auth` | 读取/更新认证设置 |
+| POST | `/api/settings/auth/test` | 测试 OIDC discovery |
 | GET | `/api/overview` | 总览卡片与趋势 |
 | GET | `/api/usage/timeseries` | 时间序列 |
 | GET | `/api/usage/breakdown` | 按模型/上游/Key 分布 |
@@ -907,12 +914,27 @@ flowchart TD
 - 部署新版本前要求所有参与切换的实例已应用当前 revision；否则阻塞并显示原因。
 - 推送失败重试；核心每 10 秒条件拉取作为兜底。
 
-### 认证与静态站点
+### 管理认证、系统设置与静态站点
 
 - 首次启动从 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 引导管理员；只保存 Argon2id 哈希。
-- 会话 Cookie 是 HMAC 签名的短令牌，包含管理员 ID、过期时间和 `session_version`；修改密码或强制下线时递增版本。
+- 管理面支持本地登录与单一 OIDC Provider 并存；OIDC 使用 authorization code + PKCE `S256`、`state` 和 `nonce`，只接受已绑定的 `iss` + `sub`。
+- OIDC 只使用 ID token 建立身份，不调用 userinfo，不保存 access token 或 refresh token；Authelia 的 `sub` 默认是 UUID v4，绑定必须通过设置页的一次性流程完成。
+- 认证设置字段为 `oidc_enabled`、`issuer_url`、`client_id`、`client_secret`、`scopes`、`local_login_enabled` 和 `session_ttl_hours`。
+- 首次保存认证设置前，effective value 来自环境变量或默认值；首次保存后整组认证配置以数据库为准，环境变量不再参与这些字段。
+- 首次保存会把未修改字段的当前 effective value 快照写入数据库，包括环境变量中的 client secret；之后清空字段不会回退到环境变量。
+- 数据库已有认证设置且同名环境变量仍存在时，启动逐字段 `WARN`，列出字段名并建议删除环境变量；警告不包含 secret。
+- 系统设置 API 返回 `effective_source`，取值为 `database`、`environment` 或 `default`；`GET` 只返回 `client_secret_configured`，不返回 secret；尚未保存时 `revision=0`，首次 `PUT` 用 `revision=0` 创建单行。
+- client secret 使用 `MASTER_KEY` 做 AES-256-GCM 加密；auth flow 的 PKCE verifier 同样加密，state 只存哈希。
+- OIDC issuer 允许内网 HTTPS；`http` 只允许 loopback；私有 CA 通过 `OIDC_CA_FILE` 注入，不写入数据库。
+- discovery 与 JWKS 缓存 10 分钟，未知 `kid` 强制刷新；不跟随重定向，超时 5 秒；ID token 只接受 `RS256` 或 `ES256`。
+- 会话 Cookie 是 HMAC 签名的令牌，包含管理员 ID、过期时间和 `session_version`；修改密码、认证配置、会话 TTL 或强制下线时递增版本。
+- `session_ttl_hours` 默认 `720`，范围 `1–2160`；设置页以天展示，API 以小时传输；修改 TTL 使既有会话失效。
+- 本地登录默认启用；只在 OIDC 已启用、已存在绑定且当前管理员完成密码确认后才允许关闭。关闭请求必须携带 `current_password`；关闭后修改 issuer、client ID、client secret、scopes 或关闭 OIDC 均被拒绝，且这些变更不能与关闭本地登录在同一次保存中完成。
+- 本地登录关闭后使用容器内 CLI `api auth local-login enable` break-glass；该命令递增 `session_version` 并记录 actor 为 `cli` 的审计。
+- OIDC 登录/绑定使用服务端一次性 auth flow 和短生命周期 `SameSite=Lax` flow cookie；应用会话 Cookie 仍为 `SameSite=Strict`。
 - `Secure` 属性由 `PUBLIC_ORIGIN` 的 scheme 决定，而不是由 Caddy 看到的 HTTP 决定；外部 TLS 代理终止 TLS 时仍必须设置 `Secure`。
 - 写请求校验 `Origin` 与 `PUBLIC_ORIGIN` 同源，并检查 `Sec-Fetch-Site`；拒绝 `cross-site`。
+- 审计覆盖本地/OIDC 登录、绑定、设置变更、强制下线、break-glass 和 discovery 结果；不记录 token、secret 或完整 claims。
 - Web 构建产物通过 `go:embed` 嵌入 API 镜像；未命中的非 `/api`、非 `/v1` 路径回退到 `index.html`。
 - 静态资源使用内容哈希文件名，长期缓存；`index.html` 使用 `no-cache`。
 
@@ -1049,6 +1071,48 @@ create table admin_users (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create table auth_settings (
+  singleton boolean primary key default true check (singleton),
+  oidc_enabled boolean not null default false,
+  issuer_url text,
+  client_id text,
+  client_secret_ciphertext bytea,
+  client_secret_nonce bytea,
+  scopes text[] not null default '{openid,profile,email}',
+  local_login_enabled boolean not null default true,
+  session_ttl_hours int not null default 720 check (session_ttl_hours between 1 and 2160),
+  revision bigint not null default 1 check (revision > 0),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references admin_users(id),
+  check ((client_secret_ciphertext is null) = (client_secret_nonce is null))
+);
+
+create table admin_oidc_identities (
+  admin_id uuid primary key references admin_users(id) on delete cascade,
+  issuer text not null,
+  subject text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (issuer, subject)
+);
+
+create table auth_flows (
+  id uuid primary key,
+  state_hash bytea not null unique check (octet_length(state_hash) = 32),
+  nonce text not null,
+  pkce_verifier_ciphertext bytea not null,
+  pkce_verifier_nonce bytea not null,
+  mode text not null check (mode in ('login', 'bind')),
+  admin_id uuid references admin_users(id) on delete cascade,
+  return_to text,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  created_at timestamptz not null default now(),
+  check ((mode = 'bind') = (admin_id is not null))
+);
+
+create index auth_flows_expires_at_idx on auth_flows (expires_at);
 
 create table downstream_api_keys (
   id uuid primary key,
@@ -1589,6 +1653,14 @@ networks:
 | `ADMIN_USERNAME` | 初始管理员用户名 | 是 |
 | `ADMIN_PASSWORD` | 初始管理员密码，仅首次引导 | 是 |
 | `SESSION_SECRET` | 会话 Cookie 签名密钥，至少 32 字节 | 是 |
+| `OIDC_ENABLED` | 是否启用 OIDC；仅在该部署从未保存认证设置时生效 | 否，默认 `false` |
+| `OIDC_ISSUER_URL` | OIDC issuer；Authelia 的 discovery 根地址 | 否 |
+| `OIDC_CLIENT_ID` | OIDC client ID | 否 |
+| `OIDC_CLIENT_SECRET` | OIDC client secret；首次保存设置时加密写入数据库 | 否 |
+| `OIDC_SCOPES` | 空白分隔的 scopes，默认 `openid profile email` | 否 |
+| `AUTH_LOCAL_LOGIN_ENABLED` | 是否允许本地用户名/密码登录 | 否，默认 `true` |
+| `AUTH_SESSION_TTL_HOURS` | 会话 TTL，范围 1–2160，默认 720 | 否 |
+| `OIDC_CA_FILE` | 访问私有 CA 签发的 Authelia 时使用的 CA 文件路径；不写入数据库 | 否 |
 | `MASTER_KEY` | 上游密钥加密主密钥，base64 32 字节 | 是 |
 | `CORE_CONTROL_TOKEN` | 控制面与核心共享 Token | 是 |
 | `CORE_CONFIG_SIGNING_KEY` | 可选签名密钥；不配置则不做签名 | 否 |
@@ -1673,6 +1745,7 @@ networks:
 | --- | --- | --- | --- |
 | PostgreSQL 不可用 | 核心继续用缓存配置服务；用量写本地 spool | 管理 API 读写出错、摄入暂停 | 恢复数据库；核心自行重放 spool；spool 超过 24 小时才丢弃并计数 |
 | Go API 不可用 | 核心继续服务；用量写本地 spool | 无法改配置、部署、查询 | 重启 API；启动后对账，核心继续自行重放 spool |
+| Authelia/OIDC Provider 不可用 | 数据面不受影响 | OIDC 登录失败；本地登录仍可用，或使用 CLI break-glass | 恢复 Authelia；检查 discovery、issuer 和 JWKS |
 | Caddy 不可用 | 外部 TLS 代理到 Caddy 的请求失败 | 无法应用配置 | 重启 Caddy；`--resume` 恢复；Go 对账 |
 | 单个核心崩溃 | Caddy 健康检查摘除；在途请求失败 | 实例标记 failed | Go 重建实例并复用状态目录；兼容 core 启动后自行重放未确认 spool；客户端重试 |
 | 所有核心不可用 | `/v1/*` 返回 503 | 管理界面可用 | 部署新实例；检查镜像/配置 |
@@ -1689,14 +1762,14 @@ networks:
 
 - **公网**：只有外部 TLS 反向代理；Caddy 只监听 HTTP，宿主端口绑定 loopback 或受控内网，并丢弃全部 capabilities 后仅加回 `NET_BIND_SERVICE`。Caddy 显式拒绝 `/internal/*`。
 - **镜像来源**：核心镜像只来自一个仓库（`CORE_IMAGE_REPOSITORY`），当前公开、由控制面匿名拉取；私有仓库认证属于部署宿主的后续配置，第一期控制面不持有 registry 凭据，也不构建镜像。
-- **管理面**：管理员会话 + 同源校验；登录限速；无 RBAC。
+- **管理面**：本地密码 + 可选 OIDC；OIDC 只接受预绑定的 `iss` + `sub`，使用 authorization code + PKCE、state、nonce 和 ID token 校验；登录限速；无 RBAC。
 - **内部 API**：`CORE_CONTROL_TOKEN`；常量时间比较；只在 Compose 网络。
 - **核心指标**：`CORE_METRICS_LISTEN=9091` 只在内网；不发布宿主端口，Caddy 不路由；外部 Prometheus 不直接抓取。
 - **Caddy 管理 API**：无内建认证；只通过 API 与 Caddy 共享的 `/run/caddy/admin.sock` Unix socket 访问，不监听网络端口；只有 API 容器调用。
 - **Docker socket**：通过 socket proxy 收敛；仍然高权限，控制面被攻破等价于宿主机风险。后续拆独立 `core-controller`。
-- **密钥**：上游密钥 AES-256-GCM；下游 Key 只存 SHA-256；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
+- **密钥**：上游密钥与 OIDC client secret 使用 AES-256-GCM；下游 Key 只存 SHA-256；auth flow 的 PKCE verifier 加密、state 只存哈希；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
 - **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 spool，不含原始请求/响应正文、请求头或上游密钥明文。
-- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。
+- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。OIDC issuer 是管理员配置的控制面依赖，允许内网 HTTPS，`http` 仅允许 loopback，私有 CA 通过 `OIDC_CA_FILE` 注入。
 - **请求体**：默认不持久化；错误消息最多 1 KiB；不记录 Authorization。
 - **审计**：关键写操作记录 actor、动作、目标、变更摘要（脱敏）和来源 IP。
 
@@ -1720,6 +1793,8 @@ networks:
 | `token_ne_status_rewrite_policy_invalid_total` | counter | reason |
 | `token_ne_proxy_upstream_errors_total` | counter | core_version, upstream, status, class |
 | `token_ne_usage_events_ingested_total` | counter | result |
+| `token_ne_admin_oidc_login_total` | counter | result |
+| `token_ne_admin_oidc_discovery_total` | counter | result |
 | `token_ne_usage_ingest_inflight_requests` | gauge | - |
 | `token_ne_usage_ingest_lag_seconds` | histogram | - |
 | `token_ne_protocol_requests_total` | counter | role, endpoint, code |
@@ -1746,7 +1821,7 @@ networks:
 
 标签基数控制：
 
-- 不允许 `request_id`、`event_id`、`api_key`、上游密钥、错误消息作为标签。
+- 不允许 `request_id`、`event_id`、`api_key`、上游密钥、OIDC `subject`、邮箱、错误消息作为标签。
 - `model` 和 `upstream` 来自配置，数量有限；`core_version` 来自版本登记，数量有限；未知值归一化为 `unknown`。
 - `status` 使用 HTTP 状态码或有限结果分类。
 

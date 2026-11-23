@@ -62,6 +62,8 @@
 
 不引入 Web 框架、ORM 或依赖注入库。管理 API 的路径和中间件规模用标准库足够；SQL 显式、可审查。
 
+管理员 OIDC 登录需要 discovery、PKCE、token exchange 与 JWT/JWKS 校验；实现前必须选定并锁定一个维护中的最小库，或明确用标准库实现的范围。该选择不引入 Web 框架或 ORM，也不改变控制面边界。
+
 ### Web 前端
 
 参考项目使用 React + Vite + Tailwind + Radix + Recharts + Bun。新项目保持同一技术家族，升级到当前最新稳定主版本。
@@ -127,7 +129,7 @@ Rust 的 `bytes`、`futures`、`tokio` 和 `reqwest`/`hyper` 组合能把这些�
 - 核心内部 `/metrics` 只用于排障；业务指标由 Go 从 usage 事件生成。
 - 嵌入并托管 Web 静态产物。
 
-Go 标准库、`pgx`、Docker 客户端和 Prometheus 客户端覆盖全部需求；单二进制部署，镜像小，启动快。没有引入 ORM 和 Web 框架的必要。
+Go 标准库、`pgx`、Docker 客户端、Prometheus 客户端和锁定的 OIDC/JWT 校验库覆盖全部需求；单二进制部署，镜像小，启动快。没有引入 ORM 和 Web 框架的必要。
 
 ### PostgreSQL 做业务事实
 

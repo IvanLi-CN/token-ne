@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/IvanLi-CN/token-ne/server/internal/auth"
+	"github.com/IvanLi-CN/token-ne/server/internal/authsettings"
 	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
 	"github.com/IvanLi-CN/token-ne/server/internal/cores"
@@ -22,6 +24,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		if err := authLocalLogin(os.Args[2:]); err != nil {
+			slog.Error("authentication command failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "config" {
 		if err := exportConfig(os.Args[2:]); err != nil {
 			slog.Error("configuration export failed", "error", err)
@@ -55,6 +64,18 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	if _, warnings, err := authsettings.Startup(startup, repo, cfg); err != nil {
+		slog.Error("authentication configuration invalid", "error", err)
+		os.Exit(1)
+	} else {
+		for _, field := range warnings {
+			slog.Warn("authentication setting is stored in the database; remove the environment variable", "field", field)
+		}
+	}
+	if err := auth.NewOIDC(auth.OIDCOptions{CAFile: cfg.OIDCCaFile}).InitError(); err != nil {
+		slog.Error("OIDC TLS configuration failed", "error", err)
+		os.Exit(1)
+	}
 	registry := metrics.New()
 
 	controlToken := cfg.CoreControlToken

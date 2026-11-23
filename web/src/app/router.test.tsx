@@ -12,6 +12,20 @@ import { AppProviders } from "./providers";
 import { routes } from "./router";
 
 const admin = { id: "9b39c7da-619b-4108-b7fa-8f9c5fc1b9e8", username: "operator" };
+const authSettings = {
+  revision: 0,
+  oidc_enabled: false,
+  issuer_url: null,
+  client_id: null,
+  client_secret_configured: false,
+  scopes: ["openid", "profile", "email"],
+  binding: null,
+  local_login_enabled: true,
+  session_ttl_hours: 720,
+  effective_source: { local_login_enabled: "default", session_ttl_hours: "default" },
+  updated_at: null,
+  updated_by: null,
+};
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -55,8 +69,44 @@ describe("application router", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "用户名或密码错误");
     expect((screen.getByLabelText("密码") as HTMLInputElement).value).toBe("wrong");
     expect(router.state.location.pathname).toBe("/login");
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/login");
-    expect(fetchMock.mock.calls[0][1].credentials).toBe("same-origin");
+    const loginCall = fetchMock.mock.calls.find(([url]) => url === "/api/auth/login");
+    expect(loginCall?.[0]).toBe("/api/auth/login");
+    expect(loginCall?.[1].credentials).toBe("same-origin");
+  });
+  it("shows only OIDC when local login is disabled and OIDC is bound", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url === "/api/auth/config"
+          ? Promise.resolve(
+              response({
+                local_login_enabled: false,
+                oidc_enabled: true,
+                oidc_login_available: true,
+              }),
+            )
+          : Promise.resolve(response({}, 401)),
+      ),
+    );
+    mount("/login?returnTo=/settings");
+    const link = await screen.findByRole("link", { name: "使用 OIDC 登录" });
+    expect(link.getAttribute("href")).toBe("/api/auth/oidc/start?returnTo=%2Fsettings");
+    expect(screen.queryByLabelText("用户名")).toBeNull();
+  });
+  it("shows a break-glass message when no login method is available", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          response({ local_login_enabled: false, oidc_enabled: true, oidc_login_available: false }),
+        ),
+    );
+    mount("/login");
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "当前没有可用的登录方式，请使用 break-glass 恢复本地登录。",
+    );
   });
   it("disables duplicate submissions until real login succeeds then opens the target", async () => {
     let finish: (value: Response) => void = () => {};
@@ -125,6 +175,21 @@ describe("application router", () => {
     fireEvent.click(screen.getByRole("button", { name: "浅色" }));
     expect(localStorage.getItem("token-ne.theme")).toBe("light");
   });
+  it("opens the system settings page from navigation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation((url: string) =>
+          Promise.resolve(url === "/api/settings/auth" ? response(authSettings) : response(admin)),
+        ),
+    );
+    const router = mount("/");
+    await screen.findByRole("heading", { name: "总览" });
+    fireEvent.click(screen.getByRole("link", { name: "系统设置" }));
+    await screen.findByRole("heading", { name: "系统设置" });
+    expect(router.state.location.pathname).toBe("/settings");
+  });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
       .fn()
@@ -176,6 +241,7 @@ describe("shared boundaries", () => {
     ])
       expect(safeReturnPath(value)).toBe("/");
     expect(safeReturnPath("/requests?model=abc#details")).toBe("/requests?model=abc#details");
+    expect(safeReturnPath("/settings?oidc=bound")).toBe("/settings?oidc=bound");
   });
   it("rejects API paths that escape the same-origin API boundary", async () => {
     for (const path of ["//evil.test", "/../auth", "/%2e%2e/auth"] as const)

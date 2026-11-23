@@ -16,7 +16,7 @@ Account for usage at an LLM gateway: agent traffic passes through a local proxy 
 
 ## Phase 1 design
 
-Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream routing, API-key upstream management, and versioned Rust forwarding cores behind Caddy.
+Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream routing, API-key upstream management, optional OIDC administrator login, and versioned Rust forwarding cores behind Caddy.
 
 - [Glossary](./GLOSSARY.md)
 - [Product requirements](./docs/prd.md)
@@ -28,6 +28,8 @@ Phase 1 is an OpenAI-compatible gateway with usage accounting, model/upstream ro
 - [Core spool lifecycle](./docs/spool.md)
 - [Web design](./DESIGN.md)
 - [Technology selection](./docs/tech-selection.md)
+- [OIDC administrator login spec](./docs/specs/oidc-admin-login/SPEC.md)
+- [OIDC administrator login runbook](./docs/runbooks/admin-oidc.md)
 - [Upgrade and rollback runbook](./docs/runbooks/upgrade.md)
 - [Architecture decision records](./docs/adr/)
 
@@ -45,7 +47,7 @@ cd ../web && bun install && bun run build
 
 - Not an API-key marketplace or credential reseller.
 - Not a prompt/response archive by default; token accounting does not require retaining message bodies.
-- No OAuth account pool, Anthropic protocol, multi-tenancy, or multi-node high availability yet.
+- No upstream OAuth account pool, Anthropic protocol, multi-tenancy, or multi-node high availability yet.
 
 ## Status
 

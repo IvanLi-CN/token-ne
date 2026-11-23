@@ -71,6 +71,37 @@ type Key struct {
 	Hash        []byte     `json:"-"`
 	Plaintext   string     `json:"plaintext_key,omitempty"`
 }
+type AuthSettings struct {
+	Revision               int64
+	OIDCEnabled            bool
+	IssuerURL              *string
+	ClientID               *string
+	ClientSecretCiphertext []byte
+	ClientSecretNonce      []byte
+	Scopes                 []string
+	LocalLoginEnabled      bool
+	SessionTTLHours        int
+	UpdatedAt              time.Time
+	UpdatedBy              *string
+}
+type OIDCBinding struct {
+	Issuer  string    `json:"issuer"`
+	Subject string    `json:"subject"`
+	BoundAt time.Time `json:"bound_at"`
+	AdminID string    `json:"-"`
+}
+type AuthFlow struct {
+	ID                     string
+	StateHash              []byte
+	Nonce                  string
+	PKCEVerifierCiphertext []byte
+	PKCEVerifierNonce      []byte
+	Mode                   string
+	AdminID                *string
+	ReturnTo               *string
+	ExpiresAt              time.Time
+	ConsumedAt             *time.Time
+}
 type Audit struct {
 	ID         string          `json:"id"`
 	Actor      string          `json:"actor"`
@@ -90,6 +121,14 @@ type Repository interface {
 	AdminByUsername(context.Context, string) (Admin, error)
 	AdminByID(context.Context, string) (Admin, error)
 	InvalidateSession(context.Context, string, Audit) error
+	AuthSettings(context.Context) (AuthSettings, error)
+	SaveAuthSettings(context.Context, AuthSettings, int64, bool, string, Audit) (AuthSettings, error)
+	OIDCBinding(context.Context, string) (OIDCBinding, error)
+	OIDCBindingAny(context.Context) (OIDCBinding, error)
+	ReplaceOIDCBinding(context.Context, string, string, string, Audit) (int, error)
+	CreateAuthFlow(context.Context, AuthFlow) error
+	AuthFlow(context.Context, []byte) (AuthFlow, error)
+	ConsumeAuthFlow(context.Context, string, time.Time) error
 	Models(context.Context) ([]Model, error)
 	Model(context.Context, string) (Model, error)
 	SaveModel(context.Context, Model, bool, Audit) (Model, error)

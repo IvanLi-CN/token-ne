@@ -28,6 +28,12 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `PUBLIC_DOMAIN` | 可选，仅域名，用于控制面生成 Host matcher |
 | `ADMIN_USERNAME`、`ADMIN_PASSWORD` | 必需，首次启动管理员引导；密码独立随机，后续以数据库哈希为准 |
 | `SESSION_SECRET` | 必需，至少 32 字节的随机会话签名密钥 |
+| `OIDC_ENABLED` | 可选，默认 `false`；仅在该部署尚未保存认证设置时作为 OIDC 初始值 |
+| `OIDC_ISSUER_URL`、`OIDC_CLIENT_ID`、`OIDC_CLIENT_SECRET` | 可选，Authelia OIDC Provider 的初始配置；首次保存后以数据库为准 |
+| `OIDC_SCOPES` | 可选，默认 `openid profile email`；必须包含 `openid` |
+| `OIDC_CA_FILE` | 可选，API 访问私有 CA 的 Authelia 时使用的容器内 CA 文件路径；不写入数据库 |
+| `AUTH_LOCAL_LOGIN_ENABLED` | 可选，默认 `true`；关闭前必须有 OIDC 绑定 |
+| `AUTH_SESSION_TTL_HOURS` | 可选，默认 `720`（30 天），范围 1–2160 |
 | `MASTER_KEY` | 必需，base64 编码的 32 字节 AES 主密钥；独立备份 |
 | `CORE_CONTROL_TOKEN` | 必需，控制面与核心共享的独立随机内部令牌 |
 | `CORE_CACHE_KEY` | 必需，核心配置缓存加密密钥；独立生成并安全保存 |

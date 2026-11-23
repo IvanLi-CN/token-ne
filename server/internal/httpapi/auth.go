@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
+	"github.com/IvanLi-CN/token-ne/server/internal/authsettings"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 )
 
@@ -45,6 +47,15 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, 401, "unauthorized", "login temporarily unavailable", nil)
 		return
 	}
+	localEnabled, ttlHours, e := authsettings.LocalPolicy(r.Context(), a.repo, a.cfg)
+	if e != nil {
+		storageError(w, r, e, "")
+		return
+	}
+	if !localEnabled {
+		fail(w, r, 401, "unauthorized", "login unavailable", nil)
+		return
+	}
 	select {
 	case a.loginSlots <- struct{}{}:
 		defer func() { <-a.loginSlots }()
@@ -64,6 +75,8 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		auth.VerifyPassword(dummyPasswordHash, body.Password)
 	}
 	if !valid {
+		payload, _ := json.Marshal(map[string]string{"reason": "invalid_credentials"})
+		_ = a.repo.RecordAudit(r.Context(), a.auditSubject(r, body.Username, "auth.login_failed", "", payload))
 		fail(w, r, 401, "unauthorized", "invalid username or password", nil)
 		return
 	}
@@ -72,7 +85,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "")
 		return
 	}
-	expires := time.Now().Add(auth.SessionTTL)
+	expires := time.Now().Add(time.Duration(ttlHours) * time.Hour)
 	token, e := auth.EncodeSession([]byte(a.cfg.SessionSecret), auth.Session{AdminID: u.ID, Expires: expires.Unix(), Version: u.SessionVersion})
 	if e != nil {
 		fail(w, r, 500, "internal_error", "cannot create session", nil)

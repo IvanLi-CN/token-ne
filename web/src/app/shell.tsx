@@ -24,6 +24,7 @@ const navigation = [
   ["/upstreams", "Upstreams"],
   ["/keys", "Downstream Keys"],
   ["/cores", "Cores"],
+  ["/settings", "系统设置"],
 ] as const;
 const themeModes = [
   { value: "light", label: "浅色", Icon: Sun },

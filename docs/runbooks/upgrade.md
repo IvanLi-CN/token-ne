@@ -23,6 +23,12 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 - `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）已在部署宿主预拉取；控制面不会拉取该镜像。
 - `CORE_IMAGE_REPOSITORY` 是裸仓库地址（不含 tag 或 digest），与要部署的版本组合后可拉取；回滚会用到的旧版本镜像仍在本地，或准备好显式拉取。
 
+如果启用 OIDC，额外确认：
+
+- 备份 `auth_settings`、`admin_oidc_identities` 和 `auth_flows`，并确认 `MASTER_KEY` 与加密时一致；`MASTER_KEY` 变化会使 client secret 和 flow verifier 无法解密。
+- 本地登录已启用，或 OIDC 已启用且存在绑定；不要让两种登录方式同时不可用。
+- Authelia client 的 redirect URI、issuer 和 scopes 与升级前一致；升级后先验证本地登录，再验证 OIDC 登录。
+
 通过控制面查询当前状态：
 
 ```bash

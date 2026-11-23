@@ -18,6 +18,59 @@ export interface LoginRequest {
   username: string;
   password: string;
 }
+export interface AuthConfig {
+  local_login_enabled: boolean;
+  oidc_enabled: boolean;
+  oidc_login_available: boolean;
+}
+export interface OIDCBinding {
+  issuer: string;
+  subject: string;
+  bound_at: string;
+}
+export interface AuthSettings {
+  revision: number;
+  oidc_enabled: boolean;
+  issuer_url: string | null;
+  client_id: string | null;
+  client_secret_configured: boolean;
+  scopes: string[];
+  binding: OIDCBinding | null;
+  local_login_enabled: boolean;
+  session_ttl_hours: number;
+  effective_source: Record<string, string>;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+export interface AuthSettingsInput {
+  revision: number;
+  oidc_enabled: boolean;
+  issuer_url: string | null;
+  client_id: string | null;
+  client_secret?: string;
+  current_password?: string;
+  scopes: string[];
+  local_login_enabled: boolean;
+  session_ttl_hours: number;
+}
+export interface OIDCDiscovery {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  jwks_uri: string;
+  scopes_supported?: string[];
+  code_challenge_methods_supported?: string[];
+}
+export interface AuthTestResult {
+  ok: boolean;
+  discovery?: OIDCDiscovery;
+  warnings?: string[];
+  error?: { code: string; message: string };
+}
+export interface OIDCBindStart {
+  authorization_url: string;
+  expires_at: string;
+}
 export interface ListResponse<T> {
   data: T[];
   next_cursor?: string | null;
@@ -106,6 +159,8 @@ export const versionApi = {
     }).then(validRuntimeVersion),
 };
 export const authApi = {
+  config: (signal?: AbortSignal) =>
+    apiRequest<AuthConfig>("/auth/config", { signal, redirectOnUnauthorized: false }),
   me: (signal?: AbortSignal) =>
     apiRequest<AdminUser>("/auth/me", { signal, redirectOnUnauthorized: false }).then(validAdmin),
   login: (body: LoginRequest) =>
@@ -115,4 +170,12 @@ export const authApi = {
       redirectOnUnauthorized: false,
     }).then(validAdmin),
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
+};
+export const settingsApi = {
+  get: (signal?: AbortSignal) => apiRequest<AuthSettings>("/settings/auth", { signal }),
+  update: (body: AuthSettingsInput) =>
+    apiRequest<AuthSettings>("/settings/auth", { method: "PUT", body }),
+  test: (body: { issuer_url: string; client_id?: string | null }) =>
+    apiRequest<AuthTestResult>("/settings/auth/test", { method: "POST", body }),
+  bindStart: () => apiRequest<OIDCBindStart>("/auth/oidc/bind/start", { method: "POST" }),
 };

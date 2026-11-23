@@ -17,7 +17,9 @@ tags:
   - name: system
     description: 控制面运行时版本
   - name: auth
-    description: 管理员登录、退出和当前会话
+    description: 管理员本地/OIDC 登录、退出、会话和身份绑定
+  - name: settings
+    description: 管理员认证与系统设置
   - name: models
     description: 全局模型、计费和全局映射
   - name: upstreams
@@ -69,7 +71,7 @@ paths:
   /api/auth/logout:
     post:
       tags: [auth]
-      summary: 退出登录
+      summary: 退出登录并使所有 token-ne 会话失效
       operationId: logout
       security:
         - cookieAuth: []
@@ -103,6 +105,201 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
+  /api/auth/config:
+    get:
+      tags: [auth]
+      summary: 公开的登录能力
+      operationId: getAuthConfig
+      security: []
+      responses:
+        "200":
+          description: 本地与 OIDC 登录能力
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthConfig"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
+  /api/auth/oidc/start:
+    get:
+      tags: [auth]
+      summary: 发起 OIDC 登录
+      operationId: startOIDCLogin
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: 重定向到 OIDC authorization endpoint，或在不可用时重定向到登录页错误状态
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+
+  /api/auth/oidc/callback:
+    get:
+      tags: [auth]
+      summary: OIDC 登录或绑定回调
+      operationId: oidcCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: 登录成功、绑定成功或通用登录失败重定向
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+
+  /api/auth/oidc/bind/start:
+    post:
+      tags: [auth]
+      summary: 发起当前管理员的 OIDC 身份绑定
+      operationId: startOIDCBind
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 绑定授权地址
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OIDCBindStart"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
+  /api/settings/auth:
+    get:
+      tags: [settings]
+      summary: 读取管理员认证设置
+      operationId: getAuthSettings
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 认证设置、来源和绑定状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSettings"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    put:
+      tags: [settings]
+      summary: 原子更新管理员认证设置
+      operationId: updateAuthSettings
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthSettingsUpdate"
+      responses:
+        "200":
+          description: 更新后的认证设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSettings"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+
+  /api/settings/auth/test:
+    post:
+      tags: [settings]
+      summary: 测试 OIDC discovery
+      operationId: testAuthSettings
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthTestRequest"
+      responses:
+        "200":
+          description: discovery 结果；失败时 ok=false
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTestResult"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1600,6 +1797,164 @@ components:
           format: uuid
         username:
           type: string
+    AuthConfig:
+      type: object
+      required: [local_login_enabled, oidc_enabled, oidc_login_available]
+      properties:
+        local_login_enabled:
+          type: boolean
+        oidc_enabled:
+          type: boolean
+        oidc_login_available:
+          type: boolean
+    OIDCBindStart:
+      type: object
+      required: [authorization_url, expires_at]
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    OIDCBinding:
+      type: object
+      required: [issuer, subject, bound_at]
+      properties:
+        issuer:
+          type: string
+        subject:
+          type: string
+        bound_at:
+          type: string
+          format: date-time
+    AuthSettings:
+      type: object
+      required: [revision, oidc_enabled, issuer_url, client_id, scopes, binding, local_login_enabled, session_ttl_hours, client_secret_configured, effective_source]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+        oidc_enabled:
+          type: boolean
+        issuer_url:
+          type: [string, "null"]
+          format: uri
+        client_id:
+          type: [string, "null"]
+        client_secret_configured:
+          type: boolean
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        binding:
+          oneOf:
+            - $ref: "#/components/schemas/OIDCBinding"
+            - type: "null"
+        local_login_enabled:
+          type: boolean
+        session_ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 2160
+        effective_source:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [database, environment, default]
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+        updated_by:
+          type: [string, "null"]
+          format: uuid
+    AuthSettingsUpdate:
+      type: object
+      required: [revision, oidc_enabled, issuer_url, client_id, scopes, local_login_enabled, session_ttl_hours]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+          description: 0 表示首次创建；非零必须匹配当前 revision。
+        oidc_enabled:
+          type: boolean
+        issuer_url:
+          type: [string, "null"]
+          format: uri
+        client_id:
+          type: [string, "null"]
+        client_secret:
+          type: string
+          description: 省略表示保持不变；空字符串表示清除；非空字符串表示替换；null 被拒绝。
+        current_password:
+          type: string
+          format: password
+          description: 仅在将 local_login_enabled 从 true 改为 false 时必需；不会持久化或回显。
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        local_login_enabled:
+          type: boolean
+        session_ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 2160
+    AuthTestRequest:
+      type: object
+      required: [issuer_url]
+      properties:
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: [string, "null"]
+    OIDCDiscovery:
+      type: object
+      required: [issuer, authorization_endpoint, token_endpoint, jwks_uri]
+      properties:
+        issuer:
+          type: string
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        jwks_uri:
+          type: string
+          format: uri
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+    AuthTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        discovery:
+          $ref: "#/components/schemas/OIDCDiscovery"
+        warnings:
+          type: array
+          items:
+            type: string
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
     RuntimeVersion:
       type: object
       required: [version, commit, built_at]

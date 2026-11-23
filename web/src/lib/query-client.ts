@@ -3,6 +3,8 @@ import { ApiError } from "./api";
 
 export const queryKeys = {
   session: ["auth", "me"] as const,
+  authConfig: ["auth", "config"] as const,
+  authSettings: ["settings", "auth"] as const,
   version: ["system", "version"] as const,
   overview: (filters: object = {}) => ["overview", filters] as const,
   requests: (filters: object = {}) => ["requests", filters] as const,

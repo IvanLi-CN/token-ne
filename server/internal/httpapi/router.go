@@ -24,6 +24,8 @@ import (
 type API struct {
 	cfg        config.Config
 	repo       store.Repository
+	oidc       *auth.OIDC
+	metrics    *metrics.Registry
 	loginMu    sync.Mutex
 	attempts   map[string]loginWindow
 	loginSlots chan struct{}
@@ -48,20 +50,25 @@ type adminError struct {
 
 // NewRouter accepts a repository interface so handlers can be verified without PostgreSQL.
 func NewRouter(cfg config.Config, repo store.Repository) http.Handler {
-	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
+	a := newAPI(cfg, repo)
 	return newRouter(cfg, repo, a, nil)
 }
 
 // NewRouterWithUsage registers protocol ingestion and authenticated usage query
 // endpoints alongside the management API.
 func NewRouterWithUsage(cfg config.Config, repo store.Repository, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
-	a := &API{cfg: cfg, repo: repo, attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
+	a := newAPI(cfg, repo)
 	return newRouter(cfg, repo, a, registry, append([]RouteRegistrar{func(m *http.ServeMux) { registerUsage(m, a, registry) }}, registrars...)...)
+}
+
+func newAPI(cfg config.Config, repo store.Repository) *API {
+	return &API{cfg: cfg, repo: repo, oidc: auth.NewOIDC(auth.OIDCOptions{CAFile: cfg.OIDCCaFile}), attempts: map[string]loginWindow{}, loginSlots: make(chan struct{}, 4)}
 }
 
 type RouteRegistrar func(*http.ServeMux)
 
 func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metrics.Registry, registrars ...RouteRegistrar) http.Handler {
+	a.metrics = registry
 	m := http.NewServeMux()
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	m.HandleFunc("GET /readyz", a.ready)
@@ -69,6 +76,13 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("POST /api/auth/login", a.login)
 	m.HandleFunc("POST /api/auth/logout", a.protect(a.logout))
 	m.HandleFunc("GET /api/auth/me", a.protect(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, currentAdmin(r)) }))
+	m.HandleFunc("GET /api/auth/config", a.authConfig)
+	m.HandleFunc("GET /api/auth/oidc/start", a.oidcStart)
+	m.HandleFunc("GET /api/auth/oidc/callback", a.oidcCallback)
+	m.HandleFunc("POST /api/auth/oidc/bind/start", a.protect(a.oidcBindStart))
+	m.HandleFunc("GET /api/settings/auth", a.protect(a.getAuthSettings))
+	m.HandleFunc("PUT /api/settings/auth", a.protect(a.updateAuthSettings))
+	m.HandleFunc("POST /api/settings/auth/test", a.protect(a.testAuthSettings))
 	m.HandleFunc("GET /api/models", a.protect(a.listModels))
 	m.HandleFunc("POST /api/models", a.protect(a.saveModel))
 	m.HandleFunc("GET /api/models/{model_id}", a.protect(a.getModel))
