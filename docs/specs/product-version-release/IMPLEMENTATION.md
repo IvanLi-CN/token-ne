@@ -4,9 +4,9 @@
 
 ## Current Status
 
-- Implementation: 已实现并发布 0.0.3；`latest` 可变部署通道已纳入
+- Implementation: 已实现并发布至 0.0.5；本变更新增的同版本核心自动部署尚未发布
 - Lifecycle: active
-- Catalog note: release workflow 已产生 `v0.0.1`、`v0.0.2`、`v0.0.3`；latest 通道在 publish job 中更新
+- Catalog note: release workflow 已产生 `v0.0.1` 至 `v0.0.5`；latest 通道在 publish job 中更新
 
 ## Implementation Coverage
 
@@ -15,13 +15,14 @@
   - `REQ-PVR-004`、`REQ-PVR-009`: `core/build.rs`、`server/internal/version`、`core/Dockerfile`、`server/Dockerfile`
   - `REQ-PVR-005`、`REQ-PVR-006`、`REQ-PVR-010`: release workflow 的 web/core/API/publish job、Docker build args 和 latest 通道验证
   - `REQ-PVR-007`: `server/internal/httpapi/version.go`、`web/src/components/version-badge.tsx`
+  - `REQ-PVR-011`: `server/internal/cores/runtime.go`、`server/cmd/api/main.go`、`ops/compose.yaml`、`ops/caddy/bootstrap.json`
 - Verification commands:
   - `python3 -m unittest discover -s ops/release -p 'test_*.py'`
   - `cd core && APP_VERSION=9.9.9 cargo test`
   - `cd server && go test ./...`
   - `cd web && bun run typecheck && bun run lint && bun run test && VITE_APP_VERSION=9.9.9 bun run build`
   - `bun --no-install <skills>/bin/spec_contract_check.ts --path docs/specs/product-version-release/SPEC.md`
-- Rollout facts: `v0.0.1`、`v0.0.2`、`v0.0.3` 已发布；`0.0.3` 已部署到 101。latest 是部署通道，不作为 release identity。
+- Rollout facts: `v0.0.1` 至 `v0.0.5` 已发布；101 当前控制面为 `0.0.5`，活动核心为 `0.0.3`。本代码尚未发布或应用到 101。`latest` 是控制面部署通道，不作为 core 实例身份。
 
 ## Planned Implementation
 
@@ -48,6 +49,8 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 - `web/vite.config.ts` 注入 `VITE_APP_VERSION`，构建时生成 `web/dist/version.json`。
 - Web 版本展示读取 `GET /api/version`，不直接使用 `web/package.json`。
 - 开发构建报告 manifest 默认版本；发布构建显示精确 `X.Y.Z`。
+- 控制面以同一构建注入的 `version.Version` 与 commit 登记当前 core 版本，缺少同版本 active/warming 实例时自动创建精确 tag 的部署；控制循环周期性重试，API 重启和滚动版本升级均保持幂等。
+- Compose 不声明 core service；Caddy bootstrap 的 `/v1/*` 路由为空池时 fail-closed 返回 503，核心配置确认后由运行时完整配置接管。
 
 ### CI efficiency
 
@@ -91,18 +94,17 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 
 ## Coverage / rollout summary
 
-- 当前尚未记录额外 rollout 事实。
-- 首个实际发布 target 由 owner 在发布时选择；无 final tag 时 baseline 为 `0.0.0`。
+- 101 当前运行控制面 0.0.5、动态核心 0.0.3；本代码变更尚未发布或应用到 101。
+- 无新增 release identity；本变更只改变运行时 core 选择与部署方式。
 
 ## Remaining Gaps
 
 - GHCR package 权限、tag protection 和 `GITHUB_TOKEN` 权限属于 owner 侧前置条件。
-- latest 通道的远端实际更新仍需在下一次发布时验证。
-- 控制面可用 latest 自动更新；动态 core 的自动升级仍需控制面实现版本发现和部署流程。
+- 自动部署失败会保留原版本流量并停止该产品版本的自动重试；需要由管理员检查失败部署后手动重新部署。
 
 ## Related Changes
 
-- None
+- [ADR 0013](../../adr/0013-runtime-managed-core-lifecycle.md)
 
 ## References
 

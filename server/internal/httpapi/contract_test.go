@@ -505,6 +505,9 @@ func TestAdminOpenAPIContracts(t *testing.T) {
 	if strings.Contains(w.Body.String(), "secret-value") || u.LastFour != "1234" {
 		t.Fatal("secret leak or missing hint")
 	}
+	if u.BaseURL != "https://api.example" || f.upstreams[u.ID].BaseURL != "https://api.example" {
+		t.Fatalf("implicit version segment was not canonicalized: response=%q stored=%q", u.BaseURL, f.upstreams[u.ID].BaseURL)
+	}
 	run("GET", "/api/upstreams", "/api/upstreams", "", 200)
 	run("GET", "/api/upstreams/"+u.ID, "/api/upstreams/{upstream_id}", "", 200)
 	run("PUT", "/api/upstreams/"+u.ID, "/api/upstreams/{upstream_id}", `{"name":"upstream-a","kind":"api_key","base_url":"https://api.example/v1","auth_style":"bearer","api_key":null,"enabled":true,"models":[]}`, 200)
@@ -582,7 +585,7 @@ func TestUpstreamProbe(t *testing.T) {
 	seen := 0
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen++
-		if r.URL.Path != "/v1/models" || r.Header.Get("Authorization") != "Bearer probe-secret" {
+		if r.URL.Path != "/step_plan/v1/models" || r.Header.Get("Authorization") != "Bearer probe-secret" {
 			t.Error("invalid probe request")
 		}
 		w.WriteHeader(200)
@@ -591,7 +594,7 @@ func TestUpstreamProbe(t *testing.T) {
 	h, f, cfg, cookie := testAPI(t)
 	cipher, nonce, _ := auth.Encrypt(cfg.MasterKey, "probe-secret")
 	id := uuid.NewString()
-	f.upstreams[id] = store.Upstream{ID: id, Name: "probe", Kind: "api_key", BaseURL: up.URL, AuthStyle: "bearer", Connect: 1000, FirstByte: 1000, Idle: 1000, Models: []store.Capability{}, Ciphertext: cipher, Nonce: nonce}
+	f.upstreams[id] = store.Upstream{ID: id, Name: "probe", Kind: "api_key", BaseURL: up.URL + "/step_plan/v1", AuthStyle: "bearer", Connect: 1000, FirstByte: 1000, Idle: 1000, Models: []store.Capability{}, Ciphertext: cipher, Nonce: nonce}
 	w := request(h, cfg, cookie, "POST", "/api/upstreams/"+id+"/test", "")
 	if w.Code != 200 || seen != 1 {
 		t.Fatalf("probe %d %s requests=%d", w.Code, w.Body.String(), seen)

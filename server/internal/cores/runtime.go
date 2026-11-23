@@ -39,9 +39,13 @@ type Runtime struct {
 	SignatureMode         string
 	CacheKey              string
 	AllowPrivateUpstreams string
+	CurrentVersion        string
+	CurrentCommit         string
 	mu                    sync.Mutex
 	lifecycle             sync.Mutex
 	deployMu              sync.Mutex
+	currentMu             sync.Mutex
+	currentRetryAfter     time.Time
 }
 
 // Target is the client-supplied part of a core version registration. The image
@@ -127,6 +131,82 @@ func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (VersionView, e
 	}
 	return VersionView{ID: versionID, Version: v.Version, ImageRef: image, ImageDigest: v.Digest, DigestPinned: digestPinned, Protocol: v.Protocol,
 		SchemaMin: v.SchemaMin, SchemaMax: v.SchemaMax, Commit: v.Commit, Created: time.Now().UTC()}, nil
+}
+
+// EnsureCurrent registers and deploys the core image matching the running
+// control-plane release. Existing active or warming instances make the
+// operation idempotent, so API restarts cannot create a second rollout for the
+// same release, and backs off transient startup failures for 30 seconds.
+func (r *Runtime) EnsureCurrent(ctx context.Context) (err error) {
+	current := strings.TrimSpace(r.CurrentVersion)
+	if current == "" || current == "0.0.0-dev" {
+		return nil
+	}
+	now := time.Now()
+	r.currentMu.Lock()
+	if now.Before(r.currentRetryAfter) {
+		r.currentMu.Unlock()
+		return nil
+	}
+	r.currentRetryAfter = now.Add(30 * time.Second)
+	r.currentMu.Unlock()
+	defer func() {
+		if err == nil {
+			r.currentMu.Lock()
+			r.currentRetryAfter = time.Time{}
+			r.currentMu.Unlock()
+		}
+	}()
+
+	registered, err := r.versionImage(ctx, current)
+	if errors.Is(err, ErrUnknown) {
+		var commit *string
+		if value := strings.TrimSpace(r.CurrentCommit); value != "" && value != "unknown" {
+			commit = &value
+		}
+		if _, err = r.RegisterVersion(ctx, Target{Version: current, Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema, Commit: commit}); err != nil {
+			return err
+		}
+		registered, err = r.versionImage(ctx, current)
+	}
+	if err != nil {
+		return err
+	}
+	if registered.Protocol != Protocol || registered.SchemaMin > Schema || registered.SchemaMax < Schema {
+		return ErrCompatibility
+	}
+
+	var occupied, deploying, failed bool
+	if err = r.database().QueryRow(ctx, `select exists(
+		select 1 from core_instances i
+		join core_versions v on v.id=i.version_id
+		where v.version=$1 and i.state not in ('stopped','pruned','pruning','failed')
+	)`, current).Scan(&occupied); err != nil {
+		return err
+	}
+	if err = r.database().QueryRow(ctx, `select exists(
+		select 1 from core_deployments
+		where state not in ('completed','failed','rolled_back')
+	)`).Scan(&deploying); err != nil {
+		return err
+	}
+	if err = r.database().QueryRow(ctx, `select exists(
+		select 1 from core_deployments d
+		join core_versions v on v.id=d.to_version_id
+		where v.version=$1 and d.state in ('failed','rolled_back')
+	)`, current).Scan(&failed); err != nil {
+		return err
+	}
+	if occupied || deploying {
+		return nil
+	}
+	if failed {
+		return nil
+	}
+
+	autoAdvance := true
+	_, err = r.Deploy(ctx, "system", DeploymentRequest{Version: current, Replicas: 1, InitialWeight: 0, AutoAdvance: &autoAdvance})
+	return err
 }
 
 // versionImageRow is the registered image identity and compatibility range a
@@ -450,6 +530,11 @@ func (r *Runtime) Run(ctx context.Context) {
 		slog.Warn("core startup reconciliation failed", "error", e)
 	}
 	cancel()
+	bootstrap, cancelBootstrap := context.WithTimeout(ctx, imagePullTimeout+2*time.Minute)
+	if e := r.EnsureCurrent(bootstrap); e != nil {
+		slog.Warn("current core bootstrap failed", "version", r.CurrentVersion, "error", e)
+	}
+	cancelBootstrap()
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -461,7 +546,7 @@ func (r *Runtime) Run(ctx context.Context) {
 			operations := []struct {
 				name string
 				run  func(context.Context) error
-			}{{"config", r.PushAll}, {"drain", r.observeDrains}, {"deployment", r.advance}, {"reconcile", r.Reconcile}}
+			}{{"config", r.PushAll}, {"drain", r.observeDrains}, {"deployment", r.advance}, {"current", r.EnsureCurrent}, {"reconcile", r.Reconcile}}
 			for _, op := range operations {
 				if e := op.run(c); e != nil {
 					slog.Warn("core control reconciliation failed", "operation", op.name, "error", e)
@@ -522,18 +607,20 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		}
 		byInstance[id] = c
 	}
-	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state from core_instances i join core_versions v on v.id=i.version_id for update of i`)
+	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state,i.weight,i.deployment_id::text from core_instances i join core_versions v on v.id=i.version_id for update of i`)
 	if e != nil {
 		return e
 	}
 	type existing struct {
 		id, versionID, version, name, state string
 		containerID                         *string
+		weight                              int
+		deploymentID                        *string
 	}
 	existingRows := []existing{}
 	for rows.Next() {
 		var v existing
-		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state); e != nil {
+		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state, &v.weight, &v.deploymentID); e != nil {
 			rows.Close()
 			return e
 		}
@@ -547,15 +634,25 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		id, version, name, state, containerID := row.id, row.version, row.name, row.state, row.containerID
 		c, exists := byInstance[id]
 		if !exists {
+			if row.deploymentID == nil {
+				if row.weight > 0 {
+					return fmt.Errorf("%w: missing legacy Compose core %s still carries traffic", ErrConflict, row.name)
+				}
+				if state != "stopped" && state != "pruned" && state != "pruning" {
+					if _, e = tx.Exec(ctx, `update core_instances set state='stopped',weight=0,lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id); e != nil {
+						return e
+					}
+				}
+				continue
+			}
 			if state != "failed" && state != "stopped" && state != "pruned" && state != "pruning" {
 				var image string
 				var digest *string
 				if e = tx.QueryRow(ctx, `select image_ref,image_digest from core_versions where id=$1`, row.versionID).Scan(&image, &digest); e != nil {
 					return e
 				}
-				// Prefer the recorded image: the Compose baseline may use
-				// CORE_IMAGE rather than the dynamic repository. Fall back to the
-				// configured repository only for legacy rows without a valid ref.
+				// Prefer the recorded image. Fall back to the
+				// configured repository for legacy rows without a valid ref.
 				if ref, parseErr := ParseImageReference(image); parseErr == nil {
 					if digest != nil && ref.Digest == "" {
 						image = ref.WithDigest(*digest).String()
@@ -569,7 +666,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 					return e
 				}
-				spec := ContainerSpec{Instance: id, Version: version, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams}
+				spec := ContainerSpec{Instance: id, Version: version, Deployment: *row.deploymentID, Name: name, Image: image, Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token, SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams}
 				if createErr := r.Docker.EnsureStateDir(ctx, spec.StateHostDir, spec.Instance); createErr != nil {
 					return createErr
 				}
@@ -589,6 +686,42 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 			continue
 		}
 		delete(byInstance, id)
+		if c.Labels[DeploymentLabel] == "" {
+			if row.weight > 0 {
+				return fmt.Errorf("%w: legacy Compose core %s still carries traffic", ErrConflict, c.Name)
+			}
+			// Keep legacy core state until an authenticated status confirms it is safe to stop.
+			var status *Status
+			if c.State == "running" {
+				legacyName := strings.TrimPrefix(c.Name, "/")
+				if len(c.Names) > 0 {
+					legacyName = strings.TrimPrefix(c.Names[0], "/")
+				}
+				statusCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				observed, statusErr := r.Peer.Status(statusCtx, legacyName+":8080", id)
+				cancel()
+				if statusErr != nil || observed.Validate(time.Now()) != nil || observed.Instance != id || *observed.Inflight != 0 || observed.Spool.Unacked == nil || *observed.Spool.Unacked != 0 {
+					return fmt.Errorf("%w: legacy Compose core %s has unconfirmed in-flight requests or usage spool", ErrConflict, legacyName)
+				}
+				status = &observed
+				if e = r.Docker.Stop(ctx, c.ID, 30*time.Second); e != nil {
+					return e
+				}
+			}
+			if status != nil {
+				statusRaw, marshalErr := json.Marshal(status)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,inflight=$4,spool_unacked=$5,control_status=$6,observed_at=now(),lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, strings.TrimPrefix(c.Name, "/"), *status.Inflight, *status.Spool.Unacked, statusRaw)
+			} else {
+				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, strings.TrimPrefix(c.Name, "/"))
+			}
+			if e != nil {
+				return e
+			}
+			continue
+		}
 		if state == "pruned" || state == "pruning" {
 			continue
 		}
@@ -628,6 +761,14 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		return e
 	}
 	for id, c := range byInstance {
+		if c.Labels[DeploymentLabel] == "" {
+			if c.State == "running" {
+				if e = r.Docker.Stop(ctx, c.ID, 30*time.Second); e != nil {
+					return e
+				}
+			}
+			continue
+		}
 		version := c.Labels[VersionLabel]
 		var versionID string
 		e = tx.QueryRow(ctx, `select id::text from core_versions where version=$1`, version).Scan(&versionID)

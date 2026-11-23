@@ -26,7 +26,7 @@ def check():
     services = compose['services']
     expected = {'postgres': {'data'}, 'socket-proxy': {'data'},
                 'api': {'edge', 'core-control', 'data'}, 'caddy-init': set(),
-                'caddy': {'edge'}, 'core': {'edge', 'core-control'}}
+                'caddy': {'edge'}}
     require(set(services) == set(expected), 'unexpected Compose services')
     require(set(compose['networks']) == {'edge', 'core-control', 'data'}, 'network set changed')
     for name, networks in expected.items():
@@ -66,9 +66,7 @@ def check():
     require(routes[0]['handle'] == [{'handler': 'static_response', 'status_code': 404, 'body': 'not found'}], 'internal route must return 404')
     require(routes[1]['match'] == [{'path': ['/v1/*']}], 'v1 matcher changed')
     proxy = routes[1]['handle'][0]
-    require(proxy['@id'] == 'token-ne-v1-proxy' and proxy['flush_interval'] == -1, 'stable proxy ID and immediate SSE flush required')
-    require(proxy['upstreams'] == [{'dial': 'core:8080'}], 'v1 must target baseline core')
-    require(proxy['health_checks']['active']['uri'] == '/readyz', 'core readiness probe required')
+    require(proxy == {'handler': 'static_response', 'status_code': 503, '@id': 'token-ne-v1-proxy'}, 'v1 must fail closed before a managed core is ready')
     require(routes[2]['match'] == [{'path': ['/api/*', '/healthz', '/readyz']}], 'API paths changed')
     require('match' not in routes[3], 'SPA fallback must be unconditional')
     for route in routes[2:]:

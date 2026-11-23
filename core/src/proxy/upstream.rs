@@ -25,6 +25,16 @@ pub fn target_url(
     ) {
         return Err(ConfigError("request.path".into()));
     }
+    let mut base = base;
+    let has_trailing_v1 = base.path_segments().is_some_and(|segments| {
+        segments.filter(|segment| !segment.is_empty()).last() == Some("v1")
+    });
+    if has_trailing_v1 {
+        base.path_segments_mut()
+            .map_err(|_| ConfigError("upstreams.base_url".into()))?
+            .pop_if_empty()
+            .pop();
+    }
     let mut url = url::Url::parse(&format!("{}{}", base.as_str().trim_end_matches('/'), path))
         .map_err(|_| ConfigError("upstreams.base_url".into()))?;
     url.set_query(query);

@@ -40,23 +40,9 @@
               ],
               "handle": [
                 {
-                  "handler": "reverse_proxy",
-                  "upstreams": [
-                    {
-                      "dial": "core:8080"
-                    }
-                  ],
-                  "health_checks": {
-                    "active": {
-                      "uri": "/readyz",
-                      "interval": "5s",
-                      "timeout": "2s",
-                      "passes": 2,
-                      "fails": 3
-                    }
-                  },
-                  "@id": "token-ne-v1-proxy",
-                  "flush_interval": -1
+                  "handler": "static_response",
+                  "status_code": 503,
+                  "@id": "token-ne-v1-proxy"
                 }
               ],
               "terminal": true

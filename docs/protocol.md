@@ -317,7 +317,7 @@ Idempotency-Key: <batch_id>
 }
 ```
 
-完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；`upstreams[].base_url` 不含隐式版本段，core 按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
+完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；`upstreams[].base_url` 的规范格式不含隐式版本段。历史配置末尾带 `/v1` 时，core 只规范化末尾版本段后再按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
 
 配置中的未知字段必须忽略；缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
 
@@ -341,7 +341,7 @@ Idempotency-Key: <batch_id>
 - `revision` 必须大于已应用 revision；相同且请求体字节与已应用版本完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。比较不依赖可选签名；核心保留已应用 revision 的原始字节或 SHA-256。
 - `config_schema_version` 必须在核心声明的范围内。
 - 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记自身权威。控制面不得向未声明能力的核心发送依赖该能力的配置。
-- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
+- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），规范格式不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址；历史末尾 `/v1` 后缀由 core 兼容剥离。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
 - `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。

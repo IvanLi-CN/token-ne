@@ -5,8 +5,8 @@
 ## Context and Scope
 
 - Context: token-ne 需要一个可审计、可恢复的产品版本发布能力，使 core、控制面 API 和内嵌 Web 使用同一个发布版本，同时保持核心控制协议版本独立。
-- In scope: release target 选择、canonical version 解析、tag/Release/镜像身份、构建注入、UI 版本展示、发布失败恢复。
-- Out of scope: 控制面与 core 的自动部署实现、PR label release、发布队列、SemVer 兼容性自动分类、数据库迁移版本管理、core 控制协议版本管理。
+- In scope: release target 选择、canonical version 解析、tag/Release/镜像身份、构建注入、UI 版本展示、发布失败恢复、控制面按自身运行版本自动部署同版本 core。
+- Out of scope: PR label release、发布队列、SemVer 兼容性自动分类、数据库迁移版本管理、core 控制协议版本管理。
 
 ## Terms and Interfaces
 
@@ -82,6 +82,14 @@
 - Inputs: workflow jobs、cache 配置、artifact。
 - Outputs: 单次前端构建、并行 core/web 构建、无多架构 QEMU 的 `linux/amd64` 产物。
 
+### REQ-PVR-011
+
+- 运行中的控制面 MUST 以自身 `GET /api/version` 使用的构建版本登记并部署相同产品版本的 core；MUST NOT 依赖 Compose 声明的基线核心或让动态 core 使用 `latest`。
+- 当该版本已有运行中或预热实例，或存在进行中的部署时，控制循环 MUST 幂等复用，不得重复创建同版本部署；新实例必须通过现有配置确认和权重切换流程后才能接流量。
+- 同版本自动部署失败 MUST 保留现有流量实例、停止该版本的自动重建，并要求管理员检查后显式重试；短暂镜像拉取或 Docker 错误可以受限频率重试，不得每个控制循环都重建 deployment。
+- Inputs: 控制面构建版本与 commit、核心镜像仓库、已登记版本/实例/部署状态。
+- Outputs: 通过兼容检查的同版本精确镜像动态 core 部署；控制面启动或更新失败时 Caddy 的空核心池保持 503。
+
 ## Verification
 
 ### VER-PVR-001
@@ -144,10 +152,17 @@
 - covers: `REQ-PVR-010`
 - Pass condition: 前端只构建一次；core 与 web 并行；PR CI 不构建生产镜像。
 
+### VER-PVR-011
+
+- Method: 核心运行时测试覆盖首次按 API 版本登记并部署、API 重启后同版本部署去重、已有旧版本活动时保留零停机升级、空核心池 Caddy 配置返回 503。
+- covers: `REQ-PVR-011`
+- Pass condition: 启动引导创建的 core 产品版本与 API 运行时版本完全相同；新 core 未完成配置确认前不能进入 Caddy；同版本重复 reconcile 不创建第二个 deployment。
+
 ## Related ADRs
 
 - [ADR 0010: 产品版本采用 target-only 手动发布并统一 core、API、Web](../../adr/0010-product-version-release.md)
 - [ADR 0011: 发布同时提供不可变版本和可变部署通道](../../adr/0011-mutable-deployment-channel.md)
+- [ADR 0013: 运行时管理全部核心实例](../../adr/0013-runtime-managed-core-lifecycle.md)
 
 ## Visual Evidence
 

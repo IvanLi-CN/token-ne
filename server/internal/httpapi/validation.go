@@ -23,6 +23,21 @@ type Detail struct {
 }
 
 func detail(p, r string) []Detail { return []Detail{{p, r}} }
+
+func normalizeUpstreamBaseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	path := strings.TrimRight(u.Path, "/")
+	if path != "/v1" && !strings.HasSuffix(path, "/v1") {
+		return raw
+	}
+	u.Path = strings.TrimSuffix(path, "/v1")
+	u.RawPath = ""
+	return u.String()
+}
+
 func validName(s string, max int) bool {
 	return strings.TrimSpace(s) != "" && utf8.RuneCountInString(s) <= max && !strings.ContainsFunc(s, unicode.IsControl)
 }

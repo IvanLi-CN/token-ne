@@ -354,7 +354,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 ### 可运维性
 
-- 一条 `docker compose up -d` 启动控制面、数据库、Caddy 和基线核心。
+- 一条 `docker compose up -d` 启动控制面、数据库和 Caddy；控制面随后自动部署与自身发布版本一致的动态核心。
 - 健康检查区分 liveness 和 readiness。
 - 关键状态有 Prometheus 指标和结构化日志。
 - 升级、回滚、排水有文档化步骤和可观察状态。
