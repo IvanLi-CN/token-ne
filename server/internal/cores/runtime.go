@@ -733,9 +733,9 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 				if marshalErr != nil {
 					return marshalErr
 				}
-				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,inflight=$4,spool_unacked=$5,control_status=$6,observed_at=now(),lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, strings.TrimPrefix(c.Name, "/"), *status.Inflight, *status.Spool.Unacked, statusRaw)
+				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,inflight=$4,spool_unacked=$5,control_status=$6,observed_at=now(),lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, containerName(c), *status.Inflight, *status.Spool.Unacked, statusRaw)
 			} else {
-				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, strings.TrimPrefix(c.Name, "/"))
+				_, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state='stopped',weight=0,lifecycle_error='legacy Compose core retired',updated_at=now() where id=$1`, id, c.ID, containerName(c))
 			}
 			if e != nil {
 				return e
@@ -816,12 +816,18 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		name := strings.TrimPrefix(c.Name, "/")
-		if len(c.Names) > 0 {
-			name = strings.TrimPrefix(c.Names[0], "/")
+		name := containerName(c)
+		deployment := c.Labels[DeploymentLabel]
+		var recorded bool
+		if e = tx.QueryRow(ctx, `select exists(select 1 from core_deployments where id=$1)`, deployment).Scan(&recorded); e != nil {
+			return e
 		}
-		if _, e = tx.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,weight,state,inflight,state_dir,spool_unacked)
-		values($1,$2,$3,$4,$4||':8080',0,'pending',0,$5,0) on conflict(id) do nothing`, id, versionID, c.ID, name, r.StateHostDir); e != nil {
+		if !recorded {
+			slog.Warn("untracked managed core has no deployment record; leaving it for manual retirement", "instance", id, "container", name, "deployment", deployment)
+			continue
+		}
+		if _, e = tx.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,weight,state,inflight,state_dir,spool_unacked,deployment_id)
+		values($1,$2,$3,$4,$4||':8080',0,'pending',0,$5,0,$6) on conflict(id) do nothing`, id, versionID, c.ID, name, r.StateHostDir, deployment); e != nil {
 			return e
 		}
 		if c.State != "running" {

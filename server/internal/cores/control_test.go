@@ -448,6 +448,80 @@ func TestLegacyComposeCoreWithPendingSpoolIsNotStopped(t *testing.T) {
 	}
 }
 
+func TestLegacyRetirementPersistsDockerListName(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "legacy", Names: []string{"/token-ne-core"}, State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
+	var retired []any
+	db := &fakeDB{rows: func(string, []any) [][]any {
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil}}
+	}}
+	db.exec = func(q string, args []any) error {
+		if strings.Contains(q, "lifecycle_error='legacy Compose core retired'") {
+			retired = append([]any{}, args...)
+		}
+		return nil
+	}
+	status := validStatus()
+	status.Instance, status.Version = id, "0.0.3"
+	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: status}, Project: "test"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(retired) < 3 || retired[2] != "token-ne-core" {
+		t.Fatalf("retired core persisted an empty identity: args=%v", retired)
+	}
+}
+
+func TestAdoptedManagedCorePersistsDeployment(t *testing.T) {
+	id := uuid.NewString()
+	deployment := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "managed", Names: []string{"/managed"}, State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", DeploymentLabel: deployment, "com.docker.compose.project": "test"}}}}
+	var inserted []any
+	db := &fakeDB{row: func(q string, _ []any) fakeRow {
+		switch {
+		case strings.Contains(q, "from core_versions where version=$1"):
+			return fakeRow{values: []any{"version-id"}}
+		case strings.Contains(q, "from core_deployments where id=$1"):
+			return fakeRow{values: []any{true}}
+		}
+		return fakeRow{err: pgx.ErrNoRows}
+	}}
+	db.exec = func(q string, args []any) error {
+		if strings.Contains(q, "insert into core_instances") {
+			inserted = append([]any{}, args...)
+		}
+		return nil
+	}
+	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: validStatus()}, Project: "test", StateHostDir: "/srv/cores"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(inserted) != 6 || inserted[5] != deployment {
+		t.Fatalf("adopted core lost its deployment identity: args=%v", inserted)
+	}
+}
+
+func TestAdoptedManagedCoreWithoutDeploymentRecordIsLeftRunning(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "managed", Names: []string{"/managed"}, State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", DeploymentLabel: uuid.NewString(), "com.docker.compose.project": "test"}}}}
+	db := &fakeDB{row: func(q string, _ []any) fakeRow {
+		if strings.Contains(q, "from core_versions where version=$1") {
+			return fakeRow{values: []any{"version-id"}}
+		}
+		if strings.Contains(q, "from core_deployments where id=$1") {
+			return fakeRow{values: []any{false}}
+		}
+		return fakeRow{err: pgx.ErrNoRows}
+	}}
+	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: validStatus()}, Project: "test", StateHostDir: "/srv/cores"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if docker.stops != 0 || strings.Contains(strings.Join(db.writes, "\n"), "insert into core_instances") {
+		t.Fatalf("core with unknown deployment was adopted or stopped: stops=%d writes=%v", docker.stops, db.writes)
+	}
+}
+
 func TestOrphanLegacyComposeCoreIsNotStopped(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "orphan", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
