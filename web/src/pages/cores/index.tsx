@@ -86,18 +86,26 @@ export default function CoresPage() {
   const cardsReady = data !== undefined;
   useEffect(() => {
     if (!cardsReady || !location.hash) return;
-    const scrollToCard = (fallback = false) => {
-      const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
-      if (!card) return;
-      card.scrollIntoView({
-        block: "start",
-        behavior:
-          fallback || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-            ? "instant"
-            : "smooth",
-      });
-    };
+    const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
+    if (!(card instanceof HTMLElement)) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const scrollToCard = (fallback = false) =>
+      card.scrollIntoView({ block: "start", behavior: fallback || reduced ? "instant" : "smooth" });
     scrollToCard();
+    const animation = new AbortController();
+    let pulseTimer = 0;
+    if (!reduced) {
+      // One pulse per navigation: restart the glow even for a repeated anchor.
+      card.classList.remove("cores-card-focus");
+      void card.offsetWidth;
+      card.classList.add("cores-card-focus");
+      card.addEventListener("animationend", () => card.classList.remove("cores-card-focus"), {
+        once: true,
+        signal: animation.signal,
+      });
+      // Belt and braces: some environments never dispatch animationend.
+      pulseTimer = window.setTimeout(() => card.classList.remove("cores-card-focus"), 1400);
+    }
     // The mobile drawer releases its scroll lock slightly after the navigation
     // commits, so retry once the lock is gone instead of losing the first call.
     // The last retry skips animation: some environments suppress smooth scrolls,
@@ -109,6 +117,9 @@ export default function CoresPage() {
       }, delay),
     );
     return () => {
+      animation.abort();
+      window.clearTimeout(pulseTimer);
+      card.classList.remove("cores-card-focus");
       for (const timer of retries) window.clearTimeout(timer);
     };
   }, [cardsReady, location]);
