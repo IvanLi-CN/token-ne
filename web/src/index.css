@@ -803,6 +803,9 @@ kbd {
   flex-direction: column;
   gap: 4px;
 }
+.system-layout {
+  padding-top: 32px;
+}
 .system-nav-title {
   padding: 0 10px;
   margin-bottom: 12px;
