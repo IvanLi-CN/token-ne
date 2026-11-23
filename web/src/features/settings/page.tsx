@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ConfirmDialog } from "../../components/confirm-dialog";
-import { Button, ErrorState, PageHeader, Spinner, StatusBadge } from "../../components/primitives";
+import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
 import { type AuthSettings, type AuthSettingsInput, authApi, settingsApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { errorMessage, Field, FormError } from "../models/management";
@@ -113,7 +113,7 @@ export default function SettingsPage() {
   if (settings.isPending) {
     return (
       <>
-        <PageHeader title="系统设置" description="管理员认证与 OIDC 登录。" />
+        <PageTitle title="系统设置" />
         <Spinner label="正在加载认证设置" />
       </>
     );
@@ -121,7 +121,7 @@ export default function SettingsPage() {
   if (settings.isError || !settings.data) {
     return (
       <>
-        <PageHeader title="系统设置" description="管理员认证与 OIDC 登录。" />
+        <PageTitle title="系统设置" />
         <ErrorState
           message={errorMessage(settings.error) ?? "认证设置加载失败"}
           onRetry={() => void settings.refetch()}
@@ -135,10 +135,7 @@ export default function SettingsPage() {
   const canBind = value.oidc_enabled && value.issuer_url && value.client_id;
   return (
     <>
-      <PageHeader
-        title="系统设置"
-        description="只覆盖管理员认证。OIDC 配置首次保存后以数据库为准；环境变量只用于尚未保存的部署。"
-      />
+      <PageTitle title="系统设置" />
       {params.get("oidc") === "bound" && (
         <p className="surface-card p-4 text-[var(--success)]" role="status">
           OIDC 身份绑定成功。
