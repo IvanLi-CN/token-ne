@@ -686,7 +686,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 			continue
 		}
 		delete(byInstance, id)
-		if c.Labels[DeploymentLabel] == "" {
+		if row.deploymentID == nil {
 			if row.weight > 0 {
 				return fmt.Errorf("%w: legacy Compose core %s still carries traffic", ErrConflict, c.Name)
 			}

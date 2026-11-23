@@ -366,6 +366,40 @@ func TestLegacyComposeCoreIsRetired(t *testing.T) {
 	}
 }
 
+func TestTrackedCoreWithoutDeploymentLabelIsReconciledAsManaged(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "managed", Name: "/managed", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", "com.docker.compose.project": "test"}}}}
+	db := &fakeDB{rows: func(string, []any) [][]any {
+		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment")}}
+	}}
+	status := validStatus()
+	status.Instance, status.Version = id, "0.0.5"
+	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: status}, Project: "test"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if docker.stops != 0 || strings.Contains(strings.Join(db.writes, "\n"), "legacy Compose core retired") {
+		t.Fatalf("tracked core without label was treated as legacy: stops=%d writes=%v", docker.stops, db.writes)
+	}
+}
+
+func TestTrackedWarmingCoreWithoutDeploymentLabelIsNotRetired(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "managed", Name: "/managed", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", "com.docker.compose.project": "test"}}}}
+	db := &fakeDB{rows: func(string, []any) [][]any {
+		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment")}}
+	}}
+	status := validStatus()
+	status.Instance, status.Version = id, "0.0.5"
+	r := Runtime{Pool: db, Docker: docker, Peer: &fakePeer{status: status}, Project: "test"}
+	if err := r.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if docker.stops != 0 {
+		t.Fatalf("warming managed core was stopped: stops=%d", docker.stops)
+	}
+}
+
 func TestMissingLegacyComposeCoreIsNotRecreated(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{}
