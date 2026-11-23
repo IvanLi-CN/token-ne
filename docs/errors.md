@@ -19,10 +19,11 @@
 
 | HTTP | type | code | 场景 |
 | --- | --- | --- | --- |
-| 400 | `invalid_request_error` | `invalid_request` | JSON、路径、方法或必需字段错误 |
+| 400 | `invalid_request_error` | `invalid_request` | JSON、必需字段或请求体错误 |
 | 401 | `authentication_error` | `invalid_api_key` | 缺失、错误或禁用的下游 Key |
 | 403 | `permission_error` | `model_not_allowed` | Key 的 `allowed_models` 不允许该模型 |
 | 404 | `not_found_error` | `model_not_found` | 模型不存在、禁用或不可见 |
+| 404 | `invalid_request_error` | `unknown_endpoint` | 未实现的 `/v1/*` 端点或错误方法，不隐式透传 |
 | 413 | `invalid_request_error` | `payload_too_large` | 请求体超过上限 |
 | 429 | `rate_limit_error` | `rate_limit_exceeded` | 本地并发或背压限制 |
 | 502 | `server_error` | `upstream_auth_failed` | 上游 401/403 |

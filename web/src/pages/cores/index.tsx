@@ -12,6 +12,7 @@ import {
   type Spool,
   type Version,
 } from "../../features/cores/api";
+import { DataPlaneSettingsCard } from "../../features/cores/data-plane-settings";
 import { displayNumber, displayTime } from "../../features/overview/usage";
 import { queryKeys } from "../../lib/query-client";
 
@@ -403,6 +404,7 @@ export default function CoresPage() {
                 />
               </div>
             </section>
+            <DataPlaneSettingsCard />
             <section className="surface-card" aria-labelledby="core-instances">
               <div className="panel-heading">
                 <h2 id="core-instances">核心实例</h2>

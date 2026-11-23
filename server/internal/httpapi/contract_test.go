@@ -40,9 +40,23 @@ type fakeRepo struct {
 	ingestFn          func(context.Context, usage.Batch) (usage.Result, error)
 	requests          []store.RequestSummary
 	queryErr          error
+	injection         *bool
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return f.pingErr }
+func (f *fakeRepo) StreamUsageInjection(context.Context) (bool, error) {
+	if f.injection == nil {
+		return false, store.ErrNotFound
+	}
+	return *f.injection, nil
+}
+
+func (f *fakeRepo) SetStreamUsageInjection(_ context.Context, enabled bool, a store.Audit) error {
+	f.injection = &enabled
+	a.Created = time.Now().UTC()
+	f.audits = append(f.audits, a)
+	return nil
+}
 func (f *fakeRepo) IngestUsage(ctx context.Context, b usage.Batch) (usage.Result, error) {
 	if f.ingestFn != nil {
 		return f.ingestFn(ctx, b)
@@ -259,7 +273,7 @@ func (f *fakeRepo) ConsumeAuthFlow(_ context.Context, id string, now time.Time) 
 }
 func testAPI(t *testing.T) (http.Handler, *fakeRepo, config.Config, *http.Cookie) {
 	t.Helper()
-	cfg := config.Config{PublicOrigin: "https://admin.example", SessionSecret: strings.Repeat("s", 32), MasterKey: make([]byte, 32), AllowPrivateUpstreams: true, LocalLoginEnabled: true, SessionTTLHours: 720, OIDCScopes: []string{"openid", "profile", "email"}}
+	cfg := config.Config{PublicOrigin: "https://admin.example", SessionSecret: strings.Repeat("s", 32), MasterKey: make([]byte, 32), AllowPrivateUpstreams: true, LocalLoginEnabled: true, SessionTTLHours: 720, OIDCScopes: []string{"openid", "profile", "email"}, StreamUsageInjection: true}
 	hash, e := auth.HashPassword("password")
 	if e != nil {
 		t.Fatal(e)
@@ -599,5 +613,45 @@ func TestMalformedAndInvalidWrites(t *testing.T) {
 		if tc.field != "" && !strings.Contains(w.Body.String(), tc.field) {
 			t.Fatalf("missing field path %s: %s", tc.field, w.Body.String())
 		}
+	}
+}
+
+func TestUnknownV1EndpointIsNotProxied(t *testing.T) {
+	h, _, _, _ := testAPI(t)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/unknown", nil))
+	if w.Code != 404 || !strings.Contains(w.Body.String(), `"code":"unknown_endpoint"`) {
+		t.Fatalf("unknown endpoint: %d %s", w.Code, w.Body.String())
+	}
+}
+func TestFailedLoginIsAudited(t *testing.T) {
+	h, repo, cfg, _ := testAPI(t)
+	w := request(h, cfg, nil, "POST", "/api/auth/login", `{"username":"admin","password":"wrong"}`)
+	if w.Code != 401 {
+		t.Fatalf("rejected login returned %d", w.Code)
+	}
+	if len(repo.audits) != 1 || repo.audits[0].Action != "auth.login_failed" || repo.audits[0].Actor != "admin" {
+		t.Fatalf("login failure not audited: %+v", repo.audits)
+	}
+}
+
+func TestDataPlaneSettingsDefaultAndConfirmedUpdate(t *testing.T) {
+	h, repo, cfg, cookie := testAPI(t)
+	get := func() string { return request(h, cfg, cookie, "GET", "/api/data-plane-settings", "").Body.String() }
+	if body := get(); !strings.Contains(body, `"stream_usage_injection":true`) {
+		t.Fatalf("default must stay enabled: %s", body)
+	}
+	if w := request(h, cfg, cookie, "PUT", "/api/data-plane-settings", `{"stream_usage_injection":null}`); w.Code != 422 {
+		t.Fatalf("null switch accepted: %d %s", w.Code, w.Body.String())
+	}
+	if w := request(h, cfg, cookie, "PUT", "/api/data-plane-settings", `{"stream_usage_injection":false}`); w.Code != 200 {
+		t.Fatalf("disable switch failed: %d %s", w.Code, w.Body.String())
+	}
+	if body := get(); !strings.Contains(body, `"stream_usage_injection":false`) {
+		t.Fatalf("stored switch not returned: %s", body)
+	}
+	last := repo.audits[len(repo.audits)-1]
+	if last.Action != "settings.data_plane.update" || last.Actor != "admin" || !strings.Contains(string(last.Payload), `"stream_usage_injection":false`) {
+		t.Fatalf("switch change not audited: %+v", last)
 	}
 }

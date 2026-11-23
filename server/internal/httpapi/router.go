@@ -100,6 +100,8 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("DELETE /api/downstream-keys/{key_id}", a.protect(a.deleteKey))
 	m.HandleFunc("POST /api/downstream-keys/{key_id}/rotate", a.protect(a.rotateKey))
 	m.HandleFunc("GET /api/audit", a.protect(a.listAudit))
+	m.HandleFunc("GET /api/data-plane-settings", a.protect(a.dataPlaneSettings))
+	m.HandleFunc("PUT /api/data-plane-settings", a.protect(a.saveDataPlaneSettings))
 	for _, register := range registrars {
 		register(m)
 	}
@@ -225,7 +227,7 @@ func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, require
 	for p, v := range obj {
 		if string(v) == "null" {
 			switch p {
-			case "enabled", "max_inflight", "name", "allowed_models", "models", "client_secret", "connect_timeout_ms", "first_byte_timeout_ms", "idle_timeout_ms":
+			case "enabled", "max_inflight", "name", "allowed_models", "models", "client_secret", "connect_timeout_ms", "first_byte_timeout_ms", "idle_timeout_ms", "stream_usage_injection":
 				fail(w, r, 422, "validation_failed", "field cannot be null", detail(p, "cannot be null"))
 				return false
 			}
@@ -288,8 +290,8 @@ type OpenAIErrorResponse struct {
 }
 
 func openAIUnavailable(w http.ResponseWriter, r *http.Request) {
-	code := "upstream_unavailable"
-	writeJSON(w, 503, OpenAIErrorResponse{Error: OpenAIError{Message: "data plane is served by the core", Type: "server_error", Code: &code}})
+	code := "unknown_endpoint"
+	writeJSON(w, 404, OpenAIErrorResponse{Error: OpenAIError{Message: "unknown endpoint", Type: "invalid_request_error", Code: &code}})
 }
 
 // ProtectRoute reuses the owning router's session validation for control handlers.

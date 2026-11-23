@@ -12,7 +12,7 @@ use std::sync::{Arc, atomic::Ordering};
 use token_ne_core::{
     config::{Config, ConfigCache, ValidationOptions},
     proxy::{body::RequestBody, routing, upstream},
-    server::{ServerState, router},
+    server::{ServerState, metrics_router, router},
     state::{ConfigSource, CoreState, SignatureMode, StateOptions},
     telemetry::{ControlPlane, PullResult},
 };
@@ -82,6 +82,7 @@ fn invalid_fixtures() {
         ("/downstream_keys/0/allowed_models", json!(["*", "gpt-5"])),
         ("/models/0/billing/input_usd_per_mtok", json!(-1)),
         ("/models/0/shutdown_date", json!("2026-02-30")),
+        ("/models/0/created_at", json!(253_402_300_800_i64)),
         ("/retry/max_attempts", json!(11)),
         ("/retry/retry_statuses", json!([599])),
         ("/retry/retry_statuses", json!([503, 503])),
@@ -361,6 +362,28 @@ async fn readiness_auth_catalog_and_error_priority() {
     assert!(!s.load_cache().unwrap());
     assert!(!s.load_override().unwrap());
     assert!(!s.ready());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let metrics = metrics_router(ServerState::new(s.clone(), "control".into()));
+    let response = metrics
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let s = configured();
     let app = router(ServerState::new(s.clone(), "control".into()));
     let missing = app
@@ -391,6 +414,10 @@ async fn readiness_auth_catalog_and_error_priority() {
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        body["data"][0],
+        json!({"id":"gpt-5","object":"model","created":1764806400,"owned_by":"token-ne","shutdown_date":null})
+    );
     assert_eq!(s.inflight.load(Ordering::Acquire), 0);
     let response = app
         .clone()
@@ -447,7 +474,40 @@ async fn readiness_auth_catalog_and_error_priority() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), 400);
+    assert_eq!(response.status(), 404);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "unknown_endpoint");
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+}
+#[tokio::test]
+async fn model_catalog_defaults_missing_created_at() {
+    let s = state();
+    let mut f = fixture();
+    f["models"][0]["created_at"] = Value::Null;
+    f["downstream_keys"][0]["sha256"] = hex::encode(Sha256::digest(b"test-key")).into();
+    s.apply(&bytes(&f), ConfigSource::ControlPlane, None)
+        .unwrap();
+    let response = router(ServerState::new(s, "control".into()))
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models")
+                .header("authorization", "Bearer test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    let model = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "gpt-5")
+        .unwrap();
+    assert_eq!(model["created"], 0);
 }
 #[test]
 fn body_rewrite_and_header_safety() {
@@ -468,6 +528,11 @@ fn body_rewrite_and_header_safety() {
     .unwrap();
     let v: Value = serde_json::from_slice(&b.rewrite("mapped", true).unwrap()).unwrap();
     assert_eq!(v["stream_options"]["include_usage"], false);
+    let b =
+        RequestBody::parse(bytes(&json!({"model":"public","stream":true,"messages":[]})).into())
+            .unwrap();
+    let v: Value = serde_json::from_slice(&b.rewrite("mapped", false).unwrap()).unwrap();
+    assert!(v.get("stream_options").is_none());
     let c = parse(&fixture()).unwrap();
     let mut incoming = axum::http::HeaderMap::new();
     for (n, v) in [

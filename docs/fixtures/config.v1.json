@@ -27,6 +27,7 @@
       "enabled": true,
       "default_upstream_model": "gpt-5-2026-xx",
       "shutdown_date": null,
+      "created_at": 1764806400,
       "billing": {
         "input_usd_per_mtok": 1.25,
         "cached_input_usd_per_mtok": 0.125,
@@ -38,6 +39,7 @@
       "enabled": true,
       "default_upstream_model": null,
       "shutdown_date": null,
+      "created_at": 1764806400,
       "billing": {
         "input_usd_per_mtok": 0.02,
         "cached_input_usd_per_mtok": null,

@@ -108,8 +108,8 @@ func main() {
 	proxy := caddy.New(caddySettings)
 	snapshots := &cores.Snapshots{DB: repo.Pool, Master: cfg.MasterKey, Token: controlToken,
 		SigningKey: os.Getenv("CORE_CONFIG_SIGNING_KEY"), SignatureMode: os.Getenv("CORE_CONFIG_SIGNATURE_MODE"),
-		BaseURL: "http://api:8080", PolicyPath: policyPath}
-	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy,
+		BaseURL: "http://api:8080", PolicyPath: policyPath, StreamUsageInjection: &cfg.StreamUsageInjection}
+	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy, Metrics: registry,
 		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
 		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", CoreImage: coreImage, Token: controlToken,
 		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
