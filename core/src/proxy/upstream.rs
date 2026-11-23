@@ -25,10 +25,11 @@ pub fn target_url(
     ) {
         return Err(ConfigError("request.path".into()));
     }
+    // Stored base URLs may still end in the implicit version segment.
     let mut base = base;
-    let has_trailing_v1 = base.path_segments().is_some_and(|segments| {
-        segments.filter(|segment| !segment.is_empty()).last() == Some("v1")
-    });
+    let has_trailing_v1 = base
+        .path_segments()
+        .is_some_and(|mut segments| segments.rfind(|segment| !segment.is_empty()) == Some("v1"));
     if has_trailing_v1 {
         base.path_segments_mut()
             .map_err(|_| ConfigError("upstreams.base_url".into()))?

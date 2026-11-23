@@ -29,12 +29,16 @@ func normalizeUpstreamBaseURL(raw string) string {
 	if err != nil {
 		return raw
 	}
-	path := strings.TrimRight(u.Path, "/")
+	path := strings.TrimRight(u.EscapedPath(), "/")
 	if path != "/v1" && !strings.HasSuffix(path, "/v1") {
 		return raw
 	}
-	u.Path = strings.TrimSuffix(path, "/v1")
-	u.RawPath = ""
+	path = strings.TrimSuffix(path, "/v1")
+	u.RawPath = path
+	u.Path, err = url.PathUnescape(path)
+	if err != nil {
+		return raw
+	}
 	return u.String()
 }
 

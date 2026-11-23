@@ -399,6 +399,25 @@ func TestLegacyComposeCoreWithPendingSpoolIsNotStopped(t *testing.T) {
 	}
 }
 
+func TestOrphanLegacyComposeCoreIsNotStopped(t *testing.T) {
+	id := uuid.NewString()
+	docker := &fakeDocker{containers: []Container{{ID: "orphan", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
+	db := &fakeDB{row: func(q string, _ []any) fakeRow {
+		if strings.Contains(q, "exists(select 1 from core_instances where lifecycle_error") {
+			return fakeRow{values: []any{false}}
+		}
+		return fakeRow{err: pgx.ErrNoRows}
+	}}
+	traffic := &fakeTraffic{}
+	r := Runtime{Pool: db, Docker: docker, Caddy: traffic, Project: "test"}
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if docker.stops != 0 || len(traffic.last) != 0 {
+		t.Fatalf("untracked legacy core was stopped or admitted: stops=%d backends=%v", docker.stops, traffic.last)
+	}
+}
+
 func TestEnsureCurrentDoesNotDuplicateActiveVersion(t *testing.T) {
 	repo := "ghcr.io/ivanli-cn/token-ne-core"
 	db := &fakeDB{row: func(q string, _ []any) fakeRow {
@@ -507,6 +526,8 @@ func TestSnapshotUpstreamBaseURLCanonicalization(t *testing.T) {
 	for _, tc := range []struct{ input, want string }{
 		{"https://api.example/v1", "https://api.example"},
 		{"https://api.example/step_plan/v1/", "https://api.example/step_plan"},
+		{"https://api.example/gateway%2Fv1", "https://api.example/gateway%2Fv1"},
+		{"https://api.example/gateway%2Fv1/v1", "https://api.example/gateway%2Fv1"},
 		{"https://api.example/v1/compatible", "https://api.example/v1/compatible"},
 	} {
 		if got := normalizeSnapshotUpstreamBaseURL(tc.input); got != tc.want {

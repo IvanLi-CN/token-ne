@@ -70,6 +70,8 @@ func TestNormalizeUpstreamBaseURLRemovesOnlyTrailingVersionSegment(t *testing.T)
 		{"https://api.example/v1", "https://api.example"},
 		{"https://api.example/v1/", "https://api.example"},
 		{"https://api.example/step_plan/v1", "https://api.example/step_plan"},
+		{"https://api.example/gateway%2Fv1", "https://api.example/gateway%2Fv1"},
+		{"https://api.example/gateway%2Fv1/v1", "https://api.example/gateway%2Fv1"},
 		{"https://api.example/v1/compatible", "https://api.example/v1/compatible"},
 	} {
 		if got := normalizeUpstreamBaseURL(tc.input); got != tc.want {

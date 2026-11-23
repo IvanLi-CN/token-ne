@@ -763,9 +763,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 	for id, c := range byInstance {
 		if c.Labels[DeploymentLabel] == "" {
 			if c.State == "running" {
-				if e = r.Docker.Stop(ctx, c.ID, 30*time.Second); e != nil {
-					return e
-				}
+				slog.Warn("untracked legacy core left running pending manual retirement", "instance", id, "container", c.Name)
 			}
 			continue
 		}
