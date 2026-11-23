@@ -189,3 +189,36 @@ func settingsError(w http.ResponseWriter, r *http.Request, e error) {
 	}
 	storageError(w, r, e, "")
 }
+
+// dataPlaneSettings exposes switches that change core request handling. The
+// environment value is the default until an operator stores a choice.
+func (a *API) dataPlaneSettings(w http.ResponseWriter, r *http.Request) {
+	enabled, e := a.repo.StreamUsageInjection(r.Context())
+	if errors.Is(e, store.ErrNotFound) {
+		enabled = a.cfg.StreamUsageInjection
+	} else if e != nil {
+		storageError(w, r, e, "")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"stream_usage_injection": enabled})
+}
+
+func (a *API) saveDataPlaneSettings(w http.ResponseWriter, r *http.Request) {
+	var body map[string]json.RawMessage
+	if !decode(w, r, &body, "stream_usage_injection") {
+		return
+	}
+	var enabled bool
+	if e := json.Unmarshal(body["stream_usage_injection"], &enabled); e != nil {
+		fail(w, r, 400, "malformed_request", "invalid field type", detail("stream_usage_injection", "must be a boolean"))
+		return
+	}
+	payload, _ := json.Marshal(map[string]bool{"stream_usage_injection": enabled})
+	audit := auditFor(r, "settings.data_plane.update", "settings", "data_plane")
+	audit.Payload = payload
+	if e := a.repo.SetStreamUsageInjection(r.Context(), enabled, audit); e != nil {
+		storageError(w, r, e, "")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"stream_usage_injection": enabled})
+}

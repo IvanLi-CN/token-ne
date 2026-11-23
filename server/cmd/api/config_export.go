@@ -53,7 +53,7 @@ func exportConfig(args []string) error {
 	token := os.Getenv("CORE_CONTROL_TOKEN")
 	snapshots := &cores.Snapshots{DB: repo.Pool, Master: cfg.MasterKey, Token: token,
 		SigningKey: os.Getenv("CORE_CONFIG_SIGNING_KEY"), SignatureMode: os.Getenv("CORE_CONFIG_SIGNATURE_MODE"),
-		BaseURL: "http://api:8080", PolicyPath: os.Getenv("STATUS_REWRITE_CONFIG")}
+		BaseURL: "http://api:8080", PolicyPath: os.Getenv("STATUS_REWRITE_CONFIG"), StreamUsageInjection: &cfg.StreamUsageInjection}
 	snapshot, err := snapshots.Build(ctx, instance, true)
 	if err != nil {
 		return err

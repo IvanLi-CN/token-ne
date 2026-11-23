@@ -4,11 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -445,13 +450,183 @@ func TestDrainDoesNotCompleteWithPendingSpool(t *testing.T) {
 type fakeTraffic struct {
 	calls int
 	last  []caddy.Backend
+	err   error
 }
 
 func (f *fakeTraffic) Apply(_ context.Context, pool []caddy.Backend, _ bool) error {
 	f.calls++
 	f.last = pool
-	return nil
+	return f.err
 }
+func TestTrafficApplyAndHeartbeatExportCoreMetrics(t *testing.T) {
+	registry := metrics.New()
+	db := &fakeDB{row: func(q string, _ []any) fakeRow {
+		switch {
+		case strings.Contains(q, "for update of i"):
+			return fakeRow{values: []any{"0.1.0"}}
+		case strings.Contains(q, "heartbeat_sent_at"):
+			return fakeRow{values: []any{nil}}
+		case strings.Contains(q, "config_revision_desired"):
+			return fakeRow{values: []any{nil, nil}}
+		case strings.Contains(q, "exists"):
+			return fakeRow{values: []any{false}}
+		}
+		return fakeRow{err: pgx.ErrNoRows}
+	}}
+	traffic := &fakeTraffic{err: errors.New("caddy reload failed")}
+	r := Runtime{Pool: db, Caddy: traffic, Metrics: registry}
+	if e := r.ApplyTraffic(context.Background(), false); e == nil {
+		t.Fatal("failed Caddy apply was not propagated")
+	}
+	traffic.err = nil
+	s := validStatus()
+	messageID, _ := uuid.NewV7()
+	h := Heartbeat{Protocol: 1, ID: messageID.String(), SentAt: time.Now().UTC(), Type: "heartbeat", Status: s}
+	if e := r.Heartbeat(context.Background(), s.Instance, h); e != nil {
+		t.Fatal(e)
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	registry.Handler("secret", staticCores{instance: s.Instance})(page, req)
+	body := page.Body.String()
+	for _, want := range []string{
+		`token_ne_caddy_apply_total{result="error"} 1`,
+		`token_ne_caddy_apply_total{result="success"} 1`,
+		`token_ne_core_config_source{version="0.1.0",instance="` + s.Instance + `",source="control_plane"} 1`,
+		`token_ne_core_config_override_active{version="0.1.0",instance="` + s.Instance + `"} 0`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in metrics output: %s", want, body)
+		}
+	}
+}
+
+func TestCaddyMetricIgnoresCleanupFailure(t *testing.T) {
+	db := &fakeDB{
+		row: func(q string, _ []any) fakeRow {
+			if strings.Contains(q, "exists") {
+				return fakeRow{values: []any{true}}
+			}
+			return fakeRow{err: pgx.ErrNoRows}
+		},
+		exec: func(q string, _ []any) error {
+			if strings.Contains(q, "lifecycle_error=null") {
+				return errors.New("cleanup failed")
+			}
+			return nil
+		},
+	}
+	registry := metrics.New()
+	r := Runtime{Pool: db, Caddy: &fakeTraffic{}, Metrics: registry}
+	if e := r.ApplyTraffic(context.Background(), false); e == nil {
+		t.Fatal("cleanup failure was not propagated")
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	registry.Handler("secret", staticCores{instance: uuid.NewString()})(page, req)
+	body := page.Body.String()
+	if !strings.Contains(body, `token_ne_caddy_apply_total{result="success"} 1`) {
+		t.Fatalf("successful Caddy apply was not recorded: %s", body)
+	}
+	if strings.Contains(body, `token_ne_caddy_apply_total{result="error"}`) {
+		t.Fatalf("database cleanup failure was classified as Caddy failure: %s", body)
+	}
+}
+
+type staticCores struct{ instance string }
+
+func (s staticCores) UsageMetricCores(context.Context) ([]metrics.Core, error) {
+	return []metrics.Core{{Version: "0.1.0", Instance: s.instance, State: "running"}}, nil
+}
+
+func (staticCores) UsageMetricPool() map[string]int32 { return nil }
+
+func TestReadPolicyKeepsLastValidOnInvalidFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status-rewrite.yaml")
+	s := &Snapshots{PolicyPath: path}
+	fromFile := s.readPolicy(policy{})
+	if fromFile.Source != "default" || !fromFile.valid() {
+		t.Fatalf("missing file must fall back to the built-in policy: %+v", fromFile)
+	}
+	valid, e := os.ReadFile("../../../config/status-rewrite.yaml")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(path, valid, 0o644); e != nil {
+		t.Fatal(e)
+	}
+	accepted := s.readPolicy(fromFile)
+	if accepted.Source != "file" || accepted.Hash != Hash(valid) {
+		t.Fatalf("valid file not published: %+v", accepted)
+	}
+	if e = os.WriteFile(path, []byte("schema_version: 1\nenabled: true\nrules: [{\n"), 0o644); e != nil {
+		t.Fatal(e)
+	}
+	kept := s.readPolicy(accepted)
+	if kept.Hash != accepted.Hash || kept.Source != "file" {
+		t.Fatalf("invalid file replaced the last valid policy: %+v", kept)
+	}
+	if e = os.Remove(path); e != nil {
+		t.Fatal(e)
+	}
+	deleted := s.readPolicy(accepted)
+	if deleted.Hash != accepted.Hash || deleted.Source != "file" {
+		t.Fatalf("deleted file replaced the last valid policy: %+v", deleted)
+	}
+	emptyPath := (&Snapshots{}).readPolicy(accepted)
+	if emptyPath.Hash != accepted.Hash || emptyPath.Source != "file" {
+		t.Fatalf("empty policy path replaced the last valid policy: %+v", emptyPath)
+	}
+}
+
+func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
+	features := func(injection, stored *bool) map[string]any {
+		db := &fakeDB{}
+		db.row = func(q string, _ []any) fakeRow {
+			switch {
+			case strings.Contains(q, "core_config_generation"):
+				return fakeRow{err: pgx.ErrNoRows}
+			case strings.Contains(q, "config_schema_min"):
+				return fakeRow{values: []any{1, 1, 1}}
+			case strings.Contains(q, "jsonb_agg"):
+				return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
+			case strings.Contains(q, "stream_usage_injection") && stored != nil:
+				return fakeRow{values: []any{*stored}}
+			}
+			return fakeRow{err: pgx.ErrNoRows}
+		}
+		s := Snapshots{DB: db, Token: "token", BaseURL: "http://api:8080", StreamUsageInjection: injection}
+		snapshot, e := s.Build(context.Background(), uuid.NewString(), false)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var body struct {
+			Features map[string]any `json:"features"`
+		}
+		if e = json.Unmarshal(snapshot.Body, &body); e != nil {
+			t.Fatal(e)
+		}
+		return body.Features
+	}
+	if got := features(nil, nil)["stream_usage_injection"]; got != true {
+		t.Fatalf("default snapshot disabled stream usage injection: %v", got)
+	}
+	disabled := false
+	if got := features(&disabled, nil)["stream_usage_injection"]; got != false {
+		t.Fatalf("snapshot ignored the disabled switch: %v", got)
+	}
+	if got := features(&disabled, nil)["status_rewrite"]; got != true {
+		t.Fatalf("policy-driven feature changed with the injection switch: %v", got)
+	}
+	enabled := true
+	if got := features(&enabled, &disabled)["stream_usage_injection"]; got != false {
+		t.Fatalf("stored switch did not override the deployment default: %v", got)
+	}
+}
+
 func TestRollbackRestoresOldAndZerosNew(t *testing.T) {
 	now := time.Now()
 	oldStatus := validStatus()
