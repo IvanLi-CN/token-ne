@@ -86,23 +86,26 @@ export default function CoresPage() {
   const cardsReady = data !== undefined;
   useEffect(() => {
     if (!cardsReady || !location.hash) return;
-    const scrollToCard = () => {
+    const scrollToCard = (fallback = false) => {
       const card = document.getElementById(location.hash.slice(1))?.closest(".cores-card-anchor");
       if (!card) return;
       card.scrollIntoView({
         block: "start",
-        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-          ? "instant"
-          : "smooth",
+        behavior:
+          fallback || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+            ? "instant"
+            : "smooth",
       });
     };
     scrollToCard();
     // The mobile drawer releases its scroll lock slightly after the navigation
     // commits, so retry once the lock is gone instead of losing the first call.
+    // The last retry skips animation: some environments suppress smooth scrolls,
+    // and the card must still land in view.
     const startScroll = window.scrollY;
     const retries = [120, 400].map((delay) =>
       window.setTimeout(() => {
-        if (window.scrollY === startScroll) scrollToCard();
+        if (window.scrollY === startScroll) scrollToCard(delay >= 400);
       }, delay),
     );
     return () => {
