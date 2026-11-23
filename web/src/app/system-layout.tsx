@@ -1,9 +1,5 @@
 import { NavLink, Outlet } from "react-router";
-
-const sections = [
-  { to: "/system/cores", label: "Cores" },
-  { to: "/system/settings", label: "设置" },
-] as const;
+import { systemSections } from "./system-nav";
 
 export function SystemLayout() {
   return (
@@ -14,7 +10,7 @@ export function SystemLayout() {
         </h1>
         <nav className="system-tree" aria-label="系统子导航">
           <ul className="system-tree-list">
-            {sections.map((section) => (
+            {systemSections.map((section) => (
               <li key={section.to}>
                 <NavLink
                   to={section.to}

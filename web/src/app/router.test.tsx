@@ -326,6 +326,27 @@ describe("shared boundaries", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
+  it("shows the system subnavigation as a tree in mobile navigation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") return Promise.resolve(response(admin));
+        if (url === "/api/cores")
+          return Promise.resolve(response({ versions: [], instances: [], deployments: [] }));
+        if (url === "/api/cores/spool") return Promise.resolve(response({ data: [] }));
+        return Promise.resolve(response({}));
+      }),
+    );
+    const router = mount("/system/cores");
+    await screen.findByRole("heading", { name: "系统" });
+    fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
+    const drawer = screen.getByRole("dialog", { name: "token-ne" });
+    expect(within(drawer).getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    fireEvent.click(within(drawer).getByRole("link", { name: "设置" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/system/settings"));
+  });
   it("expands one morph panel at a time and restores focus on Escape", () => {
     render(
       <MorphGroup>

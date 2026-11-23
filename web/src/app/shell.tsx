@@ -15,6 +15,7 @@ import { Button, Spinner } from "../components/primitives";
 import { VersionBadge } from "../components/version-badge";
 import { type AdminUser, authApi } from "../lib/api";
 import { useAdaptiveState } from "./adaptive-state";
+import { systemSections } from "./system-nav";
 import { useTheme } from "./theme";
 
 const navigation = [
@@ -25,6 +26,7 @@ const navigation = [
   ["/keys", "Downstream Keys"],
   ["/system", "系统"],
 ] as const;
+const primaryNavigation = navigation.filter(([path]) => path !== "/system");
 const themeModes = [
   { value: "light", label: "浅色", Icon: Sun },
   { value: "dark", label: "深色", Icon: Moon },
@@ -92,7 +94,7 @@ export function AppShell() {
                   选择控制面页面
                 </Dialog.Description>
                 <nav className="mobile-navigation" aria-label="移动主导航">
-                  {navigation.map(([path, label]) => (
+                  {primaryNavigation.map(([path, label]) => (
                     <NavLink
                       key={path}
                       to={path}
@@ -105,6 +107,26 @@ export function AppShell() {
                       {label}
                     </NavLink>
                   ))}
+                  <section className="mobile-nav-section" aria-labelledby="mobile-system-label">
+                    <p id="mobile-system-label" className="mobile-nav-section-label">
+                      系统
+                    </p>
+                    <ul className="mobile-nav-tree">
+                      {systemSections.map((section) => (
+                        <li key={section.to}>
+                          <NavLink
+                            to={section.to}
+                            onClick={() => setMobileOpen(false)}
+                            className={({ isActive }) =>
+                              isActive ? "mobile-sublink active" : "mobile-sublink"
+                            }
+                          >
+                            {section.label}
+                          </NavLink>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 </nav>
                 <p className="drawer-account muted">当前管理员：{user.username}</p>
               </Dialog.Content>
