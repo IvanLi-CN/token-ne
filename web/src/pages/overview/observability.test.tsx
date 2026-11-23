@@ -145,7 +145,7 @@ it("blocks prune while spool is unconfirmed or still has events", async () => {
           })
         : undefined,
   );
-  mount("/system/cores/instances");
+  mount("/system/cores");
   await screen.findByText("Spool 仍有 9 条未确认事件。");
   expect(screen.getByText("尚未确认 spool 已清零。")).toBeTruthy();
   for (const button of screen.getAllByRole<HTMLButtonElement>("button", { name: "清理" }))
@@ -186,7 +186,7 @@ it("prefills the shift dialog with the server's next-stage weights", async () =>
         202,
       );
   });
-  mount("/system/cores/deployments");
+  mount("/system/cores");
   fireEvent.click(await screen.findByRole("button", { name: "切换权重" }));
   const dialog = await screen.findByRole("dialog", { name: "切换权重" });
   expect((within(dialog).getByLabelText("old") as HTMLInputElement).value).toBe("90");
@@ -236,7 +236,7 @@ it("confirms core actions, preserves errors, and displays only a server receipt"
           )
         : json({ pruned: [blocked.id] }, 202);
   });
-  mount("/system/cores/instances");
+  mount("/system/cores");
   const trigger = await screen.findByRole("button", { name: "清理" });
   fireEvent.click(trigger);
   const dialog = await screen.findByRole("dialog", { name: "清理实例" });

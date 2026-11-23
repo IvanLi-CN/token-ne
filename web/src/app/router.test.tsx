@@ -120,7 +120,7 @@ describe("application router", () => {
           : Promise.resolve(response(admin)),
       ),
     );
-    const router = mount("/login?returnTo=/system/cores/deployments");
+    const router = mount("/login?returnTo=/system/cores");
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
@@ -131,10 +131,8 @@ describe("application router", () => {
     );
     finish(response(admin));
     await screen.findByRole("heading", { name: "Cores" });
-    expect(router.state.location.pathname).toBe("/system/cores/deployments");
-    expect(screen.getByRole("link", { name: "部署进度" }).getAttribute("aria-current")).toBe(
-      "page",
-    );
+    expect(router.state.location.pathname).toBe("/system/cores");
+    expect(screen.getByRole("link", { name: "Cores" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("operator")).toBeTruthy();
   });
   it("navigates all stable route targets and switches theme", async () => {
@@ -192,13 +190,10 @@ describe("application router", () => {
     expect(screen.getByRole("link", { name: "设置" }).getAttribute("aria-current")).toBe("page");
     const tree = screen.getByRole("navigation", { name: "系统子导航" });
     expect(within(tree).queryByText("系统")).toBeNull();
-    expect(within(tree).getByText("Cores")).toBeTruthy();
-    expect(within(tree).getByRole("link", { name: "部署进度" })).toBeTruthy();
-    expect(within(tree).getByRole("link", { name: "核心实例" })).toBeTruthy();
-    expect(within(tree).getByRole("link", { name: "核心版本" })).toBeTruthy();
+    expect(within(tree).getByRole("link", { name: "Cores" })).toBeTruthy();
     expect(within(tree).getByRole("link", { name: "设置" })).toBeTruthy();
   });
-  it("redirects system groups to their first leaf", async () => {
+  it("redirects the system root to Cores", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
@@ -209,9 +204,9 @@ describe("application router", () => {
         return Promise.resolve(response({}));
       }),
     );
-    const router = mount("/system/cores");
+    const router = mount("/system");
     await screen.findByRole("heading", { name: "部署进度" });
-    expect(router.state.location.pathname).toBe("/system/cores/deployments");
+    expect(router.state.location.pathname).toBe("/system/cores");
   });
   it("only leaves the shell when logout succeeds", async () => {
     const fetchMock = vi
@@ -265,8 +260,8 @@ describe("shared boundaries", () => {
       expect(safeReturnPath(value)).toBe("/");
     expect(safeReturnPath("/requests?model=abc#details")).toBe("/requests?model=abc#details");
     expect(safeReturnPath("/system/settings?oidc=bound")).toBe("/system/settings?oidc=bound");
-    expect(safeReturnPath("/system/cores")).toBe("/");
-    expect(safeReturnPath("/system/cores/deployments")).toBe("/system/cores/deployments");
+    expect(safeReturnPath("/system/cores")).toBe("/system/cores");
+    expect(safeReturnPath("/system/cores/deployments")).toBe("/");
   });
   it("rejects API paths that escape the same-origin API boundary", async () => {
     for (const path of ["//evil.test", "/../auth", "/%2e%2e/auth"] as const)

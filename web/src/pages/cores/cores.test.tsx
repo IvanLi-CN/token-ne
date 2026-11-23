@@ -56,10 +56,10 @@ function mock(handler?: Handler): FetchMock {
   vi.stubGlobal("fetch", fetcher);
   return fetcher;
 }
-function mount(section?: "deployments" | "instances" | "versions") {
+function mount() {
   const client = createQueryClient();
   client.setDefaultOptions({ queries: { retry: false }, mutations: { retry: false } });
-  const router = createMemoryRouter([{ path: "/", element: <CoresPage section={section} /> }], {
+  const router = createMemoryRouter([{ path: "/", Component: CoresPage }], {
     initialEntries: ["/"],
   });
   render(
@@ -231,11 +231,11 @@ it("blocks a force drain once the instance is no longer draining", async () => {
   expect(posts(fetcher, "/api/cores/instances/core-1/drain")).toHaveLength(0);
 });
 
-it("renders only the selected core leaf card", async () => {
+it("renders the core cards as one continuous list", async () => {
   mock();
-  mount("instances");
-  await screen.findByRole("heading", { name: "核心实例" });
-  expect(screen.queryByRole("heading", { name: "部署进度" })).toBeNull();
-  expect(screen.queryByRole("heading", { name: "核心版本" })).toBeNull();
-  expect(document.querySelectorAll(".surface-card")).toHaveLength(1);
+  mount();
+  await screen.findByRole("heading", { name: "部署进度" });
+  expect(screen.getByRole("heading", { name: "核心实例" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "核心版本" })).toBeTruthy();
+  expect(document.querySelectorAll(".surface-card")).toHaveLength(3);
 });

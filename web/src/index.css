@@ -803,42 +803,6 @@ kbd {
   flex-direction: column;
   gap: 4px;
 }
-.system-tree-group > .system-tree-parent {
-  display: flex;
-  min-height: 36px;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  list-style: none;
-}
-.system-tree-group > .system-tree-parent::-webkit-details-marker {
-  display: none;
-}
-.system-tree-group > .system-tree-parent::before {
-  content: "▾";
-  width: 14px;
-  margin-right: 6px;
-  color: var(--muted);
-}
-.system-tree-group:not([open]) > .system-tree-parent::before {
-  content: "▸";
-}
-.system-tree-group > .system-tree-parent:hover {
-  background: var(--surface-raised);
-}
-.system-tree-children {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0 0 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-left: 1px solid var(--border-quiet);
-}
 .system-subnav-link {
   display: flex;
   min-height: 40px;

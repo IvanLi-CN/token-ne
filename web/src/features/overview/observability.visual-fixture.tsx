@@ -212,7 +212,7 @@ const initialEntry =
     : page === "requests"
       ? "/requests"
       : page === "cores"
-        ? "/system/cores/deployments"
+        ? "/system/cores"
         : "/";
 const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
 const root = document.getElementById("root");
