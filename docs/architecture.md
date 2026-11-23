@@ -881,7 +881,7 @@ flowchart TD
   - Go 管理的实例使用 `restart=no`，避免排水后的容器被自动拉起；代价是宿主机或 Docker daemon 重启后这些实例不会自行恢复，控制面接管时必须重新启动。Compose 基线核心可以使用 `unless-stopped`，由 Go 接管后仍按其状态管理。
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
-- 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。生产环境禁止 `latest`。
+- 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。动态 core 实例必须使用精确版本或 digest；`latest` 只能作为控制面部署通道，不能作为 core 实例身份。
 - 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
@@ -1633,7 +1633,7 @@ networks:
 - 发布在固定 `main` SHA 上创建不可变 `vX.Y.Z` tag；同 SHA 的已有 tag 只允许 same-identity recovery。
 - core、API 和内嵌 Web 共用 canonical version；core 通过 `APP_VERSION` 构建注入，API 通过 `-ldflags` 注入，Web 通过 `VITE_APP_VERSION` 注入。
 - Web 独立构建并生成 `web/dist/version.json`；API 镜像只复制该 artifact，不在 Docker 内重新构建前端。
-- 生产镜像使用精确 `X.Y.Z` 标签：`token-ne-core:X.Y.Z` 与 `token-ne-api:X.Y.Z`；不使用 `latest` 或 `-sha` 后缀。
+- release identity 使用精确 `X.Y.Z` 标签：`token-ne-core:X.Y.Z` 与 `token-ne-api:X.Y.Z`，不使用 `-sha` 后缀；同时发布 `latest` 作为可变部署通道，但它不参与 release identity。
 - 发布 workflow 在镜像成功后才创建 GitHub Release；失败只对同一 tag/SHA 重试。
 - 设计合同见 [`specs/product-version-release/SPEC.md`](./specs/product-version-release/SPEC.md)，操作步骤见 [`runbooks/release.md`](./runbooks/release.md)。
 

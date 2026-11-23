@@ -87,3 +87,7 @@ _Avoid_: Package version, latest tag
 **Release identity**:
 绑定 source SHA、canonical version、tag、镜像 digest 和 GitHub Release 的发布身份。
 _Avoid_: Build number, image tag only
+
+**Mutable deployment channel**:
+指向某个 release identity 的可移动镜像标签（当前为 `latest`），供部署系统发现并自动更新控制面；不参与 release identity、回滚目标或审计事实。
+_Avoid_: Release version, immutable tag, core instance identity

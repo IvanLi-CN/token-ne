@@ -4,16 +4,16 @@
 
 ## Current Status
 
-- Implementation: 已实现，待首次发布验证
+- Implementation: 已实现并发布 0.0.3；`latest` 可变部署通道已纳入
 - Lifecycle: active
-- Catalog note: release workflow 已完成，但尚未产生真实 tag、镜像或 GitHub Release
+- Catalog note: release workflow 已产生 `v0.0.1`、`v0.0.2`、`v0.0.3`；latest 通道在 publish job 中更新
 
 ## Implementation Coverage
 
 - Requirement coverage:
   - `REQ-PVR-001`、`REQ-PVR-002`、`REQ-PVR-003`、`REQ-PVR-008`: `ops/release/version_policy.py`、`.github/workflows/release.yml`
   - `REQ-PVR-004`、`REQ-PVR-009`: `core/build.rs`、`server/internal/version`、`core/Dockerfile`、`server/Dockerfile`
-  - `REQ-PVR-005`、`REQ-PVR-006`、`REQ-PVR-010`: release workflow 的 web/core/API job 与 Docker build args
+  - `REQ-PVR-005`、`REQ-PVR-006`、`REQ-PVR-010`: release workflow 的 web/core/API/publish job、Docker build args 和 latest 通道验证
   - `REQ-PVR-007`: `server/internal/httpapi/version.go`、`web/src/components/version-badge.tsx`
 - Verification commands:
   - `python3 -m unittest discover -s ops/release -p 'test_*.py'`
@@ -21,7 +21,7 @@
   - `cd server && go test ./...`
   - `cd web && bun run typecheck && bun run lint && bun run test && VITE_APP_VERSION=9.9.9 bun run build`
   - `bun --no-install <skills>/bin/spec_contract_check.ts --path docs/specs/product-version-release/SPEC.md`
-- Rollout facts: 尚未发布任何镜像或 tag；首次真实发布仍需要 GHCR、tag protection 与 owner 触发。
+- Rollout facts: `v0.0.1`、`v0.0.2`、`v0.0.3` 已发布；`0.0.3` 已部署到 101。latest 是部署通道，不作为 release identity。
 
 ## Planned Implementation
 
@@ -38,7 +38,7 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 - `web`：独立 `bun install` 与 `bun run build`，注入 `VITE_APP_VERSION`，上传 `web/dist`。
 - `core-image`：Buildx 构建并推送 `token-ne-core:X.Y.Z`；若 tag 已存在，校验 OCI revision/version 后复用原 digest，不覆盖。
 - `api-image`：下载 `web/dist`，构建并推送 `token-ne-api:X.Y.Z`；不在 Docker 内重建前端；已有镜像同样校验后复用。
-- `publish`：重新校验 tag 指向 source SHA，对两个 GHCR 镜像执行匿名 `docker pull`，对比拉取 digest 与构建 digest，再创建 GitHub Release。新 package 默认 private，首次发布需要 owner 在 package settings 中切到 public 后重跑同 identity 发布。
+- `publish`：重新校验 tag 指向 source SHA，对两个 GHCR 精确镜像执行匿名 `docker pull`，对比拉取 digest 与构建 digest；随后发布并匿名验证 `latest` 部署通道，再创建 GitHub Release。新 package 默认 private，首次发布需要 owner 在 package settings 中切到 public 后重跑同 identity 发布。
 
 ### Version propagation
 
@@ -97,9 +97,8 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 ## Remaining Gaps
 
 - GHCR package 权限、tag protection 和 `GITHUB_TOKEN` 权限属于 owner 侧前置条件。
-- Release workflow 的远端实际运行需要首次发布时验证。
-- 生产环境部署仍需手工更新 Compose 镜像标签；本期不自动部署。
-- 首次真实发布后才能验证 GitHub Release notes 与镜像 digest 的实际呈现。
+- latest 通道的远端实际更新仍需在下一次发布时验证。
+- 控制面可用 latest 自动更新；动态 core 的自动升级仍需控制面实现版本发现和部署流程。
 
 ## Related Changes
 
@@ -109,3 +108,4 @@ resolve -> tag -> (web, core-image) -> api-image -> publish
 
 - `./SPEC.md`
 - `./HISTORY.md`
+- [ADR 0011](../../adr/0011-mutable-deployment-channel.md)

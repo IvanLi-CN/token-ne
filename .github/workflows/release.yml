@@ -40,11 +40,13 @@ jobs:
           set -euo pipefail
           result=$(python3 ops/release/version_policy.py resolve --target "$TARGET" --source "$GITHUB_SHA" --repo . --run-attempt "${GITHUB_RUN_ATTEMPT:-1}")
           echo "$result"
-          echo "version=$(jq -r .version <<<"$result")" >> "$GITHUB_OUTPUT"
-          echo "tag=$(jq -r .tag <<<"$result")" >> "$GITHUB_OUTPUT"
-          echo "source=$(jq -r .source <<<"$result")" >> "$GITHUB_OUTPUT"
-          echo "recovery=$(jq -r .recovery <<<"$result")" >> "$GITHUB_OUTPUT"
-          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$(jq -r .version <<<"$result")"
+            echo "tag=$(jq -r .tag <<<"$result")"
+            echo "source=$(jq -r .source <<<"$result")"
+            echo "recovery=$(jq -r .recovery <<<"$result")"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
       - name: Verify source and CI
         env:
           GH_TOKEN: ${{ github.token }}
@@ -299,6 +301,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -336,6 +339,48 @@ jobs:
           api_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "${api_image}:${VERSION}")
           test "${core_ref##*@}" = "$core_digest"
           test "${api_ref##*@}" = "$api_digest"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish latest deployment aliases
+        id: aliases
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          api_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          latest_version=""
+          if docker pull "${core_image}:latest" >/dev/null 2>&1; then
+            latest_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${core_image}:latest")
+          fi
+          if [ -n "$latest_version" ] && [ "$(printf '%s\n%s\n' "$latest_version" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "latest is ${latest_version}; not moving it back to ${VERSION}"
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          docker buildx imagetools create -t "${core_image}:latest" "${core_image}:${VERSION}"
+          docker buildx imagetools create -t "${api_image}:latest" "${api_image}:${VERSION}"
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+      - name: Verify latest aliases anonymously
+        if: steps.aliases.outputs.updated == 'true'
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE: ${{ needs.resolve.outputs.source }}
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          core_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-core" | tr '[:upper:]' '[:lower:]')
+          api_image=$(echo "ghcr.io/${GITHUB_REPOSITORY}-api" | tr '[:upper:]' '[:lower:]')
+          docker pull "${core_image}:latest"
+          docker pull "${api_image}:latest"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${core_image}:latest")" = "$VERSION"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${core_image}:latest")" = "$SOURCE"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${api_image}:latest")" = "$VERSION"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${api_image}:latest")" = "$SOURCE"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -358,6 +403,7 @@ jobs:
           - source: ${SOURCE}
           - core: ${core_image}:${VERSION}@${core_digest}
           - api: ${api_image}:${VERSION}@${api_digest}
+          - latest: ${core_image}:latest, ${api_image}:latest
           EOF
           )
           gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "token-ne ${VERSION}" --notes "$notes"

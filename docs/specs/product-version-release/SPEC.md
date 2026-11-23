@@ -6,7 +6,7 @@
 
 - Context: token-ne 需要一个可审计、可恢复的产品版本发布能力，使 core、控制面 API 和内嵌 Web 使用同一个发布版本，同时保持核心控制协议版本独立。
 - In scope: release target 选择、canonical version 解析、tag/Release/镜像身份、构建注入、UI 版本展示、发布失败恢复。
-- Out of scope: 自动部署、PR label release、发布队列、SemVer 兼容性自动分类、数据库迁移版本管理、core 控制协议版本管理。
+- Out of scope: 控制面与 core 的自动部署实现、PR label release、发布队列、SemVer 兼容性自动分类、数据库迁移版本管理、core 控制协议版本管理。
 
 ## Terms and Interfaces
 
@@ -14,8 +14,9 @@
 - `Canonical version`: 执行端根据 release target 和 trusted final tag baseline 解析出的完整产品版本。
 - `Effective version`: 某个构建产物实际携带并对外报告的版本；发布构建等于 canonical version。
 - `Release identity`: `source SHA + canonical version + tag + image digest + GitHub Release` 的组合。
+- `Mutable deployment channel`: 指向某个 release identity 的可移动标签，用于部署系统发现更新；不参与 release identity 和审计。
 - `Trusted final baseline`: 当前 `main` 可达的最高 final `vX.Y.Z` tag；没有时使用虚拟 baseline `0.0.0`。
-- Interface: `.github/workflows/release.yml` 的 `workflow_dispatch.target`、`vX.Y.Z` tag、GHCR 镜像标签、`GET /api/version`。
+- Interface: `.github/workflows/release.yml` 的 `workflow_dispatch.target`、`vX.Y.Z` tag、GHCR 精确镜像标签和 `latest` 通道、`GET /api/version`。
 
 ## Requirements
 
@@ -51,10 +52,11 @@
 
 ### REQ-PVR-006
 
-- 发布 MUST 产出同一版本的 core 与 API 镜像，并且 MUST NOT 使用 `latest` 或 `<semver>-<sha>` 后缀。
-- core 与 API 镜像 MUST 是 public，并在创建 GitHub Release 前通过匿名拉取验证。
+- 发布 MUST 产出同一版本的 core 与 API 镜像，使用精确 `X.Y.Z` 标签；`<semver>-<sha>` 后缀 MUST NOT 作为 release identity。
+- 发布 MUST 同时更新 `token-ne-core:latest` 与 `token-ne-api:latest`，两者 MUST 指向本次 release identity 对应的镜像；`latest` 只作为可变部署通道，MUST NOT 参与 release identity、回滚目标或审计事实。
+- core 与 API 镜像 MUST 是 public，并在创建 GitHub Release 前通过匿名拉取验证精确标签和 `latest` 通道的 OCI version/revision。
 - Inputs: canonical version、source SHA。
-- Outputs: `token-ne-core:X.Y.Z` 与 `token-ne-api:X.Y.Z`，带 OCI version/revision/source labels。
+- Outputs: `token-ne-core:X.Y.Z`、`token-ne-api:X.Y.Z`、两个 `latest` 通道，带 OCI version/revision/source labels。
 
 ### REQ-PVR-007
 
@@ -114,9 +116,9 @@
 
 ### VER-PVR-006
 
-- Method: 检查 GHCR 镜像标签、OCI labels、匿名 `docker pull`、拉取 digest 与构建 digest 对比和 release notes。
+- Method: 检查 GHCR 精确标签和 `latest`、OCI labels、匿名 `docker pull`、拉取 digest 与构建 digest 对比和 release notes。
 - covers: `REQ-PVR-006`
-- Pass condition: 两个镜像使用同一精确 `X.Y.Z`，无 `latest`，无 `-sha` 后缀；匿名拉取成功且 digest 与构建 digest 一致后才创建 Release。
+- Pass condition: 两个精确 `X.Y.Z` 镜像匿名拉取成功且 digest 与构建 digest 一致；两个 `latest` 匿名拉取成功且 OCI version/revision 与本次 release 一致后才创建 Release。
 
 ### VER-PVR-007
 
@@ -145,6 +147,7 @@
 ## Related ADRs
 
 - [ADR 0010: 产品版本采用 target-only 手动发布并统一 core、API、Web](../../adr/0010-product-version-release.md)
+- [ADR 0011: 发布同时提供不可变版本和可变部署通道](../../adr/0011-mutable-deployment-channel.md)
 
 ## Visual Evidence
 
