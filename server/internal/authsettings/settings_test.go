@@ -108,6 +108,65 @@ func TestFromEnvAndSave(t *testing.T) {
 	}
 }
 
+func TestDiffUsesActualValuesRatherThanFieldPresence(t *testing.T) {
+	issuer, client := "https://id.example", "client"
+	current := Settings{Revision: 1, OIDCEnabled: true, IssuerURL: &issuer, ClientID: &client, ClientSecret: "secret", Scopes: []string{"openid"}, LocalLoginEnabled: true, SessionTTLHours: 720}
+	sameSecret := "secret"
+	changes := Diff(current, Input{OIDCEnabled: true, IssuerURL: &issuer, ClientID: &client, ClientSecret: &sameSecret, Scopes: []string{"openid"}, LocalLoginEnabled: true, SessionTTLHours: 720})
+	if changes.Any() {
+		t.Fatalf("unchanged input reported as a change: %+v", changes)
+	}
+	empty := ""
+	changes = Diff(current, Input{OIDCEnabled: true, IssuerURL: &issuer, ClientID: &client, ClientSecret: &empty, Scopes: []string{"openid"}, LocalLoginEnabled: true, SessionTTLHours: 720})
+	if !changes.ClientSecret {
+		t.Fatal("clearing the secret was not detected")
+	}
+}
+
+func TestBreakGlassDoesNotPersistIncompleteOIDC(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	cfg.OIDCEnabled = true
+	cfg.OIDCIssuerURL = "https://id.example"
+	cfg.OIDCClientID = "client"
+	repo := &stubRepo{admin: store.Admin{ID: "admin", SessionVersion: 1}}
+	if e := EnableLocalLogin(ctx, repo, cfg, "admin", store.Audit{Action: "auth.local_login.enable"}); e != nil {
+		t.Fatal(e)
+	}
+	settings, e := Load(ctx, repo, cfg)
+	if e != nil || settings.OIDCEnabled {
+		t.Fatalf("incomplete OIDC snapshot: %+v %v", settings, e)
+	}
+	if _, _, e = Startup(ctx, repo, cfg); e != nil {
+		t.Fatalf("startup after break-glass: %v", e)
+	}
+}
+
+func TestBreakGlassRepairsCorruptOIDCMaterial(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	issuer, client := "https://id.example", "client"
+	repo := &stubRepo{
+		found: true,
+		settings: store.AuthSettings{
+			Revision: 1, OIDCEnabled: true, IssuerURL: &issuer, ClientID: &client,
+			ClientSecretCiphertext: []byte("bad"), ClientSecretNonce: []byte("bad"),
+			Scopes: []string{"openid"}, LocalLoginEnabled: false, SessionTTLHours: 720,
+		},
+		admin: store.Admin{ID: "admin", SessionVersion: 1},
+	}
+	if e := EnableLocalLogin(ctx, repo, cfg, "admin", store.Audit{Action: "auth.local_login.enable"}); e != nil {
+		t.Fatal(e)
+	}
+	settings, e := Load(ctx, repo, cfg)
+	if e != nil || !settings.LocalLoginEnabled || settings.OIDCEnabled {
+		t.Fatalf("corrupt OIDC material was not repaired: %+v %v", settings, e)
+	}
+	if _, _, e = Startup(ctx, repo, cfg); e != nil {
+		t.Fatalf("startup after repair: %v", e)
+	}
+}
+
 func TestDisableLocalLoginGuards(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()

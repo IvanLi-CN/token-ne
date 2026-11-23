@@ -58,6 +58,48 @@ func TestAuthSettingsLifecycle(t *testing.T) {
 	}
 }
 
+func TestAuthSettingsRequiresContractFields(t *testing.T) {
+	h, _, cfg, cookie := testAPI(t)
+	missingIssuer := `{"revision":0,"oidc_enabled":false,"client_id":null,"scopes":["openid"],"local_login_enabled":true,"session_ttl_hours":720}`
+	w := request(h, cfg, cookie, "PUT", "/api/settings/auth", missingIssuer)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), "issuer_url") {
+		t.Fatalf("missing issuer: %d %s", w.Code, w.Body.String())
+	}
+	nullSecret := `{"revision":0,"oidc_enabled":false,"issuer_url":null,"client_id":null,"client_secret":null,"scopes":["openid"],"local_login_enabled":true,"session_ttl_hours":720}`
+	w = request(h, cfg, cookie, "PUT", "/api/settings/auth", nullSecret)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), "client_secret") {
+		t.Fatalf("null secret: %d %s", w.Code, w.Body.String())
+	}
+	nullProvider := `{"revision":0,"oidc_enabled":false,"issuer_url":null,"client_id":null,"scopes":["openid"],"local_login_enabled":true,"session_ttl_hours":720}`
+	w = request(h, cfg, cookie, "PUT", "/api/settings/auth", nullProvider)
+	if w.Code != 200 {
+		t.Fatalf("null provider with OIDC disabled: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthSettingsAuditTracksActualChanges(t *testing.T) {
+	h, f, cfg, cookie := testAPI(t)
+	first := `{"revision":0,"oidc_enabled":true,"issuer_url":"https://id.example","client_id":"client","client_secret":"secret-value","scopes":["openid","profile","email"],"local_login_enabled":true,"session_ttl_hours":720}`
+	if w := request(h, cfg, cookie, "PUT", "/api/settings/auth", first); w.Code != 200 {
+		t.Fatalf("initial save: %d %s", w.Code, w.Body.String())
+	}
+	cookie = refreshCookie(t, cfg, f)
+	second := `{"revision":1,"oidc_enabled":true,"issuer_url":"https://id.example","client_id":"client","client_secret":"secret-value","scopes":["openid","profile","email"],"local_login_enabled":true,"session_ttl_hours":721}`
+	if w := request(h, cfg, cookie, "PUT", "/api/settings/auth", second); w.Code != 200 {
+		t.Fatalf("ttl-only save: %d %s", w.Code, w.Body.String())
+	}
+	if len(f.audits) == 0 {
+		t.Fatal("settings audit missing")
+	}
+	var payload map[string]any
+	if e := json.Unmarshal(f.audits[len(f.audits)-1].Payload, &payload); e != nil {
+		t.Fatal(e)
+	}
+	if payload["client_secret_changed"] != false || payload["issuer_url_changed"] != false || payload["session_ttl_changed"] != true {
+		t.Fatalf("audit did not reflect actual changes: %#v", payload)
+	}
+}
+
 func TestAuthSettingsDisableLocalLogin(t *testing.T) {
 	h, f, cfg, cookie := testAPI(t)
 	body := `{"revision":0,"oidc_enabled":true,"issuer_url":"https://id.example","client_id":"client","client_secret":"secret-value","scopes":["openid","profile","email"],"local_login_enabled":true,"session_ttl_hours":720}`
@@ -99,7 +141,7 @@ func TestAuthSettingsTestConnection(t *testing.T) {
 	}))
 	defer server.Close()
 	issuer = server.URL
-	h, _, cfg, cookie := testAPI(t)
+	h, f, cfg, cookie := testAPI(t)
 	w := request(h, cfg, cookie, "POST", "/api/settings/auth/test", fmt.Sprintf(`{"issuer_url":%q}`, issuer))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"ok":true`) || !strings.Contains(w.Body.String(), `"code_challenge_methods_supported"`) {
 		t.Fatalf("discovery: %d %s", w.Code, w.Body.String())
@@ -114,6 +156,16 @@ func TestAuthSettingsTestConnection(t *testing.T) {
 	w = request(h, cfg, cookie, "POST", "/api/settings/auth/test", fmt.Sprintf(`{"issuer_url":%q}`, other.URL))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"code":"issuer_mismatch"`) {
 		t.Fatalf("issuer mismatch: %d %s", w.Code, w.Body.String())
+	}
+	if len(f.audits) != 2 {
+		t.Fatalf("discovery audits: %d", len(f.audits))
+	}
+	var auditPayload map[string]string
+	if e := json.Unmarshal(f.audits[1].Payload, &auditPayload); e != nil {
+		t.Fatal(e)
+	}
+	if f.audits[1].Action != "settings.auth.discovery" || auditPayload["result"] != "issuer_mismatch" {
+		t.Fatalf("discovery audit: %+v", f.audits[1])
 	}
 }
 

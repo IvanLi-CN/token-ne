@@ -63,8 +63,8 @@ describe("application router", () => {
       .mockResolvedValue(response({ error: { message: "private failure" } }, 401));
     vi.stubGlobal("fetch", fetchMock);
     const router = mount("/login?returnTo=/models");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "wrong" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "用户名或密码错误");
     expect((screen.getByLabelText("密码") as HTMLInputElement).value).toBe("wrong");
@@ -108,6 +108,15 @@ describe("application router", () => {
       "当前没有可用的登录方式，请使用 break-glass 恢复本地登录。",
     );
   });
+  it("does not guess a login method when auth config fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 503)));
+    mount("/login");
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "无法加载登录配置，请重试。重试",
+    );
+    expect(screen.queryByLabelText("用户名")).toBeNull();
+  });
   it("disables duplicate submissions until real login succeeds then opens the target", async () => {
     let finish: (value: Response) => void = () => {};
     vi.stubGlobal(
@@ -121,8 +130,8 @@ describe("application router", () => {
       ),
     );
     const router = mount("/login?returnTo=/system/cores");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await waitFor(() =>
       expect((screen.getByRole("button", { name: "登录中" }) as HTMLButtonElement).disabled).toBe(
@@ -232,8 +241,8 @@ describe("application router", () => {
   it("does not treat malformed successful responses as an authenticated session", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({})));
     mount("/login");
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "operator" } });
+    fireEvent.change(await screen.findByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await screen.findByRole("alert");
     expect(screen.getByRole("heading", { name: "管理员登录" })).toBeTruthy();

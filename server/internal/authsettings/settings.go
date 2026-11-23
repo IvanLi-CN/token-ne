@@ -39,6 +39,39 @@ type Input struct {
 	SessionTTLHours   int
 }
 
+// Changes records which persisted fields differ from the current settings.
+// Presence alone is not a change: the API may send all required fields while
+// only one value actually differs.
+type Changes struct {
+	OIDCEnabled       bool
+	IssuerURL         bool
+	ClientID          bool
+	ClientSecret      bool
+	Scopes            bool
+	LocalLoginEnabled bool
+	SessionTTLHours   bool
+}
+
+func (c Changes) ProviderChanged() bool {
+	return c.OIDCEnabled || c.IssuerURL || c.ClientID || c.ClientSecret || c.Scopes
+}
+
+func (c Changes) Any() bool {
+	return c.ProviderChanged() || c.LocalLoginEnabled || c.SessionTTLHours
+}
+
+func Diff(current Settings, in Input) Changes {
+	return Changes{
+		OIDCEnabled:       current.OIDCEnabled != in.OIDCEnabled,
+		IssuerURL:         !equalPtr(current.IssuerURL, in.IssuerURL),
+		ClientID:          !equalPtr(current.ClientID, in.ClientID),
+		ClientSecret:      in.ClientSecret != nil && *in.ClientSecret != current.ClientSecret,
+		Scopes:            !equalStrings(current.Scopes, in.Scopes),
+		LocalLoginEnabled: current.LocalLoginEnabled != in.LocalLoginEnabled,
+		SessionTTLHours:   current.SessionTTLHours != in.SessionTTLHours,
+	}
+}
+
 type FieldError struct {
 	Path   string
 	Reason string
@@ -226,19 +259,14 @@ func Save(ctx context.Context, repo store.Repository, cfg config.Config, adminID
 	next.LocalLoginEnabled = in.LocalLoginEnabled
 	next.SessionTTLHours = in.SessionTTLHours
 	secret := current.ClientSecret
-	secretChanged := false
 	if in.ClientSecret != nil {
 		secret = *in.ClientSecret
-		secretChanged = secret != current.ClientSecret
 	}
 	next.ClientSecret = secret
 	next.ClientSecretConfigured = secret != ""
 
-	issuerChanged := !equalPtr(current.IssuerURL, next.IssuerURL)
-	clientChanged := !equalPtr(current.ClientID, next.ClientID)
-	scopesChanged := !equalStrings(current.Scopes, next.Scopes)
-	oidcToggled := current.OIDCEnabled != next.OIDCEnabled
-	providerChanged := issuerChanged || clientChanged || scopesChanged || secretChanged || oidcToggled
+	changes := Diff(current, in)
+	providerChanged := changes.ProviderChanged()
 
 	if next.SessionTTLHours < 1 || next.SessionTTLHours > 2160 {
 		return Settings{}, invalid("session_ttl_hours", "must be between 1 and 2160")
@@ -312,18 +340,15 @@ func Save(ctx context.Context, repo store.Repository, cfg config.Config, adminID
 	if adminID != "" {
 		row.UpdatedBy = &adminID
 	}
-	securityChanged := issuerChanged || clientChanged || scopesChanged || secretChanged ||
-		current.OIDCEnabled != next.OIDCEnabled || current.LocalLoginEnabled != next.LocalLoginEnabled ||
-		current.SessionTTLHours != next.SessionTTLHours
-	changed := current.Revision == 0 || securityChanged
+	changed := current.Revision == 0 || changes.Any()
 	if current.Revision > 0 && !changed {
 		return current, nil
 	}
 	bump := ""
-	if securityChanged && adminID != "" {
+	if changes.Any() && adminID != "" {
 		bump = adminID
 	}
-	if _, e = repo.SaveAuthSettings(ctx, row, expectedRevision, issuerChanged || clientChanged, bump, audit); e != nil {
+	if _, e = repo.SaveAuthSettings(ctx, row, expectedRevision, changes.IssuerURL || changes.ClientID, bump, audit); e != nil {
 		return Settings{}, e
 	}
 	return LoadForAdmin(ctx, repo, cfg, adminID)
@@ -395,15 +420,13 @@ func Startup(ctx context.Context, repo store.Repository, cfg config.Config) (Set
 	return settings, warnings, nil
 }
 
-// EnableLocalLogin is the break-glass path. It deliberately skips OIDC
-// completeness checks so a broken provider configuration cannot prevent local
-// recovery.
+// EnableLocalLogin is the break-glass path. It never persists an incomplete
+// OIDC configuration that would make the next startup fail.
 func EnableLocalLogin(ctx context.Context, repo store.Repository, cfg config.Config, adminID string, a store.Audit) error {
 	row, e := repo.AuthSettings(ctx)
 	expected := int64(0)
 	if e == nil {
 		expected = row.Revision
-		row.LocalLoginEnabled = true
 	} else if errors.Is(e, store.ErrNotFound) {
 		current := FromEnv(cfg)
 		var ciphertext, nonce []byte
@@ -426,9 +449,49 @@ func EnableLocalLogin(ctx context.Context, repo store.Repository, cfg config.Con
 	} else {
 		return e
 	}
+	row = breakGlassRow(row, cfg.MasterKey)
 	if adminID != "" {
 		row.UpdatedBy = &adminID
 	}
 	_, e = repo.SaveAuthSettings(ctx, row, expected, false, adminID, a)
 	return e
+}
+
+func breakGlassRow(row store.AuthSettings, master []byte) store.AuthSettings {
+	row.LocalLoginEnabled = true
+	if len(row.ClientSecretCiphertext) > 0 {
+		if _, e := auth.Decrypt(master, row.ClientSecretCiphertext, row.ClientSecretNonce); e != nil {
+			row.ClientSecretCiphertext = nil
+			row.ClientSecretNonce = nil
+		}
+	}
+	if row.OIDCEnabled {
+		settings, e := fromRow(row, master)
+		if e != nil || !oidcSnapshotReady(settings) {
+			row.OIDCEnabled = false
+			row.ClientSecretCiphertext = nil
+			row.ClientSecretNonce = nil
+		}
+	}
+	return row
+}
+
+func oidcSnapshotReady(v Settings) bool {
+	if v.IssuerURL == nil || config.ValidateIssuerURL(*v.IssuerURL) != nil {
+		return false
+	}
+	if v.ClientID == nil || strings.TrimSpace(*v.ClientID) == "" || len(*v.ClientID) > 256 || strings.ContainsFunc(*v.ClientID, unicode.IsControl) {
+		return false
+	}
+	if v.ClientSecret == "" || len(v.Scopes) == 0 {
+		return false
+	}
+	hasOpenID := false
+	for _, scope := range v.Scopes {
+		if !validScope(scope) {
+			return false
+		}
+		hasOpenID = hasOpenID || scope == "openid"
+	}
+	return hasOpenID
 }

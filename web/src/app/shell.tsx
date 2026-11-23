@@ -52,7 +52,10 @@ export function AppShell() {
     visit(location.pathname);
   }, [location.pathname, visit]);
   useEffect(() => {
-    const title = navigation.find(([path]) => path === location.pathname)?.[1] ?? "页面未找到";
+    const title =
+      navigation.find(([path]) => path === location.pathname)?.[1] ??
+      systemSections.find((section) => section.to === location.pathname)?.label ??
+      "页面未找到";
     document.title = `${title} · token-ne`;
     document.getElementById("page-title")?.focus();
   }, [location.pathname]);
@@ -150,7 +153,7 @@ export function AppShell() {
               <NavLink
                 key={path}
                 to={path}
-                end={path === "/"}
+                end={path === "/" || path === "/system"}
                 className={({ isActive }) => (isActive ? "command-link active" : "command-link")}
               >
                 <span>{label}</span>

@@ -85,7 +85,7 @@ docker compose exec api /app/api auth local-login enable
 docker compose run --rm --no-deps api auth local-login enable
 ```
 
-该命令递增 `session_version`、记录 actor 为 `cli` 的审计，并立即恢复本地登录。命令不依赖管理面会话。
+该命令递增 `session_version`、记录 actor 为 `cli` 的审计，并立即恢复本地登录。命令不依赖管理面会话，也不会读取 `OIDC_*`/`AUTH_*` 环境变量；如果数据库中的 OIDC 配置不完整或密钥无法解密，命令会先关闭 OIDC，确保下一次启动可以通过。恢复本地登录后，请在设置页重新配置并验证 OIDC。
 
 ## 强制下线
 

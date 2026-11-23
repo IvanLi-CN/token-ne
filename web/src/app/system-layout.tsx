@@ -3,7 +3,7 @@ import { systemSections } from "./system-nav";
 
 export function SystemLayout() {
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="grid items-start gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
       <div>
         <h1 id="page-title" tabIndex={-1} className="system-nav-title">
           系统

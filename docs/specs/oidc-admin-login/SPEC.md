@@ -288,6 +288,7 @@
 ## Visual Evidence
 
 - [`./assets/settings-page.png`](./assets/settings-page.png)
+- [`./assets/settings-page-1024.png`](./assets/settings-page-1024.png)
 - [`./assets/mobile-navigation.png`](./assets/mobile-navigation.png)
 - [`./assets/login-page.png`](./assets/login-page.png)
 

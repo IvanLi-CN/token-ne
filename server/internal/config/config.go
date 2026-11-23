@@ -107,6 +107,33 @@ func Load() (Config, error) {
 	return c, c.Validate()
 }
 
+// LoadForAuthCLI loads only the settings required to open the database and
+// bootstrap the administrator. Authentication environment variables are
+// intentionally ignored: a broken OIDC configuration must not block
+// break-glass recovery.
+func LoadForAuthCLI() (Config, error) {
+	c := Config{
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		AdminUsername:     os.Getenv("ADMIN_USERNAME"),
+		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
+		LocalLoginEnabled: true,
+		SessionTTLHours:   720,
+		OIDCScopes:        []string{"openid", "profile", "email"},
+	}
+	var e error
+	c.MasterKey, e = base64.StdEncoding.DecodeString(os.Getenv("MASTER_KEY"))
+	if e != nil || len(c.MasterKey) != 32 {
+		return c, errors.New("MASTER_KEY must be base64 encoded 32 bytes")
+	}
+	if strings.TrimSpace(c.DatabaseURL) == "" {
+		return c, errors.New("DATABASE_URL is required")
+	}
+	if strings.TrimSpace(c.AdminUsername) == "" || c.AdminPassword == "" {
+		return c, errors.New("ADMIN_USERNAME and ADMIN_PASSWORD are required for bootstrap")
+	}
+	return c, nil
+}
+
 func (c Config) Validate() error {
 	for _, a := range []string{c.HTTPListen, c.MetricsListen} {
 		_, port, e := net.SplitHostPort(a)

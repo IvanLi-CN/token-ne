@@ -46,7 +46,7 @@ func (a *API) oidcStart(w http.ResponseWriter, r *http.Request) {
 	}
 	authorizationURL, e := a.oidc.AuthorizationURL(r.Context(), *settings.IssuerURL, *settings.ClientID, a.redirectURL(), settings.Scopes, state, flow.Nonce, verifier)
 	if e != nil {
-		a.oidcFailure(r, "login", nil, e)
+		a.oidcFailure(r, "login", nil, *settings.IssuerURL, nil, e)
 		a.oidcLoginMetric("failure")
 		a.redirectLoginError(w, r)
 		return
@@ -74,7 +74,7 @@ func (a *API) oidcBindStart(w http.ResponseWriter, r *http.Request) {
 	}
 	authorizationURL, e := a.oidc.AuthorizationURL(r.Context(), *settings.IssuerURL, *settings.ClientID, a.redirectURL(), settings.Scopes, state, flow.Nonce, verifier)
 	if e != nil {
-		a.oidcFailure(r, "bind", &admin.ID, e)
+		a.oidcFailure(r, "bind", &admin.ID, *settings.IssuerURL, nil, e)
 		a.oidcLoginMetric("failure")
 		fail(w, r, 503, "upstream_unavailable", "OIDC provider is unavailable", nil)
 		return
@@ -120,29 +120,30 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, e := a.oidc.Exchange(r.Context(), *settings.IssuerURL, *settings.ClientID, settings.ClientSecret, a.redirectURL(), r.URL.Query().Get("code"), verifier, flow.Nonce)
 	if e != nil {
-		a.oidcFailure(r, flow.Mode, flow.AdminID, e)
+		a.oidcFailure(r, flow.Mode, flow.AdminID, *settings.IssuerURL, nil, e)
 		a.oidcLoginMetric("failure")
 		a.redirectModeError(w, r, flow.Mode)
 		return
 	}
 	if flow.Mode == "bind" {
-		a.oidcLoginMetric("bind_success")
 		a.finishBind(w, r, flow, identity, settings)
 		return
 	}
-	a.oidcLoginMetric("success")
 	a.finishLogin(w, r, flow, identity, settings)
 }
 
 func (a *API) finishLogin(w http.ResponseWriter, r *http.Request, flow store.AuthFlow, identity auth.Identity, settings authsettings.Settings) {
 	binding, e := a.repo.OIDCBindingAny(r.Context())
 	if e != nil || binding.Issuer != identity.Issuer || binding.Subject != identity.Subject {
-		a.oidcFailure(r, "login", nil, errors.New("OIDC identity is not bound"))
+		a.oidcFailure(r, "login", nil, *settings.IssuerURL, &identity, errors.New("OIDC identity is not bound"))
+		a.oidcLoginMetric("failure")
 		a.redirectLoginError(w, r)
 		return
 	}
 	admin, e := a.repo.AdminByID(r.Context(), binding.AdminID)
 	if e != nil {
+		a.oidcFailure(r, "login", &binding.AdminID, *settings.IssuerURL, &identity, e)
+		a.oidcLoginMetric("failure")
 		a.redirectLoginError(w, r)
 		return
 	}
@@ -150,33 +151,42 @@ func (a *API) finishLogin(w http.ResponseWriter, r *http.Request, flow store.Aut
 		slog.Warn("OIDC login audit failed", "error", e)
 	}
 	if e = a.issueSession(w, admin, settings.SessionTTLHours); e != nil {
+		a.oidcLoginMetric("failure")
 		a.redirectLoginError(w, r)
 		return
 	}
+	a.oidcLoginMetric("success")
 	http.Redirect(w, r, safeReturnPath(valueOr(flow.ReturnTo, "/")), http.StatusFound)
 }
 
 func (a *API) finishBind(w http.ResponseWriter, r *http.Request, flow store.AuthFlow, identity auth.Identity, settings authsettings.Settings) {
 	if flow.AdminID == nil {
+		a.oidcFailure(r, "bind", nil, *settings.IssuerURL, &identity, errors.New("OIDC bind flow has no administrator"))
+		a.oidcLoginMetric("failure")
 		a.redirectBindError(w, r)
 		return
 	}
 	admin, e := a.repo.AdminByID(r.Context(), *flow.AdminID)
 	if e != nil {
+		a.oidcFailure(r, "bind", flow.AdminID, *settings.IssuerURL, &identity, e)
+		a.oidcLoginMetric("failure")
 		a.redirectBindError(w, r)
 		return
 	}
 	version, e := a.repo.ReplaceOIDCBinding(r.Context(), admin.ID, identity.Issuer, identity.Subject, a.auditForSubject(r, admin.Username, "auth.oidc.bind", admin.ID, identity))
 	if e != nil {
-		a.oidcFailure(r, "bind", &admin.ID, e)
+		a.oidcFailure(r, "bind", &admin.ID, *settings.IssuerURL, &identity, e)
+		a.oidcLoginMetric("failure")
 		a.redirectBindError(w, r)
 		return
 	}
 	admin.SessionVersion = version
 	if e = a.issueSession(w, admin, settings.SessionTTLHours); e != nil {
+		a.oidcLoginMetric("failure")
 		a.redirectBindError(w, r)
 		return
 	}
+	a.oidcLoginMetric("bind_success")
 	http.Redirect(w, r, "/system/settings?oidc=bound", http.StatusFound)
 }
 
@@ -282,7 +292,7 @@ func (a *API) oidcDiscoveryMetric(result string) {
 }
 
 func (a *API) auditForSubject(r *http.Request, actor, action, adminID string, identity auth.Identity) store.Audit {
-	payload, _ := json.Marshal(map[string]string{"issuer": identity.Issuer, "subject": identity.Subject})
+	payload, _ := json.Marshal(map[string]string{"issuer": identity.Issuer, "subject": identity.Subject, "result": "success"})
 	return a.auditSubject(r, actor, action, adminID, payload)
 }
 
@@ -305,7 +315,7 @@ func (a *API) auditSubject(r *http.Request, actor, action, adminID string, paylo
 	return audit
 }
 
-func (a *API) oidcFailure(r *http.Request, mode string, adminID *string, err error) {
+func (a *API) oidcFailure(r *http.Request, mode string, adminID *string, issuer string, identity *auth.Identity, err error) {
 	slog.Warn("OIDC flow failed", "mode", mode, "error", err)
 	actor := "oidc"
 	target := ""
@@ -315,7 +325,15 @@ func (a *API) oidcFailure(r *http.Request, mode string, adminID *string, err err
 			actor = admin.Username
 		}
 	}
-	payload, _ := json.Marshal(map[string]string{"result": "failure", "mode": mode})
+	fields := map[string]string{"result": "failure", "mode": mode, "reason": err.Error()}
+	if issuer != "" {
+		fields["issuer"] = issuer
+	}
+	if identity != nil {
+		fields["issuer"] = identity.Issuer
+		fields["subject"] = identity.Subject
+	}
+	payload, _ := json.Marshal(fields)
 	if e := a.repo.RecordAudit(r.Context(), a.auditSubject(r, actor, "auth.oidc.failure", target, payload)); e != nil {
 		slog.Warn("OIDC failure audit failed", "error", e)
 	}

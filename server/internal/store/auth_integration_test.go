@@ -24,6 +24,17 @@ func TestAuthStoreIntegration(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer repo.Close()
+	for _, statement := range []string{
+		"delete from auth_flows",
+		"delete from admin_oidc_identities",
+		"delete from auth_settings",
+		"delete from audit_events",
+		"delete from admin_users",
+	} {
+		if _, e = repo.Pool.Exec(ctx, statement); e != nil {
+			t.Fatalf("clean auth state with %q: %v", statement, e)
+		}
+	}
 	if e = repo.Bootstrap(ctx, "admin", "password"); e != nil {
 		t.Fatal(e)
 	}

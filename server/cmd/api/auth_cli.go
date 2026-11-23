@@ -17,7 +17,7 @@ func authLocalLogin(args []string) error {
 	if len(args) != 2 || args[0] != "local-login" || args[1] != "enable" {
 		return errors.New("usage: api auth local-login enable")
 	}
-	cfg, e := config.Load()
+	cfg, e := config.LoadForAuthCLI()
 	if e != nil {
 		return e
 	}

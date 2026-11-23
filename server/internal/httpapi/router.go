@@ -186,6 +186,10 @@ func storageError(w http.ResponseWriter, r *http.Request, e error, field string)
 	}
 }
 func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string) bool {
+	return decodeWithNullable(w, r, dst, required, nil)
+}
+
+func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, required []string, nullable map[string]bool) bool {
 	ct, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || ct != "application/json" {
 		fail(w, r, 400, "malformed_request", "Content-Type must be application/json", nil)
@@ -209,7 +213,7 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string)
 	}
 	for _, p := range required {
 		v, ok := obj[p]
-		if !ok || string(v) == "null" {
+		if !ok || string(v) == "null" && !nullable[p] {
 			if r.URL.Path == "/api/auth/login" {
 				fail(w, r, 400, "malformed_request", "required field missing", detail(p, "is required and cannot be null"))
 			} else {
@@ -221,7 +225,7 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string)
 	for p, v := range obj {
 		if string(v) == "null" {
 			switch p {
-			case "enabled", "max_inflight", "name", "allowed_models", "models", "connect_timeout_ms", "first_byte_timeout_ms", "idle_timeout_ms":
+			case "enabled", "max_inflight", "name", "allowed_models", "models", "client_secret", "connect_timeout_ms", "first_byte_timeout_ms", "idle_timeout_ms":
 				fail(w, r, 422, "validation_failed", "field cannot be null", detail(p, "cannot be null"))
 				return false
 			}

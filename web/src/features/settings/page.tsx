@@ -32,10 +32,15 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
+  const secretRef = useRef<HTMLInputElement>(null);
+  const submittedChangeRef = useRef(false);
   const [localLoginEnabled, setLocalLoginEnabled] = useState(true);
+  const [clearSecret, setClearSecret] = useState(false);
   const [pendingSave, setPendingSave] = useState<AuthSettingsInput>();
   const [saveChanges, setSaveChanges] = useState<string[]>([]);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const [saveNotice, setSaveNotice] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<unknown>();
@@ -45,9 +50,21 @@ export default function SettingsPage() {
   });
   const save = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: () => {
+    onSuccess: (value) => {
+      setSaveConflict(false);
+      if (value.revision === settings.data?.revision || !submittedChangeRef.current) {
+        client.setQueryData(queryKeys.authSettings, value);
+        setSaveNotice("没有需要保存的变更，当前会话保持有效。");
+        return;
+      }
       client.clear();
       void navigate("/login?returnTo=%2Fsystem%2Fsettings", { replace: true });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        setSaveConflict(true);
+        void settings.refetch();
+      }
     },
   });
   const test = useMutation({
@@ -58,14 +75,21 @@ export default function SettingsPage() {
     onSuccess: (value) => window.location.assign(value.authorization_url),
   });
   useEffect(() => {
-    if (settings.data) setLocalLoginEnabled(settings.data.local_login_enabled);
+    if (settings.data) {
+      setLocalLoginEnabled(settings.data.local_login_enabled);
+      setClearSecret(false);
+    }
   }, [settings.data]);
   const providerLocked = !localLoginEnabled;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!settings.data || save.isPending) return;
+    setSaveConflict(false);
+    setSaveNotice("");
+    save.reset();
+    submittedChangeRef.current = false;
     const data = new FormData(event.currentTarget);
-    const secret = String(data.get("client_secret") ?? "");
+    const secret = clearSecret ? "" : String(data.get("client_secret") ?? "");
     const password = String(data.get("current_password") ?? "");
     const body: AuthSettingsInput = {
       revision: settings.data.revision,
@@ -79,7 +103,7 @@ export default function SettingsPage() {
       local_login_enabled: data.has("local_login_enabled"),
       session_ttl_hours: Math.round(Number(data.get("session_ttl_days")) * 24),
       ...(secret ? { client_secret: secret } : {}),
-      ...(data.has("clear_client_secret") ? { client_secret: "" } : {}),
+      ...(clearSecret ? { client_secret: "" } : {}),
       ...(password ? { current_password: password } : {}),
     };
     const changes: string[] = [];
@@ -89,8 +113,13 @@ export default function SettingsPage() {
       changes.push("启用本地登录");
     if ((settings.data.issuer_url ?? "") !== (body.issuer_url ?? "")) changes.push("修改 issuer");
     if ((settings.data.client_id ?? "") !== (body.client_id ?? "")) changes.push("修改 client ID");
-    if (body.client_secret !== undefined) changes.push("修改 client secret");
-    if (settings.data.oidc_enabled && !body.oidc_enabled) changes.push("关闭 OIDC");
+    if (settings.data.scopes.join(" ") !== body.scopes.join(" ")) changes.push("修改 scopes");
+    if (settings.data.session_ttl_hours !== body.session_ttl_hours) changes.push("修改会话 TTL");
+    if (body.client_secret === "") changes.push("清除 client secret");
+    else if (body.client_secret !== undefined) changes.push("修改 client secret");
+    if (settings.data.oidc_enabled !== body.oidc_enabled)
+      changes.push(body.oidc_enabled ? "启用 OIDC" : "关闭 OIDC");
+    submittedChangeRef.current = changes.length > 0;
     if (changes.length > 0) {
       setPendingSave(body);
       setSaveChanges(changes);
@@ -105,26 +134,21 @@ export default function SettingsPage() {
     const data = new FormData(form);
     const issuer = String(data.get("issuer_url") ?? "").trim();
     if (!issuer) return;
+    test.reset();
     test.mutate({
       issuer_url: issuer,
       client_id: String(data.get("client_id") ?? "").trim() || null,
     });
   }
   if (settings.isPending) {
-    return (
-      <>
-        <Spinner label="正在加载认证设置" />
-      </>
-    );
+    return <Spinner label="正在加载认证设置" />;
   }
   if (settings.isError || !settings.data) {
     return (
-      <>
-        <ErrorState
-          message={errorMessage(settings.error) ?? "认证设置加载失败"}
-          onRetry={() => void settings.refetch()}
-        />
-      </>
+      <ErrorState
+        message={errorMessage(settings.error) ?? "认证设置加载失败"}
+        onRetry={() => void settings.refetch()}
+      />
     );
   }
   const value = settings.data;
@@ -133,6 +157,7 @@ export default function SettingsPage() {
   const canBind = value.oidc_enabled && value.issuer_url && value.client_id;
   return (
     <>
+      <PageTitle title="系统设置" />
       {params.get("oidc") === "bound" && (
         <p className="px-1 py-2 text-sm text-[var(--success)]" role="status">
           OIDC 身份绑定成功。
@@ -189,7 +214,7 @@ export default function SettingsPage() {
             </span>
           ))}
         </div>
-        <form ref={formRef} onSubmit={submit} className="flex flex-col">
+        <form key={value.revision} ref={formRef} onSubmit={submit} className="flex flex-col">
           <section
             className="border-t border-[var(--border-quiet)]"
             aria-labelledby="oidc-provider"
@@ -250,16 +275,25 @@ export default function SettingsPage() {
                 }
               >
                 <input
+                  ref={secretRef}
                   className="input rounded-xl"
                   name="client_secret"
                   type="password"
                   autoComplete="new-password"
-                  disabled={providerLocked}
+                  disabled={providerLocked || clearSecret}
                 />
               </Field>
               {value.client_secret_configured && (
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" name="clear_client_secret" disabled={providerLocked} />
+                  <input
+                    type="checkbox"
+                    checked={clearSecret}
+                    disabled={providerLocked}
+                    onChange={(event) => {
+                      setClearSecret(event.target.checked);
+                      if (event.target.checked && secretRef.current) secretRef.current.value = "";
+                    }}
+                  />
                   清除已配置的 client secret
                 </label>
               )}
@@ -303,7 +337,12 @@ export default function SettingsPage() {
               >
                 {test.isPending ? "测试中…" : "测试连接"}
               </Button>
-              {test.data && (
+              {test.isError && (
+                <span className="field-error" role="alert">
+                  discovery 失败：{errorMessage(test.error)}
+                </span>
+              )}
+              {test.data && !test.isError && (
                 <span
                   className={test.data.ok ? "text-[var(--success)]" : "field-error"}
                   role="status"
@@ -349,7 +388,17 @@ export default function SettingsPage() {
             </dl>
           </section>
           <div className="border-t border-[var(--border-quiet)] px-6 py-4">
-            <FormError error={save.error} />
+            {saveConflict && (
+              <p role="alert" className="field-error">
+                设置已被其他管理员修改，已重新加载。请确认变更后再次保存。
+              </p>
+            )}
+            {saveNotice && (
+              <p role="status" className="text-sm text-[var(--success)]">
+                {saveNotice}
+              </p>
+            )}
+            <FormError error={saveConflict ? undefined : save.error} />
             <ConfirmDialog
               trigger={
                 <button type="button" tabIndex={-1} className="visually-hidden">
