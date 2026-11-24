@@ -54,9 +54,16 @@ function mock(handler?: Handler) {
   const fetch = vi.fn((url: string, init: RequestInit = {}) =>
     Promise.resolve(
       handler?.(url, init) ??
-        response({
-          data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
-        }),
+        (url.endsWith("/model-policy")
+          ? response({
+              upstream_id: url.split("/")[3],
+              default_action: "allow",
+              allow_patterns: [],
+              deny_patterns: [],
+            })
+          : response({
+              data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
+            })),
     ),
   );
   vi.stubGlobal("fetch", fetch);
@@ -156,7 +163,21 @@ describe("models management", () => {
         : undefined,
     );
     mount(ModelsPage);
-    await screen.findByText("无可用候选");
+    await screen.findByText("权重为 0");
+  });
+  it("names the policy when an upstream denies the model", async () => {
+    mock((url) =>
+      url === "/api/upstreams/upstream-1/model-policy"
+        ? response({
+            upstream_id: "upstream-1",
+            default_action: "allow",
+            allow_patterns: [],
+            deny_patterns: ["example"],
+          })
+        : undefined,
+    );
+    mount(ModelsPage);
+    await screen.findByText("策略拒绝");
   });
   it("creates a real model with null unknown and zero free prices", async () => {
     const fetch = mock((url, init) =>
@@ -238,7 +259,7 @@ describe("models management", () => {
           : undefined,
     );
     mount(ModelsPage);
-    await screen.findByText("无可用候选");
+    await screen.findByText("无能力");
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "确认" }));

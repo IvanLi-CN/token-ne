@@ -5,7 +5,7 @@ import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
 import { Button, PageTitle, StatusBadge } from "../../components/primitives";
-import type { PriceRevisionState } from "../../lib/api";
+import { type PriceRevisionState, type UpstreamPolicy, upstreamPolicyApi } from "../../lib/api";
 import { formatPrice, formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
@@ -24,6 +24,20 @@ const prices = [
   ["output_usd_per_mtok", "输出价格"],
 ] as const;
 const sourceLabels = { manual: "手工", price_source: "报价源" } as const;
+
+function globMatches(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
+    character === "*" ? ".*" : character === "?" ? "." : `\\${character}`,
+  );
+  return new RegExp(`^${escaped}$`).test(value);
+}
+
+function policyAllows(policy: UpstreamPolicy | undefined, modelId: string): boolean {
+  if (!policy) return true;
+  if ((policy.deny_patterns ?? []).some((pattern) => globMatches(pattern, modelId))) return false;
+  if ((policy.allow_patterns ?? []).some((pattern) => globMatches(pattern, modelId))) return true;
+  return policy.default_action === "allow";
+}
 
 function BillingState({ state }: { state: PriceRevisionState | undefined }) {
   if (!state) return <span className="muted">未返回 billing_state</span>;
@@ -236,6 +250,19 @@ export default function ModelsPage() {
     queryKey: queryKeys.upstreams,
     queryFn: ({ signal }) => upstreamsApi.list(signal),
   });
+  const policies = useQuery({
+    queryKey: ["upstream-policies", (upstreams.data ?? []).map((upstream) => upstream.id)],
+    queryFn: async ({ signal }) => {
+      const entries = await Promise.all(
+        (upstreams.data ?? []).map(
+          async (upstream) =>
+            [upstream.id, await upstreamPolicyApi.get(upstream.id, signal)] as const,
+        ),
+      );
+      return new Map(entries);
+    },
+    enabled: upstreams.isSuccess && (upstreams.data?.length ?? 0) > 0,
+  });
   const [editor, setEditor] = useState<Model | null | undefined>();
   const [filter, setFilter] = useState("all");
   const [toggling, setToggling] = useState<string>();
@@ -255,6 +282,73 @@ export default function ModelsPage() {
     } finally {
       setToggling(undefined);
     }
+  };
+  const routeBadge = (
+    model: Model,
+  ): {
+    label: string;
+    tone: "success" | "warning" | "error" | "neutral";
+    title: string;
+  } => {
+    if (!model.enabled) {
+      return {
+        label: "未接受",
+        tone: "warning",
+        title: "该模型未接受：/v1/models 不列出它，推理请求返回 404。",
+      };
+    }
+    if (upstreams.isPending) {
+      return { label: "加载中", tone: "neutral", title: "正在加载上游能力。" };
+    }
+    if (upstreams.isError) {
+      return { label: "未知", tone: "error", title: "上游能力加载失败，无法判断候选。" };
+    }
+    if (policies.isLoading) {
+      return { label: "加载中", tone: "neutral", title: "正在加载上游承接策略。" };
+    }
+    const capabilities = (upstreams.data ?? []).flatMap((upstream) =>
+      upstream.models
+        .filter((capability) => capability.model_id === model.model_id)
+        .map((capability) => ({ upstream, capability })),
+    );
+    if (!capabilities.length) {
+      return {
+        label: "无能力",
+        tone: "warning",
+        title: "没有任何上游声明该模型的能力；先在对应上游里添加能力。",
+      };
+    }
+    const enabledCapabilities = capabilities.filter(({ capability }) => capability.enabled);
+    if (!enabledCapabilities.length) {
+      return {
+        label: "能力禁用",
+        tone: "warning",
+        title: `${capabilities.length} 个上游能力都已禁用。`,
+      };
+    }
+    const weighted = enabledCapabilities.filter(({ capability }) => capability.weight > 0);
+    if (!weighted.length) {
+      return {
+        label: "权重为 0",
+        tone: "warning",
+        title: "启用的能力权重都是 0，请求不会被分配。",
+      };
+    }
+    const live = weighted.filter(({ upstream }) => upstream.enabled);
+    if (!live.length) {
+      return { label: "上游禁用", tone: "warning", title: "持有该模型能力的上游都未启用。" };
+    }
+    const allowed = live.filter(({ upstream }) =>
+      policyAllows(policies.data?.get(upstream.id), model.model_id),
+    );
+    if (!allowed.length) {
+      return { label: "策略拒绝", tone: "warning", title: "这些上游的承接策略拒绝该模型。" };
+    }
+    return {
+      label: "可路由",
+      tone: "success",
+      title: `${allowed.length} 个候选，优先级内按权重随机；路由规则的上游限制请在下方的规则表核对。`,
+    };
   };
   const references = (id: string) =>
     upstreams.data?.flatMap((upstream) =>
@@ -319,42 +413,32 @@ export default function ModelsPage() {
               { key: "id", header: "模型", cell: (model) => <code>{model.model_id}</code> },
               {
                 key: "enabled",
-                header: "启用 / 路由",
+                header: "接受",
                 cell: (model) => (
-                  <ActionGroup>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={model.enabled}
-                      aria-label={`${model.enabled ? "停用" : "启用"} ${model.model_id}`}
-                      className={`switch${model.enabled ? " is-on" : ""}`}
-                      disabled={toggling === model.model_id}
-                      onClick={() => void toggleEnabled(model)}
-                    >
-                      <span className="switch-thumb" aria-hidden="true" />
-                    </button>
-                    <StatusBadge tone={upstreams.isError ? "error" : "neutral"}>
-                      {upstreams.isPending
-                        ? "路由加载中"
-                        : upstreams.isError
-                          ? "路由未知"
-                          : !model.enabled
-                            ? "不可路由"
-                            : upstreams.data?.some(
-                                  (upstream) =>
-                                    upstream.enabled &&
-                                    upstream.models.some(
-                                      (capability) =>
-                                        capability.model_id === model.model_id &&
-                                        capability.enabled &&
-                                        capability.weight > 0,
-                                    ),
-                                )
-                              ? "可路由"
-                              : "无可用候选"}
-                    </StatusBadge>
-                  </ActionGroup>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={model.enabled}
+                    aria-label={`${model.enabled ? "停用" : "启用"} ${model.model_id}`}
+                    className={`switch${model.enabled ? " is-on" : ""}`}
+                    disabled={toggling === model.model_id}
+                    onClick={() => void toggleEnabled(model)}
+                  >
+                    <span className="switch-thumb" aria-hidden="true" />
+                  </button>
                 ),
+              },
+              {
+                key: "routing",
+                header: "路由",
+                cell: (model) => {
+                  const badge = routeBadge(model);
+                  return (
+                    <span title={badge.title}>
+                      <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+                    </span>
+                  );
+                },
               },
               ...prices.map(([key, label]) => ({
                 key,
