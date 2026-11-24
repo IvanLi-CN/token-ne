@@ -50,7 +50,7 @@ func TestMigrationsCompile(t *testing.T) {
 		t.Fatal(e)
 	}
 	ddl := strings.ToLower(allSQL.String())
-	for _, name := range []string{"admin_users", "auth_settings", "admin_oidc_identities", "auth_flows", "downstream_api_keys", "upstreams", "models", "upstream_models", "core_versions", "core_instances", "core_deployments", "usage_events", "audit_events", "system_state"} {
+	for _, name := range []string{"admin_users", "auth_settings", "admin_oidc_identities", "auth_flows", "downstream_api_keys", "upstreams", "models", "upstream_models", "core_versions", "core_instances", "core_deployments", "usage_events", "audit_events", "system_state", "upstream_model_catalog", "upstream_model_sync_runs", "upstream_model_policies", "model_route_rules", "price_revisions", "model_prices", "price_sync_runs"} {
 		if !strings.Contains(ddl, "create table "+name+" (") {
 			t.Errorf("missing %s", name)
 		}
