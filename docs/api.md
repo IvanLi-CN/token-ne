@@ -93,7 +93,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 ## 出站代理 API
 
 - `GET/POST /api/egress-proxies` 列出或创建档案；`GET/PUT/DELETE /api/egress-proxies/{id}` 读取、更新或删除档案；`POST /api/egress-proxies/{id}/test` 通过该档案访问受控探测目标，返回状态、耗时和错误分类，不返回凭据。
-- 档案字段为名称、协议、服务器、端口、凭据、传输/TLS 选项和启用状态。协议限定 HTTP CONNECT、SOCKS5、Shadowsocks（AEAD）、VMess、VLESS 和 Trojan；未知协议、未知传输或未知字段返回 `422`，不做降级猜测。
+- 档案字段为名称、协议、服务器、端口、凭据、传输/TLS 选项和管理员期望的启用状态；响应另含 `runtime_state`、`swap_phase`、`inbound_port`、计算后的 `effective_enabled` 和 `has_credentials`。协议限定 HTTP CONNECT、SOCKS5、Shadowsocks（AEAD）、VMess、VLESS 和 Trojan；未知协议、未知传输或未知字段返回 `422`，不做降级猜测。
 - 凭据创建和更新时接收一次明文，之后只写不读；API 响应、日志、审计和 core 配置都不出现代理凭据（明文或密文）。core 配置只包含 `socks5h` 端点、档案 ID 和有效启用状态。
 - 上游写入接受可选 `egress_proxy_id`，为空表示直连。绑定上游的请求、目录同步和测试都经该档案出站；代理不可用时上游没有候选，禁止回退直连或其他档案。
 - 仍被上游引用的档案不能删除，返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。删除档案不重写历史用量中的 `egress_proxy_id`。
