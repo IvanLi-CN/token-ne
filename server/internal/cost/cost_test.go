@@ -90,3 +90,28 @@ func TestCalculateDimensionsAndTiers(t *testing.T) {
 		t.Fatalf("base cost = %v %v", got, ok)
 	}
 }
+
+// TestCalculateReasoningRate covers providers that price reasoning tokens
+// separately from completion tokens.
+func TestCalculateReasoningRate(t *testing.T) {
+	input := int64(1000)
+	output := int64(1000)
+	reasoning := int64(400)
+	in, out, reason := "1", "1.2", "4"
+	got, ok := Calculate(Prices{Input: &in, Output: &out, Reasoning: &reason}, nil,
+		Usage{Input: &input, Output: &output, Reasoning: &reasoning})
+	if !ok || got == nil {
+		t.Fatalf("reasoning cost: %v %v", got, ok)
+	}
+	// 1000*1 + (1000-400)*1.2 + 400*4 = 1000+720+1600 = 3320 microdollars
+	if *got != "0.003320" {
+		t.Fatalf("reasoning cost = %s", *got)
+	}
+
+	// Without a separate reasoning rate the output rate applies.
+	got, ok = Calculate(Prices{Input: &in, Output: &out}, nil,
+		Usage{Input: &input, Output: &output, Reasoning: &reasoning})
+	if !ok || got == nil || *got != "0.002200" {
+		t.Fatalf("reasoning-as-output cost = %v %v", got, ok)
+	}
+}

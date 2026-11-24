@@ -35,6 +35,9 @@ function PriceCell({ billing }: { billing: SourceModel["billing"] }) {
     ...(billing.audio_output_usd_per_mtok != null
       ? ([["音频出", billing.audio_output_usd_per_mtok]] as Array<[string, number | null]>)
       : []),
+    ...(billing.reasoning_usd_per_mtok != null
+      ? ([["推理", billing.reasoning_usd_per_mtok]] as Array<[string, number | null]>)
+      : []),
     ["输出", billing.output_usd_per_mtok],
   ];
   return (

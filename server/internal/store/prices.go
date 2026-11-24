@@ -14,11 +14,11 @@ import (
 
 // billingColumns carries the six token dimensions at numeric(14,6) scale.
 type billingColumns struct {
-	input, cached, write, audioIn, audioOut, output *float64
+	input, cached, write, audioIn, audioOut, reasoning, output *float64
 }
 
 func (v billingColumns) params() []any {
-	return []any{v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output}
+	return []any{v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output}
 }
 
 // AppendGlobalRevision appends one immutable global price revision inside the
@@ -32,8 +32,8 @@ func AppendGlobalRevision(ctx context.Context, tx pgx.Tx, modelID string, b Bill
 	}
 	var returned string
 	err = tx.QueryRow(ctx, `
-insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
-values($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'global') returning id::text`,
+insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
+values($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'global') returning id::text`,
 		append([]any{id, modelID}, append(roundedBilling(b).params(), tiers, source, sourceID, locked)...)...).Scan(&returned)
 	return returned, normalize(err)
 }
@@ -46,8 +46,8 @@ func appendUpstreamRevision(ctx context.Context, tx pgx.Tx, modelID, upstreamID 
 	}
 	var returned string
 	err = tx.QueryRow(ctx, `
-insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
-values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',null,$11,'upstream') returning id::text`,
+insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'manual',null,$12,'upstream') returning id::text`,
 		append([]any{id, modelID, upstreamID}, append(roundedBilling(b).params(), tiers, locked)...)...).Scan(&returned)
 	return returned, normalize(err)
 }
@@ -73,7 +73,8 @@ func unmarshalTiers(raw []byte) []PriceTier {
 func roundedBilling(b Billing) billingColumns {
 	return billingColumns{
 		input: roundedPrice(b.Input), cached: roundedPrice(b.Cached), write: roundedPrice(b.CacheWrite),
-		audioIn: roundedPrice(b.AudioIn), audioOut: roundedPrice(b.AudioOut), output: roundedPrice(b.Output),
+		audioIn: roundedPrice(b.AudioIn), audioOut: roundedPrice(b.AudioOut),
+		reasoning: roundedPrice(b.Reasoning), output: roundedPrice(b.Output),
 	}
 }
 
@@ -88,7 +89,8 @@ func roundedPrice(v *float64) *float64 {
 func sameBilling(a, b Billing) bool {
 	av, bv := roundedBilling(a), roundedBilling(b)
 	if !samePrice(av.input, bv.input) || !samePrice(av.cached, bv.cached) || !samePrice(av.write, bv.write) ||
-		!samePrice(av.audioIn, bv.audioIn) || !samePrice(av.audioOut, bv.audioOut) || !samePrice(av.output, bv.output) {
+		!samePrice(av.audioIn, bv.audioIn) || !samePrice(av.audioOut, bv.audioOut) ||
+		!samePrice(av.reasoning, bv.reasoning) || !samePrice(av.output, bv.output) {
 		return false
 	}
 	at, bt := a.Tiers, b.Tiers
@@ -102,6 +104,7 @@ func sameBilling(a, b Billing) bool {
 			!samePrice(roundedPrice(at[i].CacheWrite), roundedPrice(bt[i].CacheWrite)) ||
 			!samePrice(roundedPrice(at[i].AudioIn), roundedPrice(bt[i].AudioIn)) ||
 			!samePrice(roundedPrice(at[i].AudioOut), roundedPrice(bt[i].AudioOut)) ||
+			!samePrice(roundedPrice(at[i].Reasoning), roundedPrice(bt[i].Reasoning)) ||
 			!samePrice(roundedPrice(at[i].Output), roundedPrice(bt[i].Output)) {
 			return false
 		}
@@ -199,7 +202,7 @@ func (s *Store) Prices(ctx context.Context) ([]PriceProfile, error) {
 	rows, err := s.Pool.Query(ctx, `
 select mp.model_id,mp.upstream_id::text,mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
        mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
-       mp.output_usd_per_mtok::float8,mp.tiers::text,
+       mp.reasoning_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,mp.tiers::text,
        mp.locked,r.source,r.source_id,r.id::text,r.created_at,mp.updated_at
 from model_prices mp join price_revisions r on r.id=mp.price_revision_id
 order by mp.model_id,mp.upstream_id`)
@@ -211,7 +214,7 @@ order by mp.model_id,mp.upstream_id`)
 	for rows.Next() {
 		var p PriceProfile
 		var tiers string
-		if err = rows.Scan(&p.ModelID, &p.UpstreamID, &p.Input, &p.Cached, &p.CacheWrite, &p.AudioIn, &p.AudioOut, &p.Output,
+		if err = rows.Scan(&p.ModelID, &p.UpstreamID, &p.Input, &p.Cached, &p.CacheWrite, &p.AudioIn, &p.AudioOut, &p.Reasoning, &p.Output,
 			&tiers, &p.Locked, &p.Source, &p.SourceID, &p.PriceRevisionID, &p.RevisionCreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -241,11 +244,11 @@ func (s *Store) SaveUpstreamPrice(ctx context.Context, modelID, upstreamID strin
 		err := tx.QueryRow(ctx, `
 select mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
        mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
-       mp.output_usd_per_mtok::float8,mp.tiers::text,
+       mp.reasoning_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,mp.tiers::text,
        mp.locked,r.source,r.source_id,r.id::text,r.created_at,mp.updated_at
 from model_prices mp join price_revisions r on r.id=mp.price_revision_id
 where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamID).
-			Scan(&current.Input, &current.Cached, &current.CacheWrite, &current.AudioIn, &current.AudioOut, &current.Output,
+			Scan(&current.Input, &current.Cached, &current.CacheWrite, &current.AudioIn, &current.AudioOut, &current.Reasoning, &current.Output,
 				&currentTiers, &current.Locked,
 				&current.Source, &current.SourceID, &current.PriceRevisionID, &current.RevisionCreatedAt, &current.UpdatedAt)
 		current.Tiers = unmarshalTiers([]byte(currentTiers))
@@ -263,7 +266,8 @@ where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamI
 		v := roundedBilling(b)
 		profile.Billing = Billing{
 			Input: v.input, Cached: v.cached, CacheWrite: v.write,
-			AudioIn: v.audioIn, AudioOut: v.audioOut, Output: v.output, Tiers: b.Tiers,
+			AudioIn: v.audioIn, AudioOut: v.audioOut, Reasoning: v.reasoning,
+			Output: v.output, Tiers: b.Tiers,
 		}
 		profile.Locked = locked
 		if !changed {
@@ -282,16 +286,16 @@ where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamI
 			err = tx.QueryRow(ctx, `
 update model_prices
 set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,cache_write_usd_per_mtok=$5,
-    audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,output_usd_per_mtok=$8,
-    tiers=$9::jsonb,source='manual',locked=$10,price_revision_id=$11,updated_at=now()
+    audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,reasoning_usd_per_mtok=$8,output_usd_per_mtok=$9,
+    tiers=$10::jsonb,source='manual',locked=$11,price_revision_id=$12,updated_at=now()
 where model_id=$1 and upstream_id=$2 returning updated_at`,
-				modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
+				modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
 		} else {
 			err = tx.QueryRow(ctx, `
 insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
-  audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
-values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'manual',$11,$12) returning updated_at`,
-				uuid.NewString(), modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
+  audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'manual',$12,$13) returning updated_at`,
+				uuid.NewString(), modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
 		}
 		if err != nil {
 			return normalize(err)

@@ -479,18 +479,18 @@ where model_id=$1`, q.ModelID, v.input, v.cached, v.output, revision)
 	var returned string
 	err = tx.QueryRow(ctx, `
 insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
-  audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
+  audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
 values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'price_source',$12,$13,'upstream') returning id::text`,
-		revision, q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiers, sourceID, c.locked).Scan(&returned)
+		revision, q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, sourceID, c.locked).Scan(&returned)
 	if err != nil {
 		return "", normalize(err)
 	}
 	tag, err := tx.Exec(ctx, `
 update model_prices set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,cache_write_usd_per_mtok=$5,
-  audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,output_usd_per_mtok=$8,
-  tiers=$9::jsonb,source='price_source',locked=$10,price_revision_id=$11,updated_at=now()
+  audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,reasoning_usd_per_mtok=$8,output_usd_per_mtok=$9,
+  tiers=$10::jsonb,source='price_source',locked=$11,price_revision_id=$12,updated_at=now()
 where model_id=$1 and upstream_id=$2`,
-		q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiers, c.locked, returned)
+		q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned)
 	if err != nil {
 		return "", normalize(err)
 	}
@@ -505,7 +505,7 @@ func loadPriceTargets(ctx context.Context, tx pgx.Tx) ([]pricesource.Target, err
 	rows, err := tx.Query(ctx, `
 select m.model_id,r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,
        r.cache_write_usd_per_mtok::float8,r.audio_input_usd_per_mtok::float8,r.audio_output_usd_per_mtok::float8,
-       r.output_usd_per_mtok::float8,r.tiers::text,
+       r.reasoning_usd_per_mtok::float8,r.output_usd_per_mtok::float8,r.tiers::text,
        m.billing_revision_id::text,m.updated_at,r.locked
 from models m join price_revisions r on r.id=m.billing_revision_id
 order by m.model_id`)
@@ -514,10 +514,10 @@ order by m.model_id`)
 	}
 	for rows.Next() {
 		var modelID, revision, tiers string
-		var input, cached, write, audioIn, audioOut, output *float64
+		var input, cached, write, audioIn, audioOut, reasoning, output *float64
 		var updated time.Time
 		var locked bool
-		if err = rows.Scan(&modelID, &input, &cached, &write, &audioIn, &audioOut, &output, &tiers, &revision, &updated, &locked); err != nil {
+		if err = rows.Scan(&modelID, &input, &cached, &write, &audioIn, &audioOut, &reasoning, &output, &tiers, &revision, &updated, &locked); err != nil {
 			rows.Close()
 			return nil, normalize(err)
 		}
@@ -525,7 +525,8 @@ order by m.model_id`)
 			ModelID: modelID, RevisionID: &revision, UpdatedAt: &updated, Locked: locked,
 			Current: &pricesource.Billing{
 				Input: input, Cached: cached, CacheWrite: write,
-				AudioIn: audioIn, AudioOut: audioOut, Output: output, Tiers: sourceTiers(tiers),
+				AudioIn: audioIn, AudioOut: audioOut, Reasoning: reasoning, Output: output,
+				Tiers: sourceTiers(tiers),
 			},
 			Names: []string{modelID},
 		})
@@ -540,7 +541,7 @@ order by m.model_id`)
 select um.model_id,um.upstream_id::text,um.upstream_model_name,um.catalog_model_id,
        mp.price_revision_id::text,mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
        mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
-       mp.output_usd_per_mtok::float8,mp.tiers::text,coalesce(mp.locked,false),mp.updated_at
+       mp.reasoning_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,mp.tiers::text,coalesce(mp.locked,false),mp.updated_at
 from upstream_models um
 left join model_prices mp on mp.model_id=um.model_id and mp.upstream_id=um.upstream_id
 order by um.model_id,um.upstream_id`)
@@ -550,11 +551,11 @@ order by um.model_id,um.upstream_id`)
 	for rows.Next() {
 		var modelID, upstreamID string
 		var upstreamName, catalogID, revision, tiers *string
-		var input, cached, write, audioIn, audioOut, output *float64
+		var input, cached, write, audioIn, audioOut, reasoning, output *float64
 		var locked bool
 		var updated *time.Time
 		if err = rows.Scan(&modelID, &upstreamID, &upstreamName, &catalogID, &revision,
-			&input, &cached, &write, &audioIn, &audioOut, &output, &tiers, &locked, &updated); err != nil {
+			&input, &cached, &write, &audioIn, &audioOut, &reasoning, &output, &tiers, &locked, &updated); err != nil {
 			rows.Close()
 			return nil, normalize(err)
 		}
@@ -574,7 +575,7 @@ order by um.model_id,um.upstream_id`)
 		if revision != nil {
 			target.Current = &pricesource.Billing{
 				Input: input, Cached: cached, CacheWrite: write,
-				AudioIn: audioIn, AudioOut: audioOut, Output: output,
+				AudioIn: audioIn, AudioOut: audioOut, Reasoning: reasoning, Output: output,
 			}
 			if tiers != nil {
 				target.Current.Tiers = sourceTiers(*tiers)
@@ -592,7 +593,7 @@ order by um.model_id,um.upstream_id`)
 select mp.model_id,mp.upstream_id::text,mp.price_revision_id::text,mp.input_usd_per_mtok::float8,
        mp.cached_input_usd_per_mtok::float8,mp.cache_write_usd_per_mtok::float8,
        mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
-       mp.output_usd_per_mtok::float8,mp.tiers::text,mp.locked,mp.updated_at
+       mp.reasoning_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,mp.tiers::text,mp.locked,mp.updated_at
 from model_prices mp
 where not exists (
   select 1 from upstream_models um where um.model_id=mp.model_id and um.upstream_id=mp.upstream_id
@@ -604,16 +605,16 @@ order by mp.model_id,mp.upstream_id`)
 	for rows.Next() {
 		var modelID, upstreamID string
 		var revision, tiers *string
-		var input, cached, write, audioIn, audioOut, output *float64
+		var input, cached, write, audioIn, audioOut, reasoning, output *float64
 		var locked bool
 		var updated *time.Time
-		if err = rows.Scan(&modelID, &upstreamID, &revision, &input, &cached, &write, &audioIn, &audioOut, &output, &tiers, &locked, &updated); err != nil {
+		if err = rows.Scan(&modelID, &upstreamID, &revision, &input, &cached, &write, &audioIn, &audioOut, &reasoning, &output, &tiers, &locked, &updated); err != nil {
 			rows.Close()
 			return nil, normalize(err)
 		}
 		current := &pricesource.Billing{
 			Input: input, Cached: cached, CacheWrite: write,
-			AudioIn: audioIn, AudioOut: audioOut, Output: output,
+			AudioIn: audioIn, AudioOut: audioOut, Reasoning: reasoning, Output: output,
 		}
 		if tiers != nil {
 			current.Tiers = sourceTiers(*tiers)

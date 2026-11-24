@@ -73,7 +73,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 ## 价格 API
 
 - 全局默认价格通过原有模型 API 读取和更新。开启二期开关时模型响应必须返回 `billing_state`，且 `price_revision_id` 不为空：迁移为一期既有 Model 回填一条 `scope=global`、`source=manual` 的初始修订，新建 Model 与目录导入在同一事务内创建；开关关闭时省略 `billing_state`，保持一期响应形状。`PUT /api/models/{model_id}` 通过 `billing` 和 `billing_locked` 修改全局价格和锁定状态；已锁定价格的改动或解锁还需 `confirm_locked=true`，否则返回 `409 price_profile_locked`。
-- 价格档案覆盖六个 token 维度：`input_usd_per_mtok`、`cached_input_usd_per_mtok`、`cache_write_usd_per_mtok`、`audio_input_usd_per_mtok`、`audio_output_usd_per_mtok`、`output_usd_per_mtok`，另有 `tiers` 数组表达上下文阶梯（prompt 达到 `threshold_tokens` 后整份替换基础价，未给出的维度沿用基础价）。`null` 表示未知，`0` 表示免费。
+- 价格档案覆盖六个 token 维度：`input_usd_per_mtok`、`cached_input_usd_per_mtok`、`cache_write_usd_per_mtok`、`audio_input_usd_per_mtok`、`audio_output_usd_per_mtok`、`reasoning_usd_per_mtok`、`output_usd_per_mtok`，另有 `tiers` 数组表达上下文阶梯（prompt 达到 `threshold_tokens` 后整份替换基础价，未给出的维度沿用基础价）。`null` 表示未知，`0` 表示免费。
 - `GET /api/prices` 返回上游级覆盖。`PUT /api/upstreams/{upstream_id}/models/{model_id}/price` 设置覆盖与锁定状态。`DELETE` 移除上游级覆盖；已锁定档案必须在查询参数里传 `confirm_locked=true`，否则返回 `409 price_profile_locked`。修改或解锁已锁定的档案时 `PUT` 载荷需显式传入同一个字段。
 - 改价或改变锁定状态时追加不可变修订。用量摄入选择整份上游级覆盖或全局默认价格，并引用当时的修订 ID。`null` 表示未知，`0` 表示免费。
 - `GET /api/price-sources` 返回受控内置源（`builtin`，仓库内嵌数据集，运行时不联网）；`POST /api/price-sources/{source_id}/sync` 生成报价批次并返回 `202`，不直接覆盖价格。

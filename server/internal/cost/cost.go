@@ -5,7 +5,7 @@ import "math/big"
 // Prices are PostgreSQL numeric(14,6) values in USD per million tokens. AudioIn
 // and AudioOut price audio tokens; CacheWrite prices cache creation.
 type Prices struct {
-	Input, Cached, CacheWrite, AudioIn, AudioOut, Output *string
+	Input, Cached, CacheWrite, AudioIn, AudioOut, Reasoning, Output *string
 }
 
 // Tier is a whole price set that replaces the base rates once the prompt
@@ -19,6 +19,7 @@ type Tier struct {
 	CacheWrite      *string `json:"cache_write_usd_per_mtok"`
 	AudioIn         *string `json:"audio_input_usd_per_mtok"`
 	AudioOut        *string `json:"audio_output_usd_per_mtok"`
+	Reasoning       *string `json:"reasoning_usd_per_mtok"`
 	Output          *string `json:"output_usd_per_mtok"`
 }
 
@@ -26,7 +27,7 @@ type Tier struct {
 // write tokens; Output includes audio and reasoning tokens, mirroring the
 // OpenAI-compatible usage object.
 type Usage struct {
-	Input, Cached, CacheWrite, AudioIn, AudioOut, Output *int64
+	Input, Cached, CacheWrite, AudioIn, AudioOut, Reasoning, Output *int64
 }
 
 // Calculate returns decimal USD rounded to the nearest microdollar.
@@ -37,7 +38,7 @@ func Calculate(base Prices, tiers []Tier, u Usage) (*string, bool) {
 	if u.Input == nil || u.Output == nil {
 		return nil, true
 	}
-	input, cached, write, audioIn, audioOut, output := *u.Input, int64(0), int64(0), int64(0), int64(0), *u.Output
+	input, cached, write, audioIn, audioOut, reasoning, output := *u.Input, int64(0), int64(0), int64(0), int64(0), int64(0), *u.Output
 	if u.Cached != nil {
 		cached = *u.Cached
 	}
@@ -50,11 +51,14 @@ func Calculate(base Prices, tiers []Tier, u Usage) (*string, bool) {
 	if u.AudioOut != nil {
 		audioOut = *u.AudioOut
 	}
-	if cached < 0 || write < 0 || audioIn < 0 || audioOut < 0 || output < 0 {
+	if u.Reasoning != nil {
+		reasoning = *u.Reasoning
+	}
+	if cached < 0 || write < 0 || audioIn < 0 || audioOut < 0 || reasoning < 0 || output < 0 {
 		return nil, false
 	}
 	textInput := input - cached - write - audioIn
-	textOutput := output - audioOut
+	textOutput := output - audioOut - reasoning
 	if textInput < 0 || textOutput < 0 {
 		return nil, false
 	}
@@ -64,11 +68,17 @@ func Calculate(base Prices, tiers []Tier, u Usage) (*string, bool) {
 		if input >= tier.ThresholdTokens {
 			prices = overlay(prices, Prices{
 				Input: tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
-				AudioIn: tier.AudioIn, AudioOut: tier.AudioOut, Output: tier.Output,
+				AudioIn: tier.AudioIn, AudioOut: tier.AudioOut,
+				Reasoning: tier.Reasoning, Output: tier.Output,
 			})
 		}
 	}
 
+	// Providers without a separate reasoning rate bill reasoning as output.
+	reasoningPrice := prices.Reasoning
+	if reasoningPrice == nil {
+		reasoningPrice = prices.Output
+	}
 	var sum big.Rat
 	for _, part := range []struct {
 		tokens int64
@@ -80,6 +90,7 @@ func Calculate(base Prices, tiers []Tier, u Usage) (*string, bool) {
 		{audioIn, prices.AudioIn},
 		{textOutput, prices.Output},
 		{audioOut, prices.AudioOut},
+		{reasoning, reasoningPrice},
 	} {
 		if part.tokens == 0 {
 			continue
@@ -120,6 +131,7 @@ func overlay(base, tier Prices) Prices {
 		CacheWrite: pick(tier.CacheWrite, base.CacheWrite),
 		AudioIn:    pick(tier.AudioIn, base.AudioIn),
 		AudioOut:   pick(tier.AudioOut, base.AudioOut),
+		Reasoning:  pick(tier.Reasoning, base.Reasoning),
 		Output:     pick(tier.Output, base.Output),
 	}
 }

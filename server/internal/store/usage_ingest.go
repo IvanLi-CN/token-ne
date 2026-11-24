@@ -20,16 +20,16 @@ type pricedUsage struct {
 // priceProfile mirrors the ingestion price query. Overrides is keyed by
 // upstream UUID; the global row carries no upstream override.
 type priceProfile struct {
-	Input, Cached, CacheWrite, AudioIn, AudioOut, Output *string
-	RevisionID                                           *string
-	Tiers                                                []cost.Tier
-	Overrides                                            map[string]priceProfile
+	Input, Cached, CacheWrite, AudioIn, AudioOut, Reasoning, Output *string
+	RevisionID                                                      *string
+	Tiers                                                           []cost.Tier
+	Overrides                                                       map[string]priceProfile
 }
 
 func (p priceProfile) Prices() cost.Prices {
 	return cost.Prices{
 		Input: p.Input, Cached: p.Cached, CacheWrite: p.CacheWrite,
-		AudioIn: p.AudioIn, AudioOut: p.AudioOut, Output: p.Output,
+		AudioIn: p.AudioIn, AudioOut: p.AudioOut, Reasoning: p.Reasoning, Output: p.Output,
 	}
 }
 
@@ -85,7 +85,7 @@ returning event_id::text`
 const usagePriceQuery = `select coalesce((select jsonb_object_agg(model_id,jsonb_build_object(
  'Input',input_usd_per_mtok::text,'Cached',cached_input_usd_per_mtok::text,
  'CacheWrite',cache_write_usd_per_mtok::text,'AudioIn',audio_input_usd_per_mtok::text,
- 'AudioOut',audio_output_usd_per_mtok::text,'Output',output_usd_per_mtok::text,
+ 'AudioOut',audio_output_usd_per_mtok::text,'Reasoning',reasoning_usd_per_mtok::text,'Output',output_usd_per_mtok::text,
  'Tiers',coalesce((select jsonb_agg(jsonb_build_object(
    'threshold_tokens',(t->>'threshold_tokens')::bigint,
    'input_usd_per_mtok',t->>'input_usd_per_mtok',
@@ -93,15 +93,16 @@ const usagePriceQuery = `select coalesce((select jsonb_object_agg(model_id,jsonb
    'cache_write_usd_per_mtok',t->>'cache_write_usd_per_mtok',
    'audio_input_usd_per_mtok',t->>'audio_input_usd_per_mtok',
    'audio_output_usd_per_mtok',t->>'audio_output_usd_per_mtok',
+   'reasoning_usd_per_mtok',t->>'reasoning_usd_per_mtok',
    'output_usd_per_mtok',t->>'output_usd_per_mtok'))
   from jsonb_array_elements(tiers) t), '[]'::jsonb),
  'RevisionID',billing_revision_id::text,'Overrides',coalesce(overrides,'{}'::jsonb)))
  from (select m.model_id,r.input_usd_per_mtok,r.cached_input_usd_per_mtok,r.cache_write_usd_per_mtok,
-   r.audio_input_usd_per_mtok,r.audio_output_usd_per_mtok,r.output_usd_per_mtok,r.tiers,m.billing_revision_id,
+   r.audio_input_usd_per_mtok,r.audio_output_usd_per_mtok,r.reasoning_usd_per_mtok,r.output_usd_per_mtok,r.tiers,m.billing_revision_id,
   (select jsonb_object_agg(mp.upstream_id::text,jsonb_build_object(
     'Input',mp.input_usd_per_mtok::text,'Cached',mp.cached_input_usd_per_mtok::text,
     'CacheWrite',mp.cache_write_usd_per_mtok::text,'AudioIn',mp.audio_input_usd_per_mtok::text,
-    'AudioOut',mp.audio_output_usd_per_mtok::text,'Output',mp.output_usd_per_mtok::text,
+    'AudioOut',mp.audio_output_usd_per_mtok::text,'Reasoning',mp.reasoning_usd_per_mtok::text,'Output',mp.output_usd_per_mtok::text,
     'Tiers',coalesce((select jsonb_agg(jsonb_build_object(
       'threshold_tokens',(t->>'threshold_tokens')::bigint,
       'input_usd_per_mtok',t->>'input_usd_per_mtok',
@@ -109,6 +110,7 @@ const usagePriceQuery = `select coalesce((select jsonb_object_agg(model_id,jsonb
       'cache_write_usd_per_mtok',t->>'cache_write_usd_per_mtok',
       'audio_input_usd_per_mtok',t->>'audio_input_usd_per_mtok',
       'audio_output_usd_per_mtok',t->>'audio_output_usd_per_mtok',
+      'reasoning_usd_per_mtok',t->>'reasoning_usd_per_mtok',
       'output_usd_per_mtok',t->>'output_usd_per_mtok'))
      from jsonb_array_elements(mp.tiers) t), '[]'::jsonb),
     'RevisionID',mp.price_revision_id::text))
@@ -223,7 +225,8 @@ func ingestUsage(ctx context.Context, pool UsagePool, batch usage.Batch, priceQu
 				var fits bool
 				obs.Cost, fits = cost.Calculate(effective.Prices(), effective.Tiers, cost.Usage{
 					Input: e.InputTokens, Cached: e.CachedInputTokens, CacheWrite: e.CacheWriteTokens,
-					AudioIn: e.AudioInputTokens, AudioOut: e.AudioOutputTokens, Output: e.OutputTokens,
+					AudioIn: e.AudioInputTokens, AudioOut: e.AudioOutputTokens,
+					Reasoning: e.ReasoningTokens, Output: e.OutputTokens,
 				})
 				if !fits {
 					field := "input_tokens"

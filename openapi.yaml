@@ -2753,6 +2753,10 @@ components:
         audio_output_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
+        reasoning_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 推理 token 单价；来源未单列时按输出价计费。
         output_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
@@ -2777,6 +2781,8 @@ components:
         audio_input_usd_per_mtok:
           type: [number, "null"]
         audio_output_usd_per_mtok:
+          type: [number, "null"]
+        reasoning_usd_per_mtok:
           type: [number, "null"]
         output_usd_per_mtok:
           type: [number, "null"]

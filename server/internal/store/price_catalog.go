@@ -88,7 +88,8 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 			DeprecatedAt:  entry.DeprecatedAt,
 			Billing: Billing{
 				Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
-				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut, Output: entry.Output,
+				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut,
+				Reasoning: entry.Reasoning, Output: entry.Output,
 				Tiers: catalogTiers(entry.Tiers),
 			},
 			ModelID:   target,
@@ -154,7 +155,8 @@ func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, i
 			}
 			billing := Billing{
 				Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
-				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut, Output: entry.Output,
+				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut,
+				Reasoning: entry.Reasoning, Output: entry.Output,
 				Tiers: catalogTiers(entry.Tiers),
 			}
 			revision, err := AppendGlobalRevision(ctx, tx, target, billing, "price_source", &sourceID, false)
@@ -180,7 +182,7 @@ func catalogTiers(tiers []pricesource.Tier) []PriceTier {
 		out = append(out, PriceTier{
 			ThresholdTokens: tier.ThresholdTokens,
 			Input:           tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
-			AudioIn: tier.AudioIn, AudioOut: tier.AudioOut, Output: tier.Output,
+			AudioIn: tier.AudioIn, AudioOut: tier.AudioOut, Reasoning: tier.Reasoning, Output: tier.Output,
 		})
 	}
 	return out

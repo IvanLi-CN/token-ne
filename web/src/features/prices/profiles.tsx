@@ -18,6 +18,7 @@ const prices = [
   ["cache_write_usd_per_mtok", "缓存写入价格"],
   ["audio_input_usd_per_mtok", "音频输入价格"],
   ["audio_output_usd_per_mtok", "音频输出价格"],
+  ["reasoning_usd_per_mtok", "推理价格"],
   ["output_usd_per_mtok", "输出价格"],
 ] as const;
 const sourceLabels = { manual: "手工", price_source: "报价源" } as const;

@@ -196,6 +196,7 @@ export interface PriceTier {
   cache_write_usd_per_mtok: number | null;
   audio_input_usd_per_mtok: number | null;
   audio_output_usd_per_mtok: number | null;
+  reasoning_usd_per_mtok: number | null;
   output_usd_per_mtok: number | null;
 }
 export interface Billing {
@@ -204,6 +205,7 @@ export interface Billing {
   cache_write_usd_per_mtok?: number | null;
   audio_input_usd_per_mtok?: number | null;
   audio_output_usd_per_mtok?: number | null;
+  reasoning_usd_per_mtok?: number | null;
   output_usd_per_mtok: number | null;
   tiers?: PriceTier[];
 }

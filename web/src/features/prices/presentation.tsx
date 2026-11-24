@@ -117,6 +117,7 @@ export function BillingCell({ billing }: { billing: Billing | null | undefined }
     ["缓存写", billing.cache_write_usd_per_mtok],
     ["音频入", billing.audio_input_usd_per_mtok],
     ["音频出", billing.audio_output_usd_per_mtok],
+    ["推理", billing.reasoning_usd_per_mtok],
     ["输出", billing.output_usd_per_mtok],
   ];
   return (

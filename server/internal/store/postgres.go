@@ -159,14 +159,14 @@ func (s *Store) InvalidateSession(ctx context.Context, id string, a Audit) error
 	})
 }
 
-const modelColumns = "m.model_id,m.enabled,m.default_upstream_model,to_char(m.shutdown_date,'YYYY-MM-DD'),r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,r.cache_write_usd_per_mtok::float8,r.audio_input_usd_per_mtok::float8,r.audio_output_usd_per_mtok::float8,r.output_usd_per_mtok::float8,r.tiers::text,m.created_at,m.updated_at,r.source,r.source_id,r.locked,r.id::text,r.created_at"
+const modelColumns = "m.model_id,m.enabled,m.default_upstream_model,to_char(m.shutdown_date,'YYYY-MM-DD'),r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,r.cache_write_usd_per_mtok::float8,r.audio_input_usd_per_mtok::float8,r.audio_output_usd_per_mtok::float8,r.reasoning_usd_per_mtok::float8,r.output_usd_per_mtok::float8,r.tiers::text,m.created_at,m.updated_at,r.source,r.source_id,r.locked,r.id::text,r.created_at"
 
 func scanModel(row pgx.Row) (Model, error) {
 	var m Model
 	var state PriceRevisionState
 	var tiers string
 	e := row.Scan(&m.ID, &m.Enabled, &m.Mapping, &m.Shutdown,
-		&m.Billing.Input, &m.Billing.Cached, &m.Billing.CacheWrite, &m.Billing.AudioIn, &m.Billing.AudioOut, &m.Billing.Output,
+		&m.Billing.Input, &m.Billing.Cached, &m.Billing.CacheWrite, &m.Billing.AudioIn, &m.Billing.AudioOut, &m.Billing.Reasoning, &m.Billing.Output,
 		&tiers, &m.Created, &m.Updated,
 		&state.Source, &state.SourceID, &state.Locked, &state.PriceRevisionID, &state.RevisionCreatedAt)
 	m.Billing.Tiers = unmarshalTiers([]byte(tiers))

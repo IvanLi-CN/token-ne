@@ -47,6 +47,7 @@ type Billing struct {
 	CacheWrite *float64 `json:"cache_write_usd_per_mtok"`
 	AudioIn    *float64 `json:"audio_input_usd_per_mtok"`
 	AudioOut   *float64 `json:"audio_output_usd_per_mtok"`
+	Reasoning  *float64 `json:"reasoning_usd_per_mtok"`
 	Output     *float64 `json:"output_usd_per_mtok"`
 	Tiers      []Tier   `json:"tiers,omitempty"`
 }
@@ -60,6 +61,7 @@ type Tier struct {
 	CacheWrite      *float64 `json:"cache_write_usd_per_mtok"`
 	AudioIn         *float64 `json:"audio_input_usd_per_mtok"`
 	AudioOut        *float64 `json:"audio_output_usd_per_mtok"`
+	Reasoning       *float64 `json:"reasoning_usd_per_mtok"`
 	Output          *float64 `json:"output_usd_per_mtok"`
 }
 
@@ -76,6 +78,7 @@ type Entry struct {
 	CacheWrite      *float64   `json:"cache_write_usd_per_mtok"`
 	AudioIn         *float64   `json:"audio_input_usd_per_mtok"`
 	AudioOut        *float64   `json:"audio_output_usd_per_mtok"`
+	Reasoning       *float64   `json:"reasoning_usd_per_mtok"`
 	Output          *float64   `json:"output_usd_per_mtok"`
 	Tiers           []Tier     `json:"tiers,omitempty"`
 	ExplicitModelID *string    `json:"explicit_model_id,omitempty"`
@@ -84,7 +87,7 @@ type Entry struct {
 func (e Entry) billing() Billing {
 	return Billing{
 		Input: e.Input, Cached: e.Cached, CacheWrite: e.CacheWrite,
-		AudioIn: e.AudioIn, AudioOut: e.AudioOut, Output: e.Output,
+		AudioIn: e.AudioIn, AudioOut: e.AudioOut, Reasoning: e.Reasoning, Output: e.Output,
 		Tiers: e.Tiers,
 	}
 }
@@ -276,7 +279,7 @@ func validateDataset(d Dataset) error {
 		if m.Input == nil && m.Cached == nil && m.Output == nil && m.CacheWrite == nil && m.AudioIn == nil && m.AudioOut == nil {
 			return errors.New("price source model has no prices: " + m.SourceModelID)
 		}
-		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Output} {
+		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Reasoning, m.Output} {
 			if p != nil && (*p < 0 || *p >= 1e8 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
 				return errors.New("price source prices must be nonnegative numeric(14,6) values")
 			}
@@ -288,7 +291,7 @@ func validateDataset(d Dataset) error {
 			if i > 0 && tier.ThresholdTokens <= m.Tiers[i-1].ThresholdTokens {
 				return errors.New("price source tiers must be ordered by threshold")
 			}
-			for _, p := range []*float64{tier.Input, tier.Cached, tier.CacheWrite, tier.AudioIn, tier.AudioOut, tier.Output} {
+			for _, p := range []*float64{tier.Input, tier.Cached, tier.CacheWrite, tier.AudioIn, tier.AudioOut, tier.Reasoning, tier.Output} {
 				if p != nil && (*p < 0 || *p >= 1e8 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
 					return errors.New("price source tier prices must be nonnegative numeric(14,6) values")
 				}
