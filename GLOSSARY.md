@@ -155,3 +155,19 @@ _Avoid_: Build number, image tag only
 **Mutable deployment channel**:
 指向某个 release identity 的可移动镜像标签（当前为 `latest`），供部署系统发现并自动更新控制面；不参与 release identity、回滚目标或审计事实。
 _Avoid_: Release version, immutable tag, core instance identity
+
+**Web demo**:
+用正式 App 树、正式路由与正式组件运行在 mock 运行时上的可体验管理面；不连接控制面、数据库、Docker、Caddy 或 Xray。
+_Avoid_: Demo page, mock site, static preview
+
+**Demo runtime**:
+在首次渲染前安装 `/api/*` 拦截、固定演示身份并启动正式路由的运行时；未覆盖的接口失败而不是回退真实网络。
+_Avoid_: Demo mode flag, mock backend service
+
+**Demo build**:
+`web` 的独立构建目标，输出 `web/dist-demo` 并托管在 `/demo/`；不进入 API 镜像，也不进入生产 `web/dist`。
+_Avoid_: Production demo switch, embedded demo bundle
+
+**Simulated mutation**:
+demo 中只修改内存模型、立即在正式 UI 回显并在 Inspector 标记为模拟的写操作。
+_Avoid_: Fake write, dry-run request
