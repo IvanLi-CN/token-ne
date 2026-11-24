@@ -68,7 +68,10 @@
           "enum": ["direct", "proxy"],
           "description": "Optional for phase-one and unrecorded events. proxy requires a non-null egress_proxy_id; direct requires null or absence."
         },
-        "egress_proxy_id": { "$ref": "#/$defs/nullableUuid" },
+        "egress_proxy_id": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "endpoint": { "type": "string", "minLength": 1, "maxLength": 256 },
         "requested_model": {
           "type": ["string", "null"],

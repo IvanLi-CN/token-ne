@@ -369,9 +369,11 @@ Idempotency-Key: <batch_id>
 - `config_schema_version` 必须在核心声明的范围内。
 - `features.status_rewrite` 必须与 `status_rewrite.enabled` 一致，冲突时返回 `422`；其余能力标记与配置字段的对应关系见下条。控制面不得向未声明能力的核心发送依赖该能力的配置。
 - 第二期配置用 `features.model_name_routing` 标记 `model_routes`，用 `features.upstream_model_policy` 标记 `upstream_policies`。对应数组非空时 feature 必须为 `true`；feature 缺失或为 `false` 时数组必须缺失或为空。标记和配置不符返回 `422`。JSON Schema 之后的语义校验还必须检查 policy 的 `upstream_id` 唯一性、全部引用存在性，以及路由 `glob` 模式和 policy 两个列表的受限 Glob 语法；Glob 仅允许 `*` 与 `?` 作为通配符，区分大小写，拒绝方括号、花括号、反斜线和控制字符。路由与策略对象拒绝未知字段。
-- 第二期配置用 `features.egress_proxy` 标记 `egress_proxies` 和 `upstreams[].egress_proxy_id`。`egress_proxies` 非空或任一上游绑定非空代理时 feature 必须为 `true`；feature 缺失或为 `false` 时数组必须为空且绑定必须缺失或为 `null`。标记和配置不符返回 `422`。核心未声明 `egress_proxy` 时，控制面不得发送这些字段；无法遵守时返回 `409 unsupported_feature`，不能静默忽略。
+- 第二期配置用 `features.egress_proxy` 标记 `egress_proxies` 和 `upstreams[].egress_proxy_id`。`egress_proxies` 非空或任一上游绑定非空代理时 feature 必须为 `true`；feature 缺失或为 `false` 时数组必须为空且绑定必须缺失或为 `null`。快照内部 feature 与字段不一致由核心返回 `422 validation_failed`，路径指向 `egress_proxies` 或 `upstreams[<index>].egress_proxy_id`。
+- 控制面不得向未在 `/meta` 声明 `egress_proxy` 的核心发送含代理绑定的快照：绑定代理的上游必须连同其 `upstream_models` 关系从该实例的快照中省略，不能把 `egress_proxy_id` 置空后保留该上游。无法生成这样的安全快照时，控制面保持该实例权重为 0 并记录原因；核心若仍收到这些字段，返回 `409 unsupported_feature`，不得静默忽略或降级直连。
 - `egress_proxies[].id` 必须唯一且为规范 UUID；`endpoint` 只允许 `socks5h://<host>:<port>`，不能包含用户名、密码、路径、查询或片段；对象拒绝未知字段。核心必须以远端 DNS 语义连接该 SOCKS5 端点，不能预先解析上游域名。`enabled` 是控制面计算后的有效路由资格：只有管理员启用且运行态 `ready` 时为 `true`；`degraded` 或禁用时为 `false`。控制面应保留仍被上游引用的不可用档案项，避免悬空引用；运行态恢复后通过新 revision 将 `enabled` 置回 `true`。
 - `upstreams[].egress_proxy_id` 非空时必须引用同一快照中的 `egress_proxies[]`，否则返回 `422`。被禁用代理绑定的上游可以留在配置中，但不得进入候选；core 不得把缺失、禁用或不可用的代理降级为直连，也不得改用其他代理档案。`egress_proxies` 是快照的完整函数，省略某项表示当前没有上游绑定该代理，不能沿用上一份快照；仍被绑定的不可用档案必须保留并设置 `enabled=false`。
+- `upstreams[]` 继续允许未知字段以保持前向兼容，因此 `egressProxyId` 之类的拼写错误不会被 JSON Schema 拒绝，而会被当作直连语义。控制面在生成快照前必须按封闭字段集校验上游对象并拒绝这类键；core 只承认 `egress_proxy_id`。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），规范格式不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址；历史末尾 `/v1` 后缀由 core 兼容剥离。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
@@ -397,7 +399,7 @@ Idempotency-Key: <batch_id>
 - `error_class` 只允许 `connect_error`、`dns_error`、`tls_error`、`first_byte_timeout`、`idle_timeout`、`upstream_http_error`、`upstream_stream_error`、`local_validation_error`、`client_disconnected`、`aborted`、`unknown`，或空值。
 - `http_status` 100 到 599 或空。
 - `resolved_model` 可空但非空时至少包含一个字符；存在时表示名称路由后的全局 Model ID，由生产该事件的核心按自己应用的快照写入。第一期和本地模型错误事件可以省略；第二期成功解析且选中上游的事件必须记录 `requested_model`、`resolved_model`、`upstream_model` 和 `upstream_id`。控制面不得因 `resolved_model` 不是当前配置中的 Model ID 而拒绝或丢弃事件：它按当前配置解析，无法匹配时只记录告警，费用模型归属回退到 `requested_model`。价格修订 ID 由控制面在摄入时关联，不能假设核心产生该 ID。
-- `egress_mode` 只允许 `direct` 或 `proxy`；省略表示第一期或未记录。`egress_mode=proxy` 时 `egress_proxy_id` 必须为非空 UUID；`direct` 时必须缺失或为 `null`；`egress_proxy_id` 非空时 `egress_mode` 必须为 `proxy`。代理档案 ID 是历史归因，不要求仍存在于当前配置；删除代理档案或改绑不重写历史事件。控制面不得因未知 `egress_proxy_id` 拒绝或丢弃事件，只记录告警。
+- `egress_mode` 只允许 `direct` 或 `proxy`；省略表示第一期或未记录。`egress_mode=proxy` 时 `egress_proxy_id` 必须为非空 UUID；`direct` 时必须缺失或为 `null`；`egress_proxy_id` 非空时 `egress_mode` 必须为 `proxy`。该对字段记录产生终态的那次尝试的出口：同一请求跨直连与代理候选重试时只记录终态尝试的出口，控制面不得据此推断所有尝试都未经直连。`attempt_count=0` 且未发起任何上游尝试的本地错误事件必须省略这两个字段。代理档案 ID 是历史归因，不要求仍存在于当前配置；删除代理档案或改绑不重写历史事件。控制面不得因未知 `egress_proxy_id` 拒绝或丢弃事件，只记录告警。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
 - `cached_input_tokens`、`cache_write_tokens`、`audio_input_tokens` 是输入明细：包含在 `input_tokens` 内时按子集计费；三者之和大于 `input_tokens` 时视为独立计数（部分 OpenAI 兼容网关按上游原语义上报），控制面按总和计费并记录告警，不因此拒绝事件。`audio_output_tokens`、`reasoning_tokens` 与 `output_tokens` 同理。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
@@ -477,7 +479,7 @@ Idempotency-Key: <batch_id>
 
 - Golden fixtures：v1 配置、用量批次、心跳、错误响应。
 - 第二期 fixtures 增加包含模型路由、上游策略、出站代理和 `resolved_model` 的配置/用量样例，以及旧核心缺少能力时的 `unsupported_feature` 错误。价格修订归因由控制面摄入测试覆盖。
-- 出站代理负例：feature 与字段不一致、重复代理 ID、悬空 `egress_proxy_id`、带凭据/路径的 endpoint、已禁用代理绑定和旧核心收到代理配置。
+- 出站代理负例：feature 与字段不一致、重复代理 ID、悬空 `egress_proxy_id`、带凭据/路径/非法端口的 endpoint、旧核心收到代理配置。已禁用代理绑定是合法配置，其断言是“绑定上游不进入候选且不回退直连”。
 - 兼容测试：v1 控制面 × v1 核心；v1 控制面 × v2 核心；v2 控制面 × v1 核心。
 - 校验负例：未知安全枚举、重复 ID、非法 URL、负数 token、超时范围、schema 不匹配。
 - 模糊测试：未知字段、未知可选枚举、截断 JSON、超大字符串。
