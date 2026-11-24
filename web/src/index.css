@@ -1397,7 +1397,7 @@ th {
 }
 .price-row {
   display: grid;
-  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr) 2.15rem;
+  grid-template-columns: 2.15rem minmax(15rem, 20rem) minmax(0, 1fr);
   align-items: start;
   gap: 0.25rem 1.5rem;
   min-height: 3.4rem;
@@ -1408,7 +1408,9 @@ th {
 }
 .switch {
   display: inline-flex;
-  justify-self: end;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
   align-items: center;
   justify-content: flex-start;
   width: 2.15rem;
@@ -1445,6 +1447,7 @@ th {
 }
 .price-identity {
   display: grid;
+  grid-column: 2;
   gap: 0.2rem;
   min-width: 0;
 }
@@ -1483,6 +1486,7 @@ th {
 }
 .price-groups {
   display: grid;
+  grid-column: 3;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.15rem 1.4rem;
   align-items: baseline;
@@ -1655,6 +1659,11 @@ th {
   .switch {
     grid-column: 2;
     grid-row: 1 / span 2;
+    justify-self: end;
+  }
+  .price-identity,
+  .price-groups {
+    grid-column: 1;
   }
   .price-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
