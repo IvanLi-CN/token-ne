@@ -81,8 +81,8 @@
 
 - The demo MUST NOT change production runtime behavior, production access rules, or production delivery.
 - Inputs: demo entry, mock module, and build config.
-- Outputs: no demo code path may be reachable from the production entry `web/src/main.tsx` unless it is tree-shaken out of the demo-off build; the production bundle MUST NOT include demo scene data.
-- Verification: the production build artifact MUST NOT contain demo scene identifiers.
+- Outputs: the production entry `web/src/main.tsx` does not import anything under `web/src/demo/`; the production artifact contains no demo scene data. Scene identifiers MUST carry a `demo-scene-` prefix so their absence is greppable.
+- Verification: `grep -r "demo-scene-" web/dist` returns nothing, and the production entry document does not reference the demo entry chunk.
 
 ### REQ-DEMO-010
 

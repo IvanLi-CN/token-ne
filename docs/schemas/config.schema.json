@@ -139,11 +139,7 @@
       "type": "object",
       "required": ["id", "name", "sha256", "enabled", "allowed_models", "max_inflight"],
       "properties": {
-        "id": {
-          "type": "string",
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
+        "id": { "type": "string", "format": "uuid" },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "enabled": { "type": "boolean" },
@@ -203,11 +199,7 @@
         "enabled"
       ],
       "properties": {
-        "id": {
-          "type": "string",
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
+        "id": { "type": "string", "format": "uuid" },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
         "base_url": { "type": "string", "format": "uri", "pattern": "^https://" },
         "auth_style": { "enum": ["bearer", "api_key"] },
@@ -266,11 +258,7 @@
       "type": "object",
       "required": ["id", "pattern", "match_type", "target_model_id", "priority", "enabled"],
       "properties": {
-        "id": {
-          "type": "string",
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
+        "id": { "type": "string", "format": "uuid" },
         "pattern": { "type": "string", "minLength": 1, "maxLength": 256 },
         "match_type": { "enum": ["exact", "glob"] },
         "target_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
