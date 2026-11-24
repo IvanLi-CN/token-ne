@@ -12,7 +12,7 @@ token-ne 增加一个纯前端 demo 能力，但**不**把它做成生产 bundle
 
 - demo 复用正式 `App` 树、正式 `routes`、正式组件与正式 `apiRequest` 调用面；页面代码与生产完全同一份。
 - demo 是独立构建目标：`vite build --mode demo`，`base=/demo/`，产物目录 `web/dist-demo`，与生产 `web/dist` 互不相交。生产镜像继续只嵌入 `dist`。
-- mock 采用仓库内薄 fetch 层，在 React 首次渲染之前安装；`/api/*` 未覆盖的请求一律返回失败，**禁止**回退到真实网络。认证边界靠 mock `/api/auth/me` 满足正式 `sessionLoader`，因此不需要在路由里加 demo 分支。
+- mock 采用仓库内薄 fetch 层，在 React 首次渲染之前安装；`/api/*` 未覆盖的请求一律返回失败，**禁止**回退到真实网络。认证边界靠 mock `/api/auth/me` 满足正式 `sessionLoader`，登录页所需的 `GET /api/auth/config` 与 `POST /api/auth/login` 同样由 mock 提供，因此不需要在路由里加 demo 分支。
 - 写操作只修改内存模型并立即在正式 UI 回显，Inspector 标注 `simulated`；不触达真实控制面、PostgreSQL、Docker 或 Xray。
 - 页面级证据由 demo 产出；Storybook 只承担组件级 QA，不替代完整页面验收。
 

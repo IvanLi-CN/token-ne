@@ -10,14 +10,14 @@
 
 ## Terms and Interfaces
 
-- `Demo runtime`：在 React 首次渲染之前安装 mock transport、固定演示身份，并以正式 `routes` 启动的运行时。
+- `Demo runtime`：在 React 首次渲染之前安装 mock transport、提供演示身份（`session-expired` 场景在演示登录前返回未认证），并以正式 `routes` 启动的运行时。
 - `Demo build`：`web` 的独立 Vite 构建目标，`base=/demo/`，产物 `web/dist-demo`，不进入 API 镜像。
 - `Scene`：一组可复现的演示数据与初始状态（`overview`、`requests`、`models`、`upstreams`、`keys`、`cores`、`settings`，以及用于登录跳转演练的 `session-expired`）。
 - `Persona`：演示用的管理员身份；只影响 UI 可见文案与权限提示，不产生真实会话。
 - `Share state`：写入 URL query 的可分享状态（persona、network、data 开关），前缀 `d_`；scene 单独使用 `demo=<scene-id>`，不进入 `d_` 组。
 - `Panel layout`：Inspector 的展示形态（pinned rail / floating / drawer / collapsed bubble），**只**存 `localStorage`（沿用 `token-ne.` 前缀，例如 `token-ne.demo.panel`），不进入分享 URL。
 - `Simulated mutation`：只修改内存模型的写操作，必须在 Inspector 中标注并保留近期记录。
-- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、静态托管路径 `/demo/**`。
+- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、静态托管路径 `/demo` 与 `/demo/**`。
 - `Demo router`：以 `basename=/demo` 启动的正式 `routes`，读写 `window.location` 与 history；不能用只存在于内存的 router，否则 `demo`/`d_*` 无法跨刷新保持。
 
 ## Requirements
