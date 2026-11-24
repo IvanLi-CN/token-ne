@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { usePhaseFeatures } from "../../app/phase";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
@@ -42,19 +43,144 @@ function policyAllows(policy: UpstreamPolicy | undefined, modelId: string): bool
 function BillingState({ state }: { state: PriceRevisionState | undefined }) {
   if (!state) return <span className="muted">未返回 billing_state</span>;
   return (
-    <div className="grid gap-1">
-      <ActionGroup>
-        <StatusBadge tone={state.locked ? "warning" : "neutral"}>
-          {state.locked ? "已锁定" : "未锁定"}
-        </StatusBadge>
-        <span className="muted">
-          {sourceLabels[state.source]}
-          {state.source_id ? `（${state.source_id}）` : ""}
+    <span
+      className="billing-state-row"
+      title={`修订 ${state.price_revision_id} · ${formatTime(state.revision_created_at)}`}
+    >
+      <StatusBadge tone={state.locked ? "warning" : "neutral"}>
+        {state.locked ? "已锁定" : "未锁定"}
+      </StatusBadge>
+      <span className="muted">
+        {sourceLabels[state.source]}
+        {state.source_id ? `（${state.source_id}）` : ""}
+      </span>
+      <code className="text-xs">{state.price_revision_id.slice(0, 8)}</code>
+    </span>
+  );
+}
+
+/** Fits text into at most `maxLines` lines at `width`, eliding the middle. */
+function fitMiddle(text: string, font: string, width: number, maxLines = 2): string {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context || width <= 0) return text;
+  context.font = font;
+  const lineCount = (value: string) => {
+    let lines = 1;
+    let current = "";
+    for (const character of value) {
+      const next = current + character;
+      if (context.measureText(next).width > width && current) {
+        lines += 1;
+        current = character;
+        if (lines > maxLines) return lines;
+      } else {
+        current = next;
+      }
+    }
+    return lines;
+  };
+  if (lineCount(text) <= maxLines) return text;
+  let low = 0;
+  let high = text.length - 1;
+  let best = "…";
+  while (low <= high) {
+    const keep = Math.floor((low + high) / 2);
+    const head = Math.ceil(keep * 0.62);
+    const tail = keep - head;
+    const candidate = `${text.slice(0, head)}…${tail > 0 ? text.slice(text.length - tail) : ""}`;
+    if (lineCount(candidate) <= maxLines) {
+      best = candidate;
+      low = keep + 1;
+    } else {
+      high = keep - 1;
+    }
+  }
+  return best;
+}
+
+function ModelName({ value }: { value: string }) {
+  const name = useRef<HTMLSpanElement>(null);
+  const [display, setDisplay] = useState(value);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    const element = name.current;
+    if (!element) return;
+    const style = getComputedStyle(element);
+    const width = Number.parseFloat(style.maxWidth);
+    let candidate = fitMiddle(
+      value,
+      `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`,
+      Number.isFinite(width) ? width : element.clientWidth,
+    );
+    // The canvas estimate can disagree with the real line breaking; shrink the
+    // middle until the rendered text no longer overflows the two-line box.
+    element.textContent = candidate;
+    let guard = 0;
+    while (
+      candidate.includes("…") &&
+      element.scrollHeight > element.clientHeight + 1 &&
+      guard < 40
+    ) {
+      const ellipsis = candidate.indexOf("…");
+      const head = candidate.slice(0, ellipsis);
+      const tail = candidate.slice(ellipsis + 1);
+      if (head.length + tail.length <= 2) break;
+      const drop = Math.max(1, Math.ceil((head.length + tail.length) * 0.06));
+      candidate = `${head.slice(0, Math.max(1, head.length - Math.ceil(drop * 0.6)))}…${tail.slice(Math.ceil(drop * 0.4))}`;
+      element.textContent = candidate;
+      guard += 1;
+    }
+    setDisplay(candidate);
+  }, [value]);
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 1400);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+  const copy = async () => {
+    const fallback = () => {
+      const area = document.createElement("textarea");
+      area.value = value;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.append(area);
+      area.select();
+      const copied = document.execCommand("copy");
+      area.remove();
+      return copied;
+    };
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        setCopyState("copied");
+        return;
+      }
+      if (!fallback()) throw new Error("copy rejected");
+      setCopyState("copied");
+    } catch {
+      setCopyState(fallback() ? "copied" : "failed");
+    }
+  };
+  return (
+    <span className="model-name-wrap">
+      <span ref={name} className="model-name" title={value}>
+        {display}
+      </span>
+      <button
+        type="button"
+        className="copy-model"
+        aria-label={`复制 ${value}`}
+        title="复制模型名"
+        onClick={() => void copy()}
+      >
+        {copyState === "copied" ? <Check aria-hidden size={13} /> : <Copy aria-hidden size={13} />}
+      </button>
+      {copyState !== "idle" && (
+        <span role="status" className="copy-hint">
+          {copyState === "copied" ? "已复制" : "复制失败"}
         </span>
-      </ActionGroup>
-      <code className="text-xs break-all">{state.price_revision_id}</code>
-      <span className="muted text-xs">修订于 {formatTime(state.revision_created_at)}</span>
-    </div>
+      )}
+    </span>
   );
 }
 function ModelEditor({
@@ -410,7 +536,12 @@ export default function ModelsPage() {
             emptyTitle="暂无模型"
             emptyDescription="创建模型，或调整当前状态筛选。"
             columns={[
-              { key: "id", header: "模型", cell: (model) => <code>{model.model_id}</code> },
+              {
+                key: "id",
+                header: "模型",
+                minWidth: "13rem",
+                cell: (model) => <ModelName value={model.model_id} />,
+              },
               {
                 key: "enabled",
                 header: "接受",

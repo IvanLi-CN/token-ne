@@ -238,7 +238,7 @@ describe("models route rules", () => {
       return undefined;
     });
     mount();
-    expect(await screen.findByText("rev-global-0001")).toBeTruthy();
+    expect(await screen.findByTitle(/rev-global-0001/)).toBeTruthy();
     expect(screen.getAllByText("已锁定").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
     const lock = await screen.findByLabelText("锁定全局默认价格");

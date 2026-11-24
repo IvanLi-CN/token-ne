@@ -4,6 +4,8 @@ export interface Column<T> {
   key: string;
   header: ReactNode;
   cell: (row: T) => ReactNode;
+  width?: string;
+  minWidth?: string;
 }
 export function DataTable<T>({
   caption,
@@ -54,7 +56,16 @@ export function DataTable<T>({
             {rows.map((row) => (
               <tr key={rowKey(row)}>
                 {columns.map((column) => (
-                  <td key={column.key}>{column.cell(row)}</td>
+                  <td
+                    key={column.key}
+                    style={
+                      column.width || column.minWidth
+                        ? { width: column.width, minWidth: column.minWidth }
+                        : undefined
+                    }
+                  >
+                    {column.cell(row)}
+                  </td>
                 ))}
               </tr>
             ))}
