@@ -3,6 +3,7 @@ package cores
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,6 +19,26 @@ import (
 )
 
 var coreFeaturesOnly = []string{"chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite"}
+
+// The fake database returns one consistent world: the referenced model and
+// upstream exist, so the publisher validator accepts the built snapshot.
+const (
+	routingUpstreamID = "0193f0c2-7b1a-7c3e-9f00-000000000014"
+	routingModelID    = "gpt-4o"
+)
+
+func routingSnapshotRows() (keys, models, entries, capabilities json.RawMessage) {
+	ciphertext, nonce, err := auth.Encrypt(make([]byte, 32), "sk-mock")
+	if err != nil {
+		panic(err)
+	}
+	keys = json.RawMessage(`[]`)
+	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"default_upstream_model":null,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
+	entries = []byte(`[{"id":"` + routingUpstreamID + `","name":"mock","base_url":"https://mock.example.com","auth_style":"bearer","enabled":true,"connect_timeout_ms":10000,"first_byte_timeout_ms":90000,"idle_timeout_ms":300000,"cipher":"` +
+		base64.StdEncoding.EncodeToString(ciphertext) + `","nonce":"` + base64.StdEncoding.EncodeToString(nonce) + `"}]`)
+	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","model_id":"gpt-4o","upstream_model_name":"upstream-gpt-4o","enabled":true,"priority":100,"weight":100}]`)
+	return keys, models, entries, capabilities
+}
 
 func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclaration bool) *fakeDB {
 	db := &fakeDB{}
@@ -27,7 +49,8 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 		case strings.Contains(q, "config_schema_min"):
 			return fakeRow{values: []any{1, 1, 1}}
 		case strings.Contains(q, "jsonb_agg"):
-			return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
+			keys, models, entries, capabilities := routingSnapshotRows()
+			return fakeRow{values: []any{keys, models, entries, capabilities}}
 		case strings.Contains(q, "control_status->'features'"):
 			if !hasDeclaration {
 				return fakeRow{err: pgx.ErrNoRows}
@@ -50,23 +73,22 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 }
 
 func routingRoutes() [][]any {
-	upstreamID := uuid.NewString()
 	// The SQL query orders by priority,id; the fake returns rows as given.
 	return [][]any{
-		{uuid.NewString(), "gpt-*", "glob", "gpt-4o", upstreamID, 100, true, "primary"},
-		{uuid.NewString(), "alias", "exact", "gpt-4o", nil, 300, true, nil},
+		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 100, true, "primary"},
+		{uuid.NewString(), "alias", "exact", routingModelID, nil, 300, true, nil},
 	}
 }
 
 func routingPolicies() [][]any {
 	return [][]any{
-		{uuid.NewString(), "deny", []byte(`["gpt-*"]`), []byte(`["gpt-4o-mini"]`)},
+		{routingUpstreamID, "deny", []byte(`["gpt-*"]`), []byte(`["gpt-4o-mini"]`)},
 	}
 }
 
 func buildRoutingSnapshot(t *testing.T, db *fakeDB, override bool) (Snapshot, error) {
 	t.Helper()
-	s := Snapshots{DB: db, Token: "token", BaseURL: "http://api:8080"}
+	s := Snapshots{DB: db, Master: make([]byte, 32), Token: "token", BaseURL: "http://api:8080"}
 	return s.Build(context.Background(), uuid.NewString(), override)
 }
 

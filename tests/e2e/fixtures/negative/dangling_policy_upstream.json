@@ -1,0 +1,232 @@
+{
+  "name": "dangling_policy_upstream",
+  "expect_path": "upstream_policies[0].upstream_id",
+  "snapshot": {
+    "config_schema_version": 1,
+    "downstream_keys": [
+      {
+        "allowed_models": [
+          "*"
+        ],
+        "enabled": true,
+        "id": "0193f0c2-7b1a-7c3e-9f00-000000000003",
+        "max_inflight": 64,
+        "name": "e2e",
+        "sha256": "9f2b2f9f3d0d6f4c0f9e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d"
+      }
+    ],
+    "features": {
+      "chat_completions": true,
+      "embeddings": true,
+      "model_name_routing": true,
+      "responses": true,
+      "status_rewrite": true,
+      "stream_usage_injection": true,
+      "upstream_model_policy": true
+    },
+    "instance_id": "0193f0c2-7b1a-7c3e-9f00-0000000000b1",
+    "issued_at": "2026-11-24T04:39:44.565329Z",
+    "limits": {
+      "max_inflight": 512,
+      "max_request_body_bytes": 33554432,
+      "nonstream_inspect_bytes": 1048576,
+      "per_key_max_inflight": 64,
+      "precommit_buffer_bytes": 262144,
+      "request_max_duration_ms": 1800000,
+      "shutdown_grace_ms": 1800000
+    },
+    "model_routes": [
+      {
+        "description": "primary",
+        "enabled": true,
+        "id": "0193f0c2-7b1a-7c3e-9f00-000000000011",
+        "match_type": "glob",
+        "pattern": "gpt-*",
+        "priority": 100,
+        "target_model_id": "gpt-4o-mini",
+        "upstream_id": null
+      },
+      {
+        "description": null,
+        "enabled": true,
+        "id": "0193f0c2-7b1a-7c3e-9f00-000000000012",
+        "match_type": "exact",
+        "pattern": "chat-fast",
+        "priority": 300,
+        "target_model_id": "gpt-4o-mini",
+        "upstream_id": null
+      }
+    ],
+    "models": [
+      {
+        "billing": {
+          "cached_input_usd_per_mtok": 0.075,
+          "input_usd_per_mtok": 0.15,
+          "output_usd_per_mtok": 0.6
+        },
+        "created_at": 1764806400,
+        "default_upstream_model": null,
+        "enabled": true,
+        "model_id": "gpt-4o-mini",
+        "shutdown_date": null
+      }
+    ],
+    "protocol_version": 1,
+    "retry": {
+      "backoff_ms": [
+        100,
+        300
+      ],
+      "max_attempts": 3,
+      "respect_retry_after": true,
+      "retry_after_max_ms": 2000,
+      "retry_statuses": [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
+    },
+    "revision": 1,
+    "status_rewrite": {
+      "enabled": true,
+      "never_rewrite": {
+        "after_commit": true,
+        "statuses": [
+          400,
+          401,
+          403,
+          404,
+          409,
+          422
+        ]
+      },
+      "policy_hash": "sha256:d09fcfdbccd459862afa8e18dab43ada03c7ec9a9b9888c5a63f25dd61ed7d8a",
+      "policy_source": "default",
+      "rules": [
+        {
+          "id": "upstream-rate-limit",
+          "match": {
+            "committed": false,
+            "retry_exhausted": true,
+            "upstream_status": [
+              429
+            ]
+          },
+          "response": {
+            "code": "upstream_rate_limited",
+            "default_retry_after_seconds": 1,
+            "preserve_retry_after": true,
+            "retryable": true,
+            "status": 503
+          }
+        },
+        {
+          "id": "transient-upstream-status",
+          "match": {
+            "committed": false,
+            "retry_exhausted": true,
+            "upstream_status": [
+              408,
+              500,
+              502,
+              503,
+              504
+            ]
+          },
+          "response": {
+            "code": "upstream_unavailable",
+            "retryable": true,
+            "status": 503
+          }
+        },
+        {
+          "id": "upstream-network-failure",
+          "match": {
+            "committed": false,
+            "error_class": [
+              "connect_error",
+              "dns_error",
+              "tls_error",
+              "first_byte_timeout",
+              "idle_timeout"
+            ],
+            "retry_exhausted": true
+          },
+          "response": {
+            "code": "upstream_unavailable",
+            "retryable": true,
+            "status": 503
+          }
+        },
+        {
+          "id": "upstream-stream-error",
+          "match": {
+            "committed": false,
+            "error_class": [
+              "upstream_stream_error"
+            ],
+            "retry_exhausted": true
+          },
+          "response": {
+            "code": "upstream_unavailable",
+            "retryable": true,
+            "status": 503
+          }
+        }
+      ],
+      "schema_version": 1
+    },
+    "upstream_models": [
+      {
+        "enabled": true,
+        "model_id": "gpt-4o-mini",
+        "priority": 100,
+        "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+        "upstream_model_name": "mock-model",
+        "weight": 100
+      }
+    ],
+    "upstream_policies": [
+      {
+        "allow_patterns": [
+          "gpt-*"
+        ],
+        "default_action": "allow",
+        "deny_patterns": [
+          "gpt-4o-mini-experimental"
+        ],
+        "upstream_id": "0193f0c2-7b1a-7c3e-9f00-0000000000ff"
+      }
+    ],
+    "upstreams": [
+      {
+        "api_key": "sk-mock",
+        "auth_style": "bearer",
+        "base_url": "https://mock.example.com",
+        "connect_timeout_ms": 10000,
+        "enabled": true,
+        "first_byte_timeout_ms": 90000,
+        "id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
+        "idle_timeout_ms": 300000,
+        "name": "mock"
+      }
+    ],
+    "usage": {
+      "batch_max_events": 500,
+      "endpoint": "http://127.0.0.1:18090/internal/v1/usage/batch",
+      "queue_max_events": 10000,
+      "spool": {
+        "dir": "/var/lib/token-ne/state/spool",
+        "fsync_interval_ms": 1000,
+        "max_age_hours": 24,
+        "max_bytes": 8589934592,
+        "min_free_bytes": 1073741824,
+        "segment_bytes": 67108864
+      },
+      "token": "control-secret"
+    }
+  }
+}
