@@ -299,7 +299,10 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 支持一键回滚：把权重切回旧版本，保留旧实例直到确认。
 - 所有部署状态持久化到 PostgreSQL；控制面重启后可以恢复/对账。
 - 新版本配置 schema 不兼容时，控制面拒绝加入流量。
-- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。已确认成功部署中的退役实例，以及从未接收流量且 spool 为空的失败实例，在停止并经过默认 5 分钟宽限期后进入自动删除；失败实例删除前必须保留结构化错误、最后状态和退出信息。部署尚未确认、处于回滚窗口或仍可能被回滚使用的实例保留。删除容器后，仅当最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 时才删除状态目录，观测缺失时保留。
+- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。自动删除只对部署状态已达 `completed`、权重为 0、排水完成并已停止、且 spool 清零已确认的实例生效；停止后经过默认 5 分钟宽限期才进入删除。
+- 回滚窗口从部署变为 `completed` 起算，到宽限期结束时关闭。窗口内容器、镜像身份和状态目录均保留；窗口关闭后回滚按登记的镜像 digest 重建实例和新状态目录。
+- 失败实例必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描）才进入删除候选；不使用无法从协议观测的“从未接收流量”作为条件，删除前保留结构化错误、最后状态和退出信息。
+- 容器删除后，仅当最后一次在线 `status` 观测为 `spool.unacked_events == 0` 时才删除状态目录；观测缺失时保留。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。Docker 退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役可以使用停止前的最后一次在线 `status` 作为零未确认确认；崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳，必须先重启兼容 core 扫描 spool 并确认零后再销毁。
 - 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先用兼容 core 重启重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
@@ -484,10 +487,10 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 管理 API 提供 `GET/POST /api/egress-proxies`、`GET/PUT/DELETE /api/egress-proxies/{id}` 和 `POST /api/egress-proxies/{id}/test`；上游写入接受可选 `egress_proxy_id`。
 - 上游可选绑定一个出站代理档案：`upstream.egress_proxy_id` 为空表示直连；非空表示该上游的所有请求、目录同步和测试都经该档案出站。禁止在代理不可用时回退直连。
 - 允许把上游保存到禁用或 `degraded` 的代理档案，但必须显示不可用并保持该上游无候选；不得自动清空绑定或改为直连。
-- 控制面是 Xray 的唯一写入者；管理员 API 和浏览器不直接连接 Xray。控制面通过 Xray gRPC API 的 HandlerService 和 RoutingService 增加/删除每个档案的 SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由规则，并通过 StatsService 读取运行态统计。
-- 每个档案分配稳定的内部入站端口（来自控制面配置的端口范围，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。端口范围耗尽时创建或启用档案失败并返回明确错误，不复用其他档案端口，也不降级为直连。Xray 启动配置只包含 API、默认 blackhole 和必要的日志/路由骨架；不存在默认直连 outbound，避免未匹配流量泄漏。
+- 控制面是 Xray 的唯一写入者；管理员 API 和浏览器不直接连接 Xray。控制面通过 Xray gRPC API 的 HandlerService 和 RoutingService 增加/删除每个档案的 SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由规则。StatsService 需要 `stats` app 与 `policy.system` 统计开关才有可读计数，因此档案可用性一律以对账结果为准。
+- 每个档案分配稳定的内部入站端口（来自控制面配置的端口范围，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。端口范围耗尽时创建或启用档案失败并返回明确错误，不复用其他档案端口，也不降级为直连。Xray 启动配置只包含 API、默认 blackhole、`stats` app、统计开关和必要的日志/路由骨架；不存在默认直连 outbound，避免未匹配流量泄漏。
 - 控制面启动、Xray 重启、档案变更后都执行对账：读取 Xray 的 inbound/outbound 列表，补齐或清理缺失项，移除不属于当前期望状态的 `egress:` 标签，验证路由规则后才把档案标记为 `ready`。数据库是期望状态，Xray 运行态可重建；不以 Xray 配置文件作为事实来源。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置；启用状态或端点变化才发布新的配置 revision。更新失败保留旧出站并标记 `degraded`，不得把流量导向其他档案或直连。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置；启用状态或端点变化才发布新的配置 revision。Xray 不支持同 tag 原地更新出站，变更必须按“新增 staged 出站 → 切换路由 → 删除旧出站”执行；中途失败保留旧出站和旧路由并标记 `degraded`，不得把流量导向其他档案或直连。
 - 对账或 API 应用失败时，档案进入 `degraded` 并告警；绑定它的上游不进入候选，已存在请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得为此切换到直连或其他档案。
 - 档案被上游引用时删除返回 `409`；禁用档案前必须显示受影响上游并确认。禁用后该档案的 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。删除代理档案不重写历史用量中的 `egress_proxy_id` 或历史费用。
 - Xray 停止或重启时，既有代理连接中断；core 按可重试连接错误处理，候选耗尽后返回 503。直连上游不受影响。控制面恢复后重新对账，代理上游恢复，不需要重启 core。
@@ -532,7 +535,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 ### 可运维性
 
-- 一条 `docker compose up -d` 启动控制面、数据库和 Caddy，第二期还包括 Xray 单例；控制面随后自动部署与自身发布版本一致的动态核心。
+- 一条 `docker compose up -d` 启动控制面、数据库和 Caddy；控制面随后自动部署与自身发布版本一致的动态核心。第二期 compose 额外声明 Xray 单例、`egress` 和 `xray-control` 网络，并要求 `CORE_NETWORKS` 包含 `token_ne_egress`；一期部署不需要 `XRAY_IMAGE` 或这些网络。
 - 健康检查区分 liveness 和 readiness。
 - 关键状态有 Prometheus 指标和结构化日志。
 - 升级、回滚、排水有文档化步骤和可观察状态。

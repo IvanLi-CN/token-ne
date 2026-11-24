@@ -525,10 +525,13 @@ sequenceDiagram
 
 ### 退役实例自动销毁
 
-- 默认 `CORE_AUTO_PRUNE=true`。已确认成功部署中的退役实例，以及从未接收流量且 spool 为空的失败实例，在停止并经过默认 5 分钟宽限期后进入自动删除；部署尚未确认、处于回滚窗口或仍可能被回滚使用的实例保留。
+- 默认 `CORE_AUTO_PRUNE=true`。自动销毁只对同时满足以下条件的实例生效：所属部署状态已达到 `completed`、权重为 0、排水完成并已停止、且通过 spool 清零确认。停止后经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）才进入删除队列。
+- 回滚窗口在部署状态变为 `completed` 时开启，在宽限期结束时关闭；窗口内实例容器、镜像身份和状态目录都保留。窗口关闭后即使回滚，也按登记的镜像 digest 重建实例和新状态目录：被销毁的前提是 spool 已确认清零，因此没有用量需要重放。
+- 失败实例没有“从未接收流量”这类无法从协议观测的前置条件；它必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描），才进入删除候选。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役可以使用停止前的最后一次在线 `status` 作为 `spool.unacked_events == 0` 的确认；崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳，必须先重启兼容 core 扫描 spool 并确认零后再销毁。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先重启兼容 core 重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、回滚窗口未结束、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先重启兼容 core 重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
+- 状态目录由 `CORE_STATE_INIT_IMAGE` 的一次性 helper 以 root 删除：把宿主机 `CORE_STATE_HOST_DIR` 挂载到 helper 的 `/state`，执行 `rm -rf /state/<instance_id>`；`<instance_id>` 必须通过规范 UUID 校验后才拼接路径。API 容器始终不挂载状态根目录，也不读取 spool 文件。
 - 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 保留用于异常处置和强制清理。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
 
@@ -885,12 +888,13 @@ api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>
 ### Xray 出站代理对账
 
 - 出站代理档案保存在 PostgreSQL；控制面是 Xray 的唯一写入者，管理员 API 和浏览器不直接连接 Xray。
-- Xray 是 Compose 声明服务，控制面不创建、删除或重启其容器。启动配置只包含 gRPC API、默认 blackhole 和日志/路由骨架；不存在默认直连 outbound。
+- Xray 是 Compose 声明服务，控制面不创建、删除或重启其容器。启动配置只包含 gRPC API、默认 blackhole、`stats` app、`policy.system` 统计开关和日志/路由骨架；不存在默认直连 outbound。
 - 每个档案分配稳定的内部 SOCKS5 入站端口（来自 `XRAY_PROXY_PORT_MIN`–`XRAY_PROXY_PORT_MAX`，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。
-- 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则，通过 `StatsService` 读取运行态统计。
+- 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则。`StatsService` 只在 `stats` app 与 `policy.system.statsInboundUplink/statsOutboundUplink` 开启时才有可读计数；否则 `GetStats` 返回 `NotFound`，档案状态一律以对账结果为准，不使用统计推断可用性。
 - 控制面启动、Xray 重启和档案变更后读取 Xray 的 inbound/outbound 列表，补齐缺失项、移除不属于期望状态的 `egress:` 标签，验证路由后才把档案标记为 `ready`。数据库是期望状态，Xray 运行态可重建。
 - 对账或 API 应用失败时档案进入 `degraded` 并告警；绑定它的上游不进入候选，已存在请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
 - 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置；管理员启用状态、运行态 `ready` 变化或端点变化才递增配置 revision，以便发布有效的 `enabled` 值。
+- Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更必须按“新增 `egress:<id>:out:staged` → 切换 `inboundTag -> outboundTag` 路由 → 删除旧 tag”的顺序执行。中途失败时保留旧出站和旧路由，档案标记 `degraded`；不存在“旧出站已被删除、新出站添加失败”的空窗期。
 - 档案被上游引用时删除返回 `409`；禁用后其 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。历史用量保留原 `egress_proxy_id`，删除档案不重写历史。
 - Xray API 不提供认证，安全依赖 `xray-control` 网络隔离和只绑定该网络地址；核心不加入该网络。
 
@@ -959,7 +963,7 @@ flowchart TD
 - 宿主机或 Docker daemon 重启后，`restart=no` 的动态实例不会自行恢复；接管时必须重新启动它们，再等待 ready 后加入 Caddy。
 - 创建容器：
   - 镜像由核心镜像仓库加版本 tag 或版本登记的 digest 组成；新版本部署在创建前自动拉取并刷新该镜像。
-  - 加入 `CORE_NETWORKS` 指定的 `edge`、`core-control` 和 `egress` 网络。
+  - 加入 `CORE_NETWORKS` 指定的网络；第二期启用出站代理时必须包含 `egress`。
   - 不发布端口。
   - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。`CORE_VERSION` 必须与核心 `/internal/v1/meta` 报告的版本完全一致；Compose 标签、核心自报版本不一致时，控制面拒绝接管实例。
   - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。API 在创建容器前用 `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）启动一次性 helper，以 root 在宿主机父目录创建实例子目录并 chown 给 core UID `10001`；Docker 直接创建 bind 目录会得到 root:root `0755`，非 root core 无法写入。控制面不拉取该镜像，宿主机必须已预拉取。
@@ -1569,6 +1573,7 @@ services:
     networks:
       - data
 
+  # 第二期出站代理；一期部署不包含本服务、egress/xray-control 网络和 XRAY_* 变量。
   xray:
     image: ${XRAY_IMAGE:?set a pinned xtls/xray-core image}
     restart: unless-stopped
@@ -1580,7 +1585,7 @@ services:
     networks:
       egress:
       xray-control:
-        ipv4_address: 172.31.255.10
+        ipv4_address: 10.42.0.10
 
   api:
     build:
@@ -1589,6 +1594,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # 第二期追加：
       xray:
         condition: service_started
     environment:
@@ -1599,11 +1605,12 @@ services:
       CADDY_TLS_MODE: ${CADDY_TLS_MODE:-off}
       CADDY_HTTP_PORT: ${CADDY_HTTP_PORT:-8080}
       DOCKER_HOST: tcp://socket-proxy:2375
-      CORE_NETWORKS: token_ne_edge,token_ne_core_control,token_ne_egress
+      # 一期为 token_ne_edge,token_ne_core_control；第二期追加 token_ne_egress。
+      CORE_NETWORKS: ${CORE_NETWORKS:-token_ne_edge,token_ne_core_control}
       CORE_AUTO_PRUNE: ${CORE_AUTO_PRUNE:-true}
       CORE_AUTO_PRUNE_GRACE_SECONDS: ${CORE_AUTO_PRUNE_GRACE_SECONDS:-300}
       CORE_AUTO_PRUNE_MAX_AGE_SECONDS: ${CORE_AUTO_PRUNE_MAX_AGE_SECONDS:-86400}
-      XRAY_API_URL: 172.31.255.10:10085
+      XRAY_API_URL: ${XRAY_API_URL:-10.42.0.10:10085}
       XRAY_PROXY_PORT_MIN: ${XRAY_PROXY_PORT_MIN:-15000}
       XRAY_PROXY_PORT_MAX: ${XRAY_PROXY_PORT_MAX:-15999}
       XRAY_RECONCILE_INTERVAL_SECONDS: ${XRAY_RECONCILE_INTERVAL_SECONDS:-30}
@@ -1638,6 +1645,7 @@ services:
     networks:
       - edge
       - core-control
+      # 第二期网络成员：api 需要 `egress` 发起代理测试和目录同步，`xray-control` 管理运行态。
       - egress
       - xray-control
       - data
@@ -1701,7 +1709,7 @@ networks:
     name: token_ne_xray_control
     ipam:
       config:
-        - subnet: 172.31.255.0/24
+        - subnet: 10.42.0.0/24
   data:
     name: token_ne_data
 ```
@@ -1709,9 +1717,10 @@ networks:
 说明：
 
 - `socket-proxy` 是推荐的收敛方式；`CONTAINERS=1` 配合 `POST=1` 覆盖创建与删除接口，`ALLOW_START`、`ALLOW_STOP`、`ALLOW_RESTARTS` 控制容器状态操作。如果暂时直接挂载 socket，风险更高，必须保证 API 不暴露公网。
-- `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `172.31.255.10:10085`，且 `api.services` 必须列出 `HandlerService`、`RoutingService` 和 `StatsService`，否则运行时增删或统计会返回未实现。SOCKS5 入站由控制面通过 API 动态创建。
+- `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole、`stats` app 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `10.42.0.10:10085`，且 `api.services` 必须列出 `HandlerService`、`RoutingService` 和 `StatsService`，否则运行时增删或统计会返回未实现。SOCKS5 入站由控制面通过 API 动态创建。
+- `xray`、`egress`、`xray-control`、`XRAY_*` 变量、`api` 的 `xray` 依赖和 `CORE_NETWORKS` 中的 `token_ne_egress` 都属于第二期；一期 compose 不声明它们，也不需要 `XRAY_IMAGE`。第二期部署必须把 `CORE_NETWORKS` 显式设为包含 `token_ne_egress`；控制面启用出站代理前验证这些网络存在，缺失时不创建带 `egress` 的核心容器。
 - Compose 负责控制面、数据库、Caddy、Xray 单例、网络和持久卷，不声明 core service；启动时控制面登记自身产品版本，并自动通过 Docker Engine API 部署精确同版本的 core。
-- Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge`、`core-control` 和 `egress` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
+- Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的网络（一期为 `edge`、`core-control`，第二期追加 `egress`），使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载 `bootstrap.json`：管理 API 使用 Unix socket，`/internal/*` 返回 404，空核心池的 `/v1/*` fail-closed 返回 503；Go 启动后装载完整受控配置并对账。
 - Caddy 默认只映射 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 到容器 `:80`；外部 TLS 反向代理负责公网 443。只有 `CADDY_TLS_MODE=auto` 才需要额外的 443 映射。
 - `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。动态实例的子目录由 API 通过一次性 helper 创建，避免 Docker 以 root 创建不可写的 bind 目录；控制面不拉取 `CORE_STATE_INIT_IMAGE`，该镜像必须已在宿主机预拉取（默认 `busybox:1.37` 由 `caddy-init` 服务顺带拉取）。
@@ -1750,12 +1759,12 @@ networks:
 | `CORE_STATE_INIT_IMAGE` | 为动态实例创建状态子目录的一次性容器镜像，默认 `busybox:1.37`；控制面不拉取，必须已在宿主机预拉取 | 否 |
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
-| `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control,token_ne_egress` | 否 |
+| `CORE_NETWORKS` | Go 创建核心容器时加入的网络；一期默认 `token_ne_edge,token_ne_core_control`，第二期追加 `token_ne_egress` | 否 |
 | `CORE_AUTO_PRUNE` | 是否自动销毁已确认退役且 spool 清零的核心实例，默认 `true` | 否 |
 | `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
 | `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
-| `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像 | 是 |
-| `XRAY_API_URL` | Xray gRPC API 地址，默认 `172.31.255.10:10085`，只在 `xray-control` 网络可达 | 否 |
+| `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像；仅第二期 Compose 必需 | 第二期是 |
+| `XRAY_API_URL` | Xray gRPC API 地址，默认 `10.42.0.10:10085`，只在 `xray-control` 网络可达 | 否 |
 | `XRAY_PROXY_PORT_MIN` / `XRAY_PROXY_PORT_MAX` | 动态 SOCKS5 入站端口范围，默认 15000–15999 | 否 |
 | `XRAY_RECONCILE_INTERVAL_SECONDS` | Xray 运行态对账周期，默认 30 秒 | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
