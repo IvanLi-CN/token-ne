@@ -90,6 +90,7 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("DELETE /api/models/{model_id}", a.protect(a.deleteModel))
 	registerPrices(m, a)
 	registerPriceSync(m, a)
+	registerPriceCatalog(m, a)
 	m.HandleFunc("GET /api/upstreams", a.protect(a.listUpstreams))
 	m.HandleFunc("POST /api/upstreams", a.protect(a.saveUpstream))
 	m.HandleFunc("GET /api/upstreams/{upstream_id}", a.protect(a.getUpstream))

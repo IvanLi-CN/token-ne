@@ -11,6 +11,7 @@ export const mainSections: readonly MainSection[] = [
   { to: "/models", label: "Models" },
   { to: "/upstreams", label: "Upstreams" },
   { to: "/prices", label: "Prices", phaseTwo: true },
+  { to: "/price-sync", label: "价格同步", phaseTwo: true },
   { to: "/keys", label: "Downstream Keys" },
   { to: "/system", label: "系统" },
 ];

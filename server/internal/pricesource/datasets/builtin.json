@@ -1,24 +1,33 @@
 {
-  "version": "2026-11-20",
+  "version": "2026.11.24",
   "source_id": "builtin",
   "name": "内置价目表",
-  "fetched_at": "2026-11-20T00:00:00Z",
-  "note": "仓库内嵌的快照数据集，按版本更新；运行时不联网，也不接受管理员填写的 URL。数据用于生成待审核报价，不会直接覆盖当前价格。",
+  "fetched_at": "2026-11-24T07:37:14Z",
+  "note": "受控快照：四条兼容行 + https://openrouter.ai/api/v1/models 于 2026-11-24 抓取；价格由每 token 换算为每百万 token；排除负价与占位价；废弃时间取来源 expiration_date，未提供时为 null。",
   "models": [
     {
       "source_model_id": "gpt-4o-mini",
+      "vendor": "openai",
+      "released_at": "2024-07-18T00:00:00Z",
+      "deprecated_at": null,
       "input_usd_per_mtok": 0.15,
       "cached_input_usd_per_mtok": 0.075,
       "output_usd_per_mtok": 0.6
     },
     {
       "source_model_id": "OpenAI/GPT_4o",
+      "vendor": "openai",
+      "released_at": "2024-05-13T00:00:00Z",
+      "deprecated_at": null,
       "input_usd_per_mtok": 2.5,
       "cached_input_usd_per_mtok": 1.25,
       "output_usd_per_mtok": 10
     },
     {
       "source_model_id": "openai/gpt-4.1",
+      "vendor": "openai",
+      "released_at": "2025-04-14T00:00:00Z",
+      "deprecated_at": null,
       "explicit_model_id": "gpt-4.1",
       "input_usd_per_mtok": 2,
       "cached_input_usd_per_mtok": 0.5,
@@ -26,9 +35,3225 @@
     },
     {
       "source_model_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "vendor": "meta-llama",
+      "released_at": "2024-12-06T00:00:00Z",
+      "deprecated_at": null,
       "input_usd_per_mtok": 0.59,
       "cached_input_usd_per_mtok": null,
       "output_usd_per_mtok": 0.79
+    },
+    {
+      "source_model_id": "aion-labs/aion-2.0",
+      "vendor": "aion-labs",
+      "released_at": "2026-02-23T21:15:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 1.6
+    },
+    {
+      "source_model_id": "aion-labs/aion-3.0",
+      "vendor": "aion-labs",
+      "released_at": "2026-07-07T16:51:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.75,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "aion-labs/aion-3.0-mini",
+      "vendor": "aion-labs",
+      "released_at": "2026-07-07T16:51:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.7,
+      "cached_input_usd_per_mtok": 0.18,
+      "output_usd_per_mtok": 1.4
+    },
+    {
+      "source_model_id": "aion-labs/aion-3.5",
+      "vendor": "aion-labs",
+      "released_at": "2026-09-23T13:42:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.75,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "aion-labs/aion-3.5-mini",
+      "vendor": "aion-labs",
+      "released_at": "2026-09-23T13:42:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.7,
+      "cached_input_usd_per_mtok": 0.18,
+      "output_usd_per_mtok": 1.4
+    },
+    {
+      "source_model_id": "aion-labs/aion-rp-llama-3.1-8b",
+      "vendor": "aion-labs",
+      "released_at": "2025-02-04T19:18:38Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.6
+    },
+    {
+      "source_model_id": "amazon/nova-2-lite-v1",
+      "vendor": "amazon",
+      "released_at": "2025-12-02T17:31:12Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "amazon/nova-lite-v1",
+      "vendor": "amazon",
+      "released_at": "2024-12-05T22:22:43Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.06,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.24
+    },
+    {
+      "source_model_id": "amazon/nova-micro-v1",
+      "vendor": "amazon",
+      "released_at": "2024-12-05T22:20:37Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.035,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.14
+    },
+    {
+      "source_model_id": "amazon/nova-premier-v1",
+      "vendor": "amazon",
+      "released_at": "2025-10-31T22:38:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 0.625,
+      "output_usd_per_mtok": 12.5
+    },
+    {
+      "source_model_id": "amazon/nova-pro-v1",
+      "vendor": "amazon",
+      "released_at": "2024-12-05T22:05:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "anthracite-org/magnum-v4-72b",
+      "vendor": "anthracite-org",
+      "released_at": "2024-10-22T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 2.5,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "anthropic/claude-fable-5",
+      "vendor": "anthropic",
+      "released_at": "2026-06-09T12:18:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 10,
+      "cached_input_usd_per_mtok": 1,
+      "output_usd_per_mtok": 50
+    },
+    {
+      "source_model_id": "anthropic/claude-fable-5.1",
+      "vendor": "anthropic",
+      "released_at": "2026-09-01T18:03:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 10,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 50
+    },
+    {
+      "source_model_id": "anthropic/claude-fable-5.2",
+      "vendor": "anthropic",
+      "released_at": "2026-11-09T19:49:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 40
+    },
+    {
+      "source_model_id": "anthropic/claude-haiku-4.5",
+      "vendor": "anthropic",
+      "released_at": "2025-10-15T17:00:38Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "anthropic/claude-haiku-5.5",
+      "vendor": "anthropic",
+      "released_at": "2026-10-07T18:31:23Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-4.1",
+      "vendor": "anthropic",
+      "released_at": "2025-08-05T16:33:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 15,
+      "cached_input_usd_per_mtok": 1.5,
+      "output_usd_per_mtok": 75
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-4.5",
+      "vendor": "anthropic",
+      "released_at": "2025-11-24T18:56:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 25
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-4.6",
+      "vendor": "anthropic",
+      "released_at": "2026-02-04T15:30:50Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 25
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-4.7",
+      "vendor": "anthropic",
+      "released_at": "2026-04-16T14:51:40Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 25
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-4.8",
+      "vendor": "anthropic",
+      "released_at": "2026-05-27T18:04:51Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 25
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-5",
+      "vendor": "anthropic",
+      "released_at": "2026-07-24T17:02:24Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 25
+    },
+    {
+      "source_model_id": "anthropic/claude-opus-5.5",
+      "vendor": "anthropic",
+      "released_at": "2026-09-22T16:32:12Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 20
+    },
+    {
+      "source_model_id": "anthropic/claude-sonnet-4.5",
+      "vendor": "anthropic",
+      "released_at": "2025-09-29T16:01:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "anthropic/claude-sonnet-4.6",
+      "vendor": "anthropic",
+      "released_at": "2026-02-17T15:43:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "anthropic/claude-sonnet-5",
+      "vendor": "anthropic",
+      "released_at": "2026-06-30T18:11:23Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "anthropic/claude-sonnet-5.5",
+      "vendor": "anthropic",
+      "released_at": "2026-09-28T18:04:46Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "baidu/ernie-light-dt-1.0-intl",
+      "vendor": "baidu",
+      "released_at": "2026-11-10T17:21:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.13,
+      "cached_input_usd_per_mtok": 0.113,
+      "output_usd_per_mtok": 3.94
+    },
+    {
+      "source_model_id": "bytedance-seed/seed-2-1-turbo",
+      "vendor": "bytedance-seed",
+      "released_at": "2026-08-12T16:29:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "bytedance-seed/seed-2.0-lite",
+      "vendor": "bytedance-seed",
+      "released_at": "2026-03-10T15:40:31Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "bytedance-seed/seed-2.0-mini",
+      "vendor": "bytedance-seed",
+      "released_at": "2026-02-26T18:38:27Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "bytedance/ui-tars-1.5-7b",
+      "vendor": "bytedance",
+      "released_at": "2025-07-22T17:24:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+      "vendor": "cognitivecomputations",
+      "released_at": "2025-07-09T21:02:46Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.9
+    },
+    {
+      "source_model_id": "cohere/command-a",
+      "vendor": "cohere",
+      "released_at": "2025-03-13T19:32:22Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "cohere/command-a-plus",
+      "vendor": "cohere",
+      "released_at": "2026-09-22T18:48:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "cohere/command-r-08-2024",
+      "vendor": "cohere",
+      "released_at": "2024-08-30T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "cohere/command-r-plus-08-2024",
+      "vendor": "cohere",
+      "released_at": "2024-08-30T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "cohere/command-r7b-12-2024",
+      "vendor": "cohere",
+      "released_at": "2024-12-14T06:35:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0375,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.15
+    },
+    {
+      "source_model_id": "deepseek/deepseek-chat",
+      "vendor": "deepseek",
+      "released_at": "2024-12-26T19:28:40Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2574,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.0287
+    },
+    {
+      "source_model_id": "deepseek/deepseek-chat-v3-0324",
+      "vendor": "deepseek",
+      "released_at": "2025-03-24T13:59:15Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "deepseek/deepseek-chat-v3.1",
+      "vendor": "deepseek",
+      "released_at": "2025-08-21T12:33:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.13,
+      "output_usd_per_mtok": 0.95
+    },
+    {
+      "source_model_id": "deepseek/deepseek-r1-0528",
+      "vendor": "deepseek",
+      "released_at": "2025-05-28T17:59:30Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.571,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.286
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v3.1-terminus",
+      "vendor": "deepseek",
+      "released_at": "2025-09-22T13:37:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.27,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v3.2",
+      "vendor": "deepseek",
+      "released_at": "2025-12-01T13:10:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.26,
+      "cached_input_usd_per_mtok": 0.13,
+      "output_usd_per_mtok": 0.38
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v3.2-exp",
+      "vendor": "deepseek",
+      "released_at": "2025-09-29T12:54:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.27,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.41
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4-flash",
+      "vendor": "deepseek",
+      "released_at": "2026-04-24T03:17:46Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.09,
+      "cached_input_usd_per_mtok": 0.018,
+      "output_usd_per_mtok": 0.18
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4-flash-0731",
+      "vendor": "deepseek",
+      "released_at": "2026-07-31T06:21:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.047,
+      "cached_input_usd_per_mtok": 0.035,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4-flash-vision-exp",
+      "vendor": "deepseek",
+      "released_at": "2026-08-21T11:26:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2156,
+      "cached_input_usd_per_mtok": 0.00686,
+      "output_usd_per_mtok": 0.6468
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4-pro",
+      "vendor": "deepseek",
+      "released_at": "2026-04-24T03:17:59Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.28,
+      "cached_input_usd_per_mtok": 0.108,
+      "output_usd_per_mtok": 2.56
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4-pro-0813",
+      "vendor": "deepseek",
+      "released_at": "2026-08-12T15:42:44Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.111,
+      "cached_input_usd_per_mtok": 0.097,
+      "output_usd_per_mtok": 4.44
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4.1-flash",
+      "vendor": "deepseek",
+      "released_at": "2026-09-10T06:21:25Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.14,
+      "cached_input_usd_per_mtok": 0.0042,
+      "output_usd_per_mtok": 0.42
+    },
+    {
+      "source_model_id": "deepseek/deepseek-v4.1-flash-1017",
+      "vendor": "deepseek",
+      "released_at": "2026-10-17T08:27:04Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.03,
+      "cached_input_usd_per_mtok": 0.001,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "elorian/glimpse",
+      "vendor": "elorian",
+      "released_at": "2026-10-17T03:10:29Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": 0.06,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "fireworks/ember-1",
+      "vendor": "fireworks",
+      "released_at": "2026-09-24T00:07:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "google/gemini-2.5-flash",
+      "vendor": "google",
+      "released_at": "2025-06-17T15:01:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "google/gemini-2.5-flash-image",
+      "vendor": "google",
+      "released_at": "2025-10-07T20:53:51Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "google/gemini-2.5-flash-lite",
+      "vendor": "google",
+      "released_at": "2025-07-22T16:04:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "google/gemini-2.5-pro",
+      "vendor": "google",
+      "released_at": "2025-06-17T14:12:24Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.125,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "google/gemini-2.5-pro-preview",
+      "vendor": "google",
+      "released_at": "2025-06-05T15:27:37Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.125,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "google/gemini-3-flash-preview",
+      "vendor": "google",
+      "released_at": "2025-12-17T15:57:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "google/gemini-3-pro-image",
+      "vendor": "google",
+      "released_at": "2026-06-18T03:40:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "google/gemini-3-pro-image-preview",
+      "vendor": "google",
+      "released_at": "2025-11-20T15:49:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "google/gemini-3.1-flash-image",
+      "vendor": "google",
+      "released_at": "2026-06-18T03:41:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "google/gemini-3.1-flash-image-preview",
+      "vendor": "google",
+      "released_at": "2026-02-26T15:25:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "google/gemini-3.1-flash-lite",
+      "vendor": "google",
+      "released_at": "2026-05-07T15:47:08Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "google/gemini-3.1-flash-lite-image",
+      "vendor": "google",
+      "released_at": "2026-06-30T16:33:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "google/gemini-3.1-flash-lite-preview",
+      "vendor": "google",
+      "released_at": "2026-03-03T04:37:53Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "google/gemini-3.1-pro-preview",
+      "vendor": "google",
+      "released_at": "2026-02-19T14:00:27Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "google/gemini-3.1-pro-preview-customtools",
+      "vendor": "google",
+      "released_at": "2026-02-25T18:58:43Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "google/gemini-3.5-flash",
+      "vendor": "google",
+      "released_at": "2026-05-19T12:30:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 9
+    },
+    {
+      "source_model_id": "google/gemini-3.5-flash-lite",
+      "vendor": "google",
+      "released_at": "2026-07-21T15:12:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "google/gemini-3.6-flash",
+      "vendor": "google",
+      "released_at": "2026-07-21T15:12:13Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.75,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 3.75
+    },
+    {
+      "source_model_id": "google/gemini-3.7-flash",
+      "vendor": "google",
+      "released_at": "2026-08-13T17:03:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.75,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 3.75
+    },
+    {
+      "source_model_id": "google/gemini-3.8-flash",
+      "vendor": "google",
+      "released_at": "2026-09-02T15:14:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.825,
+      "cached_input_usd_per_mtok": 0.0825,
+      "output_usd_per_mtok": 4.125
+    },
+    {
+      "source_model_id": "google/gemini-4-argon",
+      "vendor": "google",
+      "released_at": "2026-10-13T16:04:37Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "google/gemini-4-carbon",
+      "vendor": "google",
+      "released_at": "2026-11-10T16:07:51Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "google/gemini-4-hydrogen",
+      "vendor": "google",
+      "released_at": "2026-11-12T18:01:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 7.5
+    },
+    {
+      "source_model_id": "google/gemini-4-neon",
+      "vendor": "google",
+      "released_at": "2026-11-18T13:02:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "google/gemini-nano-banana-2.1",
+      "vendor": "google",
+      "released_at": "2026-10-06T15:33:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 7.5
+    },
+    {
+      "source_model_id": "google/gemini-omni-1.1-flash",
+      "vendor": "google",
+      "released_at": "2026-11-04T20:54:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 9
+    },
+    {
+      "source_model_id": "google/gemini-omni-1.2-flash",
+      "vendor": "google",
+      "released_at": "2026-11-05T17:16:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 9
+    },
+    {
+      "source_model_id": "google/gemma-2-27b-it",
+      "vendor": "google",
+      "released_at": "2024-07-13T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.65,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.65
+    },
+    {
+      "source_model_id": "google/gemma-3-12b-it",
+      "vendor": "google",
+      "released_at": "2025-03-13T21:50:25Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.15
+    },
+    {
+      "source_model_id": "google/gemma-3-27b-it",
+      "vendor": "google",
+      "released_at": "2025-03-12T05:12:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.08,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.16
+    },
+    {
+      "source_model_id": "google/gemma-3-4b-it",
+      "vendor": "google",
+      "released_at": "2025-03-13T22:38:30Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.04,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.05
+    },
+    {
+      "source_model_id": "google/gemma-4-26b-a4b-it",
+      "vendor": "google",
+      "released_at": "2026-04-03T14:53:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.09,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "google/gemma-4-31b-it",
+      "vendor": "google",
+      "released_at": "2026-04-02T16:48:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "google/lyria-3-clip-preview",
+      "vendor": "google",
+      "released_at": "2026-03-30T21:47:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0
+    },
+    {
+      "source_model_id": "google/lyria-3-pro-preview",
+      "vendor": "google",
+      "released_at": "2026-03-30T21:48:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0
+    },
+    {
+      "source_model_id": "gryphe/mythomax-l2-13b",
+      "vendor": "gryphe",
+      "released_at": "2023-07-02T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "ibm-granite/granite-4.2-8b",
+      "vendor": "ibm-granite",
+      "released_at": "2026-08-31T20:06:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.06,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.15
+    },
+    {
+      "source_model_id": "inclusionai/ling-3.0-flash",
+      "vendor": "inclusionai",
+      "released_at": "2026-07-23T14:56:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.021,
+      "cached_input_usd_per_mtok": 0.0042,
+      "output_usd_per_mtok": 0.063
+    },
+    {
+      "source_model_id": "inclusionai/ling-3.0-flash-vl",
+      "vendor": "inclusionai",
+      "released_at": "2026-09-10T16:01:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.06,
+      "cached_input_usd_per_mtok": 0.012,
+      "output_usd_per_mtok": 0.18
+    },
+    {
+      "source_model_id": "inclusionai/ling-3.0-tiny",
+      "vendor": "inclusionai",
+      "released_at": "2026-08-06T16:48:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.015,
+      "cached_input_usd_per_mtok": 0.003,
+      "output_usd_per_mtok": 0.045
+    },
+    {
+      "source_model_id": "inclusionai/ling-3.1-flash",
+      "vendor": "inclusionai",
+      "released_at": "2026-10-02T14:07:04Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.225
+    },
+    {
+      "source_model_id": "inference-net/schematron-v2-small",
+      "vendor": "inference-net",
+      "released_at": "2026-09-12T01:35:33Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 0.23
+    },
+    {
+      "source_model_id": "inference-net/schematron-v2-turbo",
+      "vendor": "inference-net",
+      "released_at": "2026-09-12T01:35:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.03,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.15
+    },
+    {
+      "source_model_id": "kt/midm-k-3.0-pro",
+      "vendor": "kt",
+      "released_at": "2026-11-05T16:55:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.04,
+      "output_usd_per_mtok": 0.8
+    },
+    {
+      "source_model_id": "liquid/lfm-2.5-24b-a2b",
+      "vendor": "liquid",
+      "released_at": "2026-10-13T17:20:25Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 0.7
+    },
+    {
+      "source_model_id": "liquid/lfm-3-1.7b",
+      "vendor": "liquid",
+      "released_at": "2026-11-06T23:57:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.08,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "mancer/weaver",
+      "vendor": "mancer",
+      "released_at": "2023-08-02T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "meta-llama/llama-3.1-70b-instruct",
+      "vendor": "meta-llama",
+      "released_at": "2024-07-23T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.72,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.72
+    },
+    {
+      "source_model_id": "meta-llama/llama-3.1-8b-instruct",
+      "vendor": "meta-llama",
+      "released_at": "2024-07-23T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 0.08
+    },
+    {
+      "source_model_id": "meta-llama/llama-3.2-3b-instruct",
+      "vendor": "meta-llama",
+      "released_at": "2024-09-25T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.33
+    },
+    {
+      "source_model_id": "meta-llama/llama-4-maverick",
+      "vendor": "meta-llama",
+      "released_at": "2025-04-05T19:37:02Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.35,
+      "cached_input_usd_per_mtok": 0.17,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "meta-llama/llama-4-scout",
+      "vendor": "meta-llama",
+      "released_at": "2025-04-05T19:31:59Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "meta-llama/llama-guard-4-12b",
+      "vendor": "meta-llama",
+      "released_at": "2025-04-30T01:06:33Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.18,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.18
+    },
+    {
+      "source_model_id": "meta/muse-ember",
+      "vendor": "meta",
+      "released_at": "2026-11-09T18:07:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.004,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "meta/muse-glimmer-30b",
+      "vendor": "meta",
+      "released_at": "2026-08-09T19:06:34Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.35,
+      "cached_input_usd_per_mtok": 0.04,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "meta/muse-spark-1.1",
+      "vendor": "meta",
+      "released_at": "2026-07-16T15:29:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 4.25
+    },
+    {
+      "source_model_id": "meta/muse-spark-1.2",
+      "vendor": "meta",
+      "released_at": "2026-08-05T19:48:07Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 4.25
+    },
+    {
+      "source_model_id": "meta/muse-spark-1.2-contributor",
+      "vendor": "meta",
+      "released_at": "2026-08-21T18:21:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.002,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "meta/muse-spark-1.3",
+      "vendor": "meta",
+      "released_at": "2026-09-02T19:45:59Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 4.25
+    },
+    {
+      "source_model_id": "meta/muse-spark-1.3-contributor",
+      "vendor": "meta",
+      "released_at": "2026-09-02T20:38:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.002,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "meta/muse-spark-open",
+      "vendor": "meta",
+      "released_at": "2026-10-15T17:57:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 4.25
+    },
+    {
+      "source_model_id": "meta/muse-wonder",
+      "vendor": "meta",
+      "released_at": "2026-10-12T12:25:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 20
+    },
+    {
+      "source_model_id": "microsoft/phi-4",
+      "vendor": "microsoft",
+      "released_at": "2025-01-10T06:17:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.07,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.14
+    },
+    {
+      "source_model_id": "minimax/minimax-m2.5",
+      "vendor": "minimax",
+      "released_at": "2026-02-12T15:01:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.27,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.95
+    },
+    {
+      "source_model_id": "minimax/minimax-m2.7",
+      "vendor": "minimax",
+      "released_at": "2026-03-18T12:24:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.8
+    },
+    {
+      "source_model_id": "minimax/minimax-m3",
+      "vendor": "minimax",
+      "released_at": "2026-05-31T16:36:14Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.06,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "minimax/minimax-m3.1-flash",
+      "vendor": "minimax",
+      "released_at": "2026-10-19T03:12:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "mistralai/codestral-2508",
+      "vendor": "mistralai",
+      "released_at": "2025-08-01T20:20:30Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.9
+    },
+    {
+      "source_model_id": "mistralai/devstral-2512",
+      "vendor": "mistralai",
+      "released_at": "2025-12-09T13:03:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.4,
+      "cached_input_usd_per_mtok": 0.04,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "mistralai/ministral-14b-2512",
+      "vendor": "mistralai",
+      "released_at": "2025-12-02T13:22:15Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "mistralai/ministral-3b-2512",
+      "vendor": "mistralai",
+      "released_at": "2025-12-02T13:19:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.1
+    },
+    {
+      "source_model_id": "mistralai/ministral-8b-2512",
+      "vendor": "mistralai",
+      "released_at": "2025-12-02T13:20:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.15
+    },
+    {
+      "source_model_id": "mistralai/mistral-large",
+      "vendor": "mistralai",
+      "released_at": "2024-02-26T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "mistralai/mistral-large-2407",
+      "vendor": "mistralai",
+      "released_at": "2024-11-19T01:06:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "mistralai/mistral-large-2512",
+      "vendor": "mistralai",
+      "released_at": "2025-12-01T21:27:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "mistralai/mistral-large-4-0",
+      "vendor": "mistralai",
+      "released_at": "2026-10-06T13:42:02Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.7,
+      "cached_input_usd_per_mtok": 0.07,
+      "output_usd_per_mtok": 2.1
+    },
+    {
+      "source_model_id": "mistralai/mistral-medium-3",
+      "vendor": "mistralai",
+      "released_at": "2025-05-07T14:15:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.44,
+      "cached_input_usd_per_mtok": 0.044,
+      "output_usd_per_mtok": 2.2
+    },
+    {
+      "source_model_id": "mistralai/mistral-medium-3-5",
+      "vendor": "mistralai",
+      "released_at": "2026-04-30T17:33:59Z",
+      "deprecated_at": "2027-01-31T00:00:00Z",
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 7.5
+    },
+    {
+      "source_model_id": "mistralai/mistral-medium-3.1",
+      "vendor": "mistralai",
+      "released_at": "2025-08-13T14:33:59Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.44,
+      "cached_input_usd_per_mtok": 0.044,
+      "output_usd_per_mtok": 2.2
+    },
+    {
+      "source_model_id": "mistralai/mistral-nemo",
+      "vendor": "mistralai",
+      "released_at": "2024-07-19T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.029,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.03
+    },
+    {
+      "source_model_id": "mistralai/mistral-saba",
+      "vendor": "mistralai",
+      "released_at": "2025-02-17T14:40:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "mistralai/mistral-small-24b-instruct-2501",
+      "vendor": "mistralai",
+      "released_at": "2025-01-30T16:43:29Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.08
+    },
+    {
+      "source_model_id": "mistralai/mistral-small-2603",
+      "vendor": "mistralai",
+      "released_at": "2026-03-16T21:14:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "mistralai/mistral-small-3.1-24b-instruct",
+      "vendor": "mistralai",
+      "released_at": "2025-03-17T19:15:37Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.351,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.555
+    },
+    {
+      "source_model_id": "mistralai/mistral-small-3.2-24b-instruct",
+      "vendor": "mistralai",
+      "released_at": "2025-06-20T18:10:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "mistralai/mixtral-8x22b-instruct",
+      "vendor": "mistralai",
+      "released_at": "2024-04-17T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "mistralai/pixtral-large-2502",
+      "vendor": "mistralai",
+      "released_at": "2026-11-20T00:51:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "mistralai/voxtral-small-24b-2507",
+      "vendor": "mistralai",
+      "released_at": "2025-10-30T14:39:04Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "moondream/moondream3-preview",
+      "vendor": "moondream",
+      "released_at": "2026-10-15T22:13:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "moondream/moondream3.1-9b-a2b",
+      "vendor": "moondream",
+      "released_at": "2026-10-15T22:12:53Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "moonshotai/kimi-k2.5",
+      "vendor": "moonshotai",
+      "released_at": "2026-01-27T04:11:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "moonshotai/kimi-k2.6",
+      "vendor": "moonshotai",
+      "released_at": "2026-04-20T15:36:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.65,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 3.41
+    },
+    {
+      "source_model_id": "moonshotai/kimi-k2.7-code",
+      "vendor": "moonshotai",
+      "released_at": "2026-06-12T12:12:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": 0.12,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "moonshotai/kimi-k3",
+      "vendor": "moonshotai",
+      "released_at": "2026-07-16T15:30:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.192,
+      "cached_input_usd_per_mtok": 0.182,
+      "output_usd_per_mtok": 16
+    },
+    {
+      "source_model_id": "moonshotai/kimi-k3.1-pro",
+      "vendor": "moonshotai",
+      "released_at": "2026-10-23T17:56:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2403,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 8.4023
+    },
+    {
+      "source_model_id": "morph/morph-v3-fast",
+      "vendor": "morph",
+      "released_at": "2025-07-07T17:40:02Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "morph/morph-v3-large",
+      "vendor": "morph",
+      "released_at": "2025-07-07T17:54:18Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.9,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.9
+    },
+    {
+      "source_model_id": "motif-technologies/motif-3",
+      "vendor": "motif-technologies",
+      "released_at": "2026-11-02T21:35:34Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.06,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "nex-agi/nex-n2.5-mini",
+      "vendor": "nex-agi",
+      "released_at": "2026-09-08T17:54:21Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.025,
+      "cached_input_usd_per_mtok": 0.0025,
+      "output_usd_per_mtok": 0.1
+    },
+    {
+      "source_model_id": "nex-agi/nex-n2.5-pro",
+      "vendor": "nex-agi",
+      "released_at": "2026-09-08T17:54:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.25
+    },
+    {
+      "source_model_id": "nex-agi/nex-n2.6",
+      "vendor": "nex-agi",
+      "released_at": "2026-11-10T03:46:19Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.12,
+      "cached_input_usd_per_mtok": 0.024,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "nousresearch/hermes-4-405b",
+      "vendor": "nousresearch",
+      "released_at": "2025-08-26T19:11:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3-nano-30b-a3b",
+      "vendor": "nvidia",
+      "released_at": "2025-12-14T16:54:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.06,
+      "cached_input_usd_per_mtok": 0.012,
+      "output_usd_per_mtok": 0.24
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3-super-120b-a12b",
+      "vendor": "nvidia",
+      "released_at": "2026-03-11T16:07:19Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "vendor": "nvidia",
+      "released_at": "2026-06-04T05:33:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 2.2
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3.5-content-safety",
+      "vendor": "nvidia",
+      "released_at": "2026-06-04T14:04:24Z",
+      "deprecated_at": "2026-11-30T00:00:00Z",
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3.5-lightning",
+      "vendor": "nvidia",
+      "released_at": "2026-08-11T12:52:31Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "nvidia/nemotron-3.5-super-vl",
+      "vendor": "nvidia",
+      "released_at": "2026-10-15T15:04:22Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.47
+    },
+    {
+      "source_model_id": "openai/gpt-3.5-turbo-0613",
+      "vendor": "openai",
+      "released_at": "2024-01-25T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "openai/gpt-3.5-turbo-16k",
+      "vendor": "openai",
+      "released_at": "2023-08-28T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 4
+    },
+    {
+      "source_model_id": "openai/gpt-4",
+      "vendor": "openai",
+      "released_at": "2023-05-28T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 30,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 60
+    },
+    {
+      "source_model_id": "openai/gpt-4.1-mini",
+      "vendor": "openai",
+      "released_at": "2025-04-14T17:23:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.4,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 1.6
+    },
+    {
+      "source_model_id": "openai/gpt-4.1-nano",
+      "vendor": "openai",
+      "released_at": "2025-04-14T17:22:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "openai/gpt-4o-2024-05-13",
+      "vendor": "openai",
+      "released_at": "2024-05-13T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "openai/gpt-4o-2024-08-06",
+      "vendor": "openai",
+      "released_at": "2024-08-06T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 1.25,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-4o-2024-11-20",
+      "vendor": "openai",
+      "released_at": "2024-11-20T18:33:14Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 1.25,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-4o-mini-2024-07-18",
+      "vendor": "openai",
+      "released_at": "2024-07-18T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "openai/gpt-5",
+      "vendor": "openai",
+      "released_at": "2025-08-07T17:23:33Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.125,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-5-image",
+      "vendor": "openai",
+      "released_at": "2025-10-14T13:19:46Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 10,
+      "cached_input_usd_per_mtok": 1.25,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-5-image-mini",
+      "vendor": "openai",
+      "released_at": "2025-10-16T14:23:03Z",
+      "deprecated_at": "2026-12-01T00:00:00Z",
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "openai/gpt-5-mini",
+      "vendor": "openai",
+      "released_at": "2025-08-07T17:23:27Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "openai/gpt-5-nano",
+      "vendor": "openai",
+      "released_at": "2025-08-07T17:23:22Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.005,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "openai/gpt-5-pro",
+      "vendor": "openai",
+      "released_at": "2025-10-06T18:51:03Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 15,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 120
+    },
+    {
+      "source_model_id": "openai/gpt-5.1",
+      "vendor": "openai",
+      "released_at": "2025-11-13T18:58:25Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.125,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-5.1-codex",
+      "vendor": "openai",
+      "released_at": "2025-11-13T18:58:18Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.13,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-5.1-codex-max",
+      "vendor": "openai",
+      "released_at": "2025-12-04T20:08:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.125,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-5.1-codex-mini",
+      "vendor": "openai",
+      "released_at": "2025-11-13T18:17:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "openai/gpt-5.2",
+      "vendor": "openai",
+      "released_at": "2025-12-10T18:02:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.75,
+      "cached_input_usd_per_mtok": 0.175,
+      "output_usd_per_mtok": 14
+    },
+    {
+      "source_model_id": "openai/gpt-5.2-chat",
+      "vendor": "openai",
+      "released_at": "2025-12-10T18:03:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.75,
+      "cached_input_usd_per_mtok": 0.175,
+      "output_usd_per_mtok": 14
+    },
+    {
+      "source_model_id": "openai/gpt-5.2-codex",
+      "vendor": "openai",
+      "released_at": "2026-01-14T16:48:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.75,
+      "cached_input_usd_per_mtok": 0.175,
+      "output_usd_per_mtok": 14
+    },
+    {
+      "source_model_id": "openai/gpt-5.2-pro",
+      "vendor": "openai",
+      "released_at": "2025-12-10T18:03:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 21,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 168
+    },
+    {
+      "source_model_id": "openai/gpt-5.3-codex",
+      "vendor": "openai",
+      "released_at": "2026-02-24T18:52:44Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.75,
+      "cached_input_usd_per_mtok": 0.175,
+      "output_usd_per_mtok": 14
+    },
+    {
+      "source_model_id": "openai/gpt-5.4",
+      "vendor": "openai",
+      "released_at": "2026-03-05T18:12:32Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "openai/gpt-5.4-image-2",
+      "vendor": "openai",
+      "released_at": "2026-04-21T18:52:08Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 2,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "openai/gpt-5.4-mini",
+      "vendor": "openai",
+      "released_at": "2026-03-17T11:49:38Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.75,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 4.5
+    },
+    {
+      "source_model_id": "openai/gpt-5.4-nano",
+      "vendor": "openai",
+      "released_at": "2026-03-17T11:49:47Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 1.25
+    },
+    {
+      "source_model_id": "openai/gpt-5.4-pro",
+      "vendor": "openai",
+      "released_at": "2026-03-05T18:12:46Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 30,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 180
+    },
+    {
+      "source_model_id": "openai/gpt-5.5",
+      "vendor": "openai",
+      "released_at": "2026-04-24T17:31:33Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 30
+    },
+    {
+      "source_model_id": "openai/gpt-5.5-pro",
+      "vendor": "openai",
+      "released_at": "2026-04-24T17:31:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 30,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 180
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-luna",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:24Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-luna-pro",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:27Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-sol",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 20
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-sol-pro",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:14Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 20
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-terra",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:17Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "openai/gpt-5.6-terra-pro",
+      "vendor": "openai",
+      "released_at": "2026-07-09T09:54:21Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "openai/gpt-6-astra",
+      "vendor": "openai",
+      "released_at": "2026-09-04T20:13:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 10,
+      "cached_input_usd_per_mtok": 1,
+      "output_usd_per_mtok": 50
+    },
+    {
+      "source_model_id": "openai/gpt-6-astra-pro",
+      "vendor": "openai",
+      "released_at": "2026-09-04T20:13:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 10,
+      "cached_input_usd_per_mtok": 1,
+      "output_usd_per_mtok": 50
+    },
+    {
+      "source_model_id": "openai/gpt-6-luna",
+      "vendor": "openai",
+      "released_at": "2026-09-22T18:13:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "openai/gpt-6-luna-pro",
+      "vendor": "openai",
+      "released_at": "2026-09-22T18:13:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "openai/gpt-6-sol",
+      "vendor": "openai",
+      "released_at": "2026-09-22T18:12:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-6-sol-pro",
+      "vendor": "openai",
+      "released_at": "2026-09-22T18:13:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-6.1-sol",
+      "vendor": "openai",
+      "released_at": "2026-09-29T17:28:02Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-6.1-sol-pro",
+      "vendor": "openai",
+      "released_at": "2026-09-29T17:28:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-6.1-terra",
+      "vendor": "openai",
+      "released_at": "2026-10-26T18:13:29Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "openai/gpt-6.1-terra-pro",
+      "vendor": "openai",
+      "released_at": "2026-10-26T18:15:56Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "openai/gpt-6.2-astra",
+      "vendor": "openai",
+      "released_at": "2026-11-17T18:00:23Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 40
+    },
+    {
+      "source_model_id": "openai/gpt-6.2-astra-pro",
+      "vendor": "openai",
+      "released_at": "2026-11-17T18:00:32Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 40
+    },
+    {
+      "source_model_id": "openai/gpt-6.2-sol",
+      "vendor": "openai",
+      "released_at": "2026-11-17T17:59:31Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-6.2-sol-pro",
+      "vendor": "openai",
+      "released_at": "2026-11-17T18:00:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-audio",
+      "vendor": "openai",
+      "released_at": "2026-01-19T22:42:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "openai/gpt-audio-mini",
+      "vendor": "openai",
+      "released_at": "2026-01-19T21:50:19Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.4
+    },
+    {
+      "source_model_id": "openai/gpt-chat-latest",
+      "vendor": "openai",
+      "released_at": "2026-05-05T16:56:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 30
+    },
+    {
+      "source_model_id": "openai/gpt-oss-120b",
+      "vendor": "openai",
+      "released_at": "2025-08-05T17:17:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 0.25
+    },
+    {
+      "source_model_id": "openai/gpt-oss-20b",
+      "vendor": "openai",
+      "released_at": "2025-08-05T17:17:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.03,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.13
+    },
+    {
+      "source_model_id": "openai/gpt-oss-safeguard-20b",
+      "vendor": "openai",
+      "released_at": "2025-10-29T15:47:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": 0.0375,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "openai/o3",
+      "vendor": "openai",
+      "released_at": "2025-04-16T17:10:57Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 8
+    },
+    {
+      "source_model_id": "openai/o3-pro",
+      "vendor": "openai",
+      "released_at": "2025-06-10T23:32:32Z",
+      "deprecated_at": "2026-12-11T00:00:00Z",
+      "input_usd_per_mtok": 20,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 80
+    },
+    {
+      "source_model_id": "openrouter/free",
+      "vendor": "openrouter",
+      "released_at": "2026-02-01T03:43:47Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0
+    },
+    {
+      "source_model_id": "particle-ai/particle-1",
+      "vendor": "particle-ai",
+      "released_at": "2026-10-28T17:18:13Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.07,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "perceptron/perceptron-mk1",
+      "vendor": "perceptron",
+      "released_at": "2026-05-12T14:43:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "perceptron/perceptron-mk1.5",
+      "vendor": "perceptron",
+      "released_at": "2026-09-25T16:11:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "perplexity/sonar",
+      "vendor": "perplexity",
+      "released_at": "2025-01-27T21:36:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "perplexity/sonar-deep-research",
+      "vendor": "perplexity",
+      "released_at": "2025-03-07T01:34:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 8
+    },
+    {
+      "source_model_id": "perplexity/sonar-pro",
+      "vendor": "perplexity",
+      "released_at": "2025-03-07T01:53:43Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "perplexity/sonar-pro-search",
+      "vendor": "perplexity",
+      "released_at": "2025-10-30T19:59:26Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 15
+    },
+    {
+      "source_model_id": "perplexity/sonar-reasoning-pro",
+      "vendor": "perplexity",
+      "released_at": "2025-03-07T02:08:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 8
+    },
+    {
+      "source_model_id": "prism-ml/ternary-bonsai-2-27b",
+      "vendor": "prism-ml",
+      "released_at": "2026-09-18T17:54:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": 0.0375,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "prism-ml/ternary-bonsai-2-9b",
+      "vendor": "prism-ml",
+      "released_at": "2026-10-16T06:09:55Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.08,
+      "cached_input_usd_per_mtok": 0.04,
+      "output_usd_per_mtok": 0.13
+    },
+    {
+      "source_model_id": "qwen/qwen-2.5-72b-instruct",
+      "vendor": "qwen",
+      "released_at": "2024-09-19T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.36,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "qwen/qwen-2.5-coder-32b-instruct",
+      "vendor": "qwen",
+      "released_at": "2024-11-11T23:40:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.66,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "qwen/qwen-plus",
+      "vendor": "qwen",
+      "released_at": "2025-02-01T11:37:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.26,
+      "cached_input_usd_per_mtok": 0.052,
+      "output_usd_per_mtok": 0.78
+    },
+    {
+      "source_model_id": "qwen/qwen2.5-vl-72b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-02-01T11:45:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "qwen/qwen3-14b",
+      "vendor": "qwen",
+      "released_at": "2025-04-28T21:41:18Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.12,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.24
+    },
+    {
+      "source_model_id": "qwen/qwen3-235b-a22b-2507",
+      "vendor": "qwen",
+      "released_at": "2025-07-21T17:39:15Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.14,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 0.8
+    },
+    {
+      "source_model_id": "qwen/qwen3-235b-a22b-thinking-2507",
+      "vendor": "qwen",
+      "released_at": "2025-07-25T13:19:17Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.45,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3.5
+    },
+    {
+      "source_model_id": "qwen/qwen3-30b-a3b",
+      "vendor": "qwen",
+      "released_at": "2025-04-28T22:16:44Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.12,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "qwen/qwen3-30b-a3b-instruct-2507",
+      "vendor": "qwen",
+      "released_at": "2025-07-29T16:36:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "qwen/qwen3-32b",
+      "vendor": "qwen",
+      "released_at": "2025-04-28T21:32:25Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.08,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.28
+    },
+    {
+      "source_model_id": "qwen/qwen3-coder",
+      "vendor": "qwen",
+      "released_at": "2025-07-23T00:29:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "qwen/qwen3-coder-30b-a3b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-07-31T14:32:59Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.07,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.28
+    },
+    {
+      "source_model_id": "qwen/qwen3-coder-flash",
+      "vendor": "qwen",
+      "released_at": "2025-09-17T13:25:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.195,
+      "cached_input_usd_per_mtok": 0.039,
+      "output_usd_per_mtok": 0.975
+    },
+    {
+      "source_model_id": "qwen/qwen3-coder-next",
+      "vendor": "qwen",
+      "released_at": "2026-02-04T00:15:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.12,
+      "cached_input_usd_per_mtok": 0.07,
+      "output_usd_per_mtok": 0.8
+    },
+    {
+      "source_model_id": "qwen/qwen3-next-80b-a3b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-09-11T17:36:53Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.07,
+      "output_usd_per_mtok": 1.1
+    },
+    {
+      "source_model_id": "qwen/qwen3-vl-235b-a22b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-09-23T23:04:47Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.21,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 1.9
+    },
+    {
+      "source_model_id": "qwen/qwen3-vl-30b-a3b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-10-06T23:47:56Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "qwen/qwen3-vl-8b-instruct",
+      "vendor": "qwen",
+      "released_at": "2025-10-14T17:35:08Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.12,
+      "output_usd_per_mtok": 0.75
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-122b-a10b",
+      "vendor": "qwen",
+      "released_at": "2026-02-25T21:09:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.26,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.08
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-27b",
+      "vendor": "qwen",
+      "released_at": "2026-02-25T21:10:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.26,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 2.6
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-35b-a3b",
+      "vendor": "qwen",
+      "released_at": "2026-02-25T21:10:22Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.14,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-397b-a17b",
+      "vendor": "qwen",
+      "released_at": "2026-02-16T06:23:38Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.45,
+      "cached_input_usd_per_mtok": 0.22,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-9b",
+      "vendor": "qwen",
+      "released_at": "2026-03-10T14:19:56Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.17,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.25
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-flash-02-23",
+      "vendor": "qwen",
+      "released_at": "2026-02-25T21:09:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.065,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.26
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-plus-02-15",
+      "vendor": "qwen",
+      "released_at": "2026-02-16T08:10:16Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.26,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.56
+    },
+    {
+      "source_model_id": "qwen/qwen3.5-plus-20260420",
+      "vendor": "qwen",
+      "released_at": "2026-04-27T03:42:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.8
+    },
+    {
+      "source_model_id": "qwen/qwen3.6-27b",
+      "vendor": "qwen",
+      "released_at": "2026-04-27T01:57:44Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.32,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "qwen/qwen3.6-35b-a3b",
+      "vendor": "qwen",
+      "released_at": "2026-04-27T03:24:15Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 0.7
+    },
+    {
+      "source_model_id": "qwen/qwen3.6-flash",
+      "vendor": "qwen",
+      "released_at": "2026-04-27T03:42:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1875,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.125
+    },
+    {
+      "source_model_id": "qwen/qwen3.6-plus",
+      "vendor": "qwen",
+      "released_at": "2026-04-02T12:39:17Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.325,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.95
+    },
+    {
+      "source_model_id": "qwen/qwen3.7-flash",
+      "vendor": "qwen",
+      "released_at": "2026-07-27T22:16:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.03,
+      "cached_input_usd_per_mtok": 0.006,
+      "output_usd_per_mtok": 0.13
+    },
+    {
+      "source_model_id": "qwen/qwen3.7-max",
+      "vendor": "qwen",
+      "released_at": "2026-05-21T15:21:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.475,
+      "cached_input_usd_per_mtok": 0.295,
+      "output_usd_per_mtok": 4.425
+    },
+    {
+      "source_model_id": "qwen/qwen3.7-plus",
+      "vendor": "qwen",
+      "released_at": "2026-06-03T13:03:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.32,
+      "cached_input_usd_per_mtok": 0.064,
+      "output_usd_per_mtok": 1.28
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-2.4t-a95b",
+      "vendor": "qwen",
+      "released_at": "2026-08-12T16:21:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-27b",
+      "vendor": "qwen",
+      "released_at": "2026-08-14T15:55:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.035,
+      "cached_input_usd_per_mtok": 0.0175,
+      "output_usd_per_mtok": 1.5
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-flash",
+      "vendor": "qwen",
+      "released_at": "2026-08-26T19:37:40Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.016,
+      "output_usd_per_mtok": 0.47
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-max-0902",
+      "vendor": "qwen",
+      "released_at": "2026-09-03T21:08:24Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-max-prime",
+      "vendor": "qwen",
+      "released_at": "2026-09-23T19:20:28Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 12
+    },
+    {
+      "source_model_id": "qwen/qwen3.8-omni-flash",
+      "vendor": "qwen",
+      "released_at": "2026-09-21T03:05:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.016,
+      "output_usd_per_mtok": 0.47
+    },
+    {
+      "source_model_id": "qwen/qwen4-max",
+      "vendor": "qwen",
+      "released_at": "2026-11-16T02:18:46Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.425,
+      "cached_input_usd_per_mtok": 0.07125,
+      "output_usd_per_mtok": 4.275
+    },
+    {
+      "source_model_id": "radixark/daisyrose-27b",
+      "vendor": "radixark",
+      "released_at": "2026-11-21T00:49:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.0375,
+      "output_usd_per_mtok": 1.875
+    },
+    {
+      "source_model_id": "reflection/beam-1.0-501b-a23b",
+      "vendor": "reflection",
+      "released_at": "2026-10-16T14:21:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.25,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "rekaai/reka-edge",
+      "vendor": "rekaai",
+      "released_at": "2026-03-20T17:16:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.1
+    },
+    {
+      "source_model_id": "rekaai/reka-flash-3",
+      "vendor": "rekaai",
+      "released_at": "2025-03-12T20:53:33Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "relace/relace-apply-3",
+      "vendor": "relace",
+      "released_at": "2025-09-26T12:59:32Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.85,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 1.25
+    },
+    {
+      "source_model_id": "relace/relace-search",
+      "vendor": "relace",
+      "released_at": "2025-12-08T17:06:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 3
+    },
+    {
+      "source_model_id": "ricursiveai/ripple-65b-preview",
+      "vendor": "ricursiveai",
+      "released_at": "2026-11-04T19:03:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "sakana/fugu-max",
+      "vendor": "sakana",
+      "released_at": "2026-09-11T05:32:51Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "sakana/fugu-ultra",
+      "vendor": "sakana",
+      "released_at": "2026-06-24T04:45:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 30
+    },
+    {
+      "source_model_id": "sakana/fugu-ultra-v2",
+      "vendor": "sakana",
+      "released_at": "2026-09-11T05:43:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 5,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 30
+    },
+    {
+      "source_model_id": "sakana/sakana-namazu",
+      "vendor": "sakana",
+      "released_at": "2026-08-11T01:02:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.95,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 4
+    },
+    {
+      "source_model_id": "sao10k/l3-lunaris-8b",
+      "vendor": "sao10k",
+      "released_at": "2024-08-13T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.04,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.05
+    },
+    {
+      "source_model_id": "sao10k/l3.1-euryale-70b",
+      "vendor": "sao10k",
+      "released_at": "2024-08-28T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.85,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.85
+    },
+    {
+      "source_model_id": "scaledown/extract",
+      "vendor": "scaledown",
+      "released_at": "2026-10-13T12:09:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.04,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0
+    },
+    {
+      "source_model_id": "scaledown/summarize",
+      "vendor": "scaledown",
+      "released_at": "2026-10-13T12:09:20Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.04,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0
+    },
+    {
+      "source_model_id": "stepfun/step-3.7-flash",
+      "vendor": "stepfun",
+      "released_at": "2026-05-28T16:17:49Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.2,
+      "cached_input_usd_per_mtok": 0.04,
+      "output_usd_per_mtok": 1.15
+    },
+    {
+      "source_model_id": "stepfun/step-5-preview",
+      "vendor": "stepfun",
+      "released_at": "2026-10-08T12:34:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 2.7
+    },
+    {
+      "source_model_id": "tencent/hy-mt2-1.8b",
+      "vendor": "tencent",
+      "released_at": "2026-08-20T13:13:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.044,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.177
+    },
+    {
+      "source_model_id": "tencent/hy-mt2-30b-a3b",
+      "vendor": "tencent",
+      "released_at": "2026-08-20T13:12:41Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.074,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.295
+    },
+    {
+      "source_model_id": "tencent/hy-mt2-7b",
+      "vendor": "tencent",
+      "released_at": "2026-08-19T14:13:17Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.074,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.295
+    },
+    {
+      "source_model_id": "tencent/hy3",
+      "vendor": "tencent",
+      "released_at": "2026-07-06T13:20:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.132,
+      "cached_input_usd_per_mtok": 0.033,
+      "output_usd_per_mtok": 0.528
+    },
+    {
+      "source_model_id": "tencent/hy4",
+      "vendor": "tencent",
+      "released_at": "2026-11-04T04:20:31Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.417,
+      "cached_input_usd_per_mtok": 0.021,
+      "output_usd_per_mtok": 1.2505
+    },
+    {
+      "source_model_id": "tencent/hy4-flash",
+      "vendor": "tencent",
+      "released_at": "2026-11-16T14:18:26Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.035,
+      "cached_input_usd_per_mtok": 0.0015,
+      "output_usd_per_mtok": 0.1405
+    },
+    {
+      "source_model_id": "tencent/hy4-preview",
+      "vendor": "tencent",
+      "released_at": "2026-08-28T06:09:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.834,
+      "cached_input_usd_per_mtok": 0.042,
+      "output_usd_per_mtok": 2.501
+    },
+    {
+      "source_model_id": "thedrummer/cydonia-24b-v4.1",
+      "vendor": "thedrummer",
+      "released_at": "2025-09-27T00:11:18Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.15,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "thedrummer/skyfall-36b-v2",
+      "vendor": "thedrummer",
+      "released_at": "2025-03-10T19:56:06Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.55,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 0.8
+    },
+    {
+      "source_model_id": "thedrummer/unslopnemo-12b",
+      "vendor": "thedrummer",
+      "released_at": "2024-11-08T22:04:08Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.4,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "thinkingmachines/inkling",
+      "vendor": "thinkingmachines",
+      "released_at": "2026-07-17T22:05:56Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.17,
+      "output_usd_per_mtok": 4.05
+    },
+    {
+      "source_model_id": "thinkingmachines/inkling-2-mini",
+      "vendor": "thinkingmachines",
+      "released_at": "2026-11-21T02:19:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.075,
+      "cached_input_usd_per_mtok": 0.015,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "thinkingmachines/inkling-2-small",
+      "vendor": "thinkingmachines",
+      "released_at": "2026-11-09T22:04:07Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 1
+    },
+    {
+      "source_model_id": "thinkingmachines/inkling-small",
+      "vendor": "thinkingmachines",
+      "released_at": "2026-07-30T20:25:17Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.45,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 1.2
+    },
+    {
+      "source_model_id": "unbiased/pareto-26.10",
+      "vendor": "unbiased",
+      "released_at": "2026-10-15T14:13:40Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "unbiased/pareto-26.10-preview",
+      "vendor": "unbiased",
+      "released_at": "2026-10-01T14:07:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "unbiased/pareto-26.9",
+      "vendor": "unbiased",
+      "released_at": "2026-10-13T22:28:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2.5,
+      "cached_input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 7.5
+    },
+    {
+      "source_model_id": "undi95/remm-slerp-l2-13b",
+      "vendor": "undi95",
+      "released_at": "2023-07-22T00:00:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "upstage/solar-mini4",
+      "vendor": "upstage",
+      "released_at": "2026-09-23T10:45:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.05,
+      "cached_input_usd_per_mtok": 0.005,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "upstage/solar-pro4",
+      "vendor": "upstage",
+      "released_at": "2026-08-10T14:20:36Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.15,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.6
+    },
+    {
+      "source_model_id": "writer/palmyra-x5",
+      "vendor": "writer",
+      "released_at": "2026-01-21T13:57:03Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "x-ai/grok-4.20",
+      "vendor": "x-ai",
+      "released_at": "2026-03-31T17:43:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "x-ai/grok-4.20-multi-agent",
+      "vendor": "x-ai",
+      "released_at": "2026-03-31T17:45:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "x-ai/grok-4.3",
+      "vendor": "x-ai",
+      "released_at": "2026-04-30T23:30:21Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.25,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 2.5
+    },
+    {
+      "source_model_id": "x-ai/grok-4.5",
+      "vendor": "x-ai",
+      "released_at": "2026-07-08T15:05:54Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "x-ai/grok-4.6",
+      "vendor": "x-ai",
+      "released_at": "2026-08-12T15:35:57Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "x-ai/grok-4.7",
+      "vendor": "x-ai",
+      "released_at": "2026-09-21T16:19:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "xiaomi/mimo-v2.5",
+      "vendor": "xiaomi",
+      "released_at": "2026-04-22T16:11:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.4,
+      "cached_input_usd_per_mtok": 0.08,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "xiaomi/mimo-v2.6-flash",
+      "vendor": "xiaomi",
+      "released_at": "2026-09-21T20:07:44Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.14,
+      "cached_input_usd_per_mtok": 0.0028,
+      "output_usd_per_mtok": 0.28
+    },
+    {
+      "source_model_id": "xiaomi/mimo-v2.6-pro",
+      "vendor": "xiaomi",
+      "released_at": "2026-09-21T20:07:39Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.435,
+      "cached_input_usd_per_mtok": 0.0036,
+      "output_usd_per_mtok": 0.87
+    },
+    {
+      "source_model_id": "xiaomi/mimo-v2.6-pro-ultraspeed",
+      "vendor": "xiaomi",
+      "released_at": "2026-09-21T20:07:47Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4.35,
+      "cached_input_usd_per_mtok": 0.036,
+      "output_usd_per_mtok": 8.7
+    },
+    {
+      "source_model_id": "z-ai/glm-4.5",
+      "vendor": "z-ai",
+      "released_at": "2025-07-25T19:22:27Z",
+      "deprecated_at": "2026-12-31T00:00:00Z",
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": 0.11,
+      "output_usd_per_mtok": 2.2
+    },
+    {
+      "source_model_id": "z-ai/glm-4.5-air",
+      "vendor": "z-ai",
+      "released_at": "2025-07-25T19:20:58Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.13,
+      "cached_input_usd_per_mtok": 0.025,
+      "output_usd_per_mtok": 0.85
+    },
+    {
+      "source_model_id": "z-ai/glm-4.5v",
+      "vendor": "z-ai",
+      "released_at": "2025-08-11T14:24:48Z",
+      "deprecated_at": "2026-12-31T00:00:00Z",
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": 0.11,
+      "output_usd_per_mtok": 1.8
+    },
+    {
+      "source_model_id": "z-ai/glm-4.6",
+      "vendor": "z-ai",
+      "released_at": "2025-09-30T12:32:56Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.5,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 2
+    },
+    {
+      "source_model_id": "z-ai/glm-4.6v",
+      "vendor": "z-ai",
+      "released_at": "2025-12-08T15:24:22Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.3,
+      "cached_input_usd_per_mtok": 0.055,
+      "output_usd_per_mtok": 0.9
+    },
+    {
+      "source_model_id": "z-ai/glm-4.7",
+      "vendor": "z-ai",
+      "released_at": "2025-12-22T04:33:34Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.6,
+      "cached_input_usd_per_mtok": 0.11,
+      "output_usd_per_mtok": 2.2
+    },
+    {
+      "source_model_id": "z-ai/glm-4.7-flash",
+      "vendor": "z-ai",
+      "released_at": "2026-01-19T14:45:13Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0605,
+      "cached_input_usd_per_mtok": null,
+      "output_usd_per_mtok": 0.4
+    },
+    {
+      "source_model_id": "z-ai/glm-5",
+      "vendor": "z-ai",
+      "released_at": "2026-02-11T16:59:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "z-ai/glm-5-turbo",
+      "vendor": "z-ai",
+      "released_at": "2026-03-15T14:06:13Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.2,
+      "cached_input_usd_per_mtok": 0.24,
+      "output_usd_per_mtok": 4
+    },
+    {
+      "source_model_id": "z-ai/glm-5.1",
+      "vendor": "z-ai",
+      "released_at": "2026-04-07T16:07:05Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.4,
+      "cached_input_usd_per_mtok": 0.26,
+      "output_usd_per_mtok": 4.4
+    },
+    {
+      "source_model_id": "z-ai/glm-5.2",
+      "vendor": "z-ai",
+      "released_at": "2026-06-16T17:45:30Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.62,
+      "cached_input_usd_per_mtok": 0.14,
+      "output_usd_per_mtok": 2.42
+    },
+    {
+      "source_model_id": "z-ai/glm-5.3",
+      "vendor": "z-ai",
+      "released_at": "2026-08-18T20:57:35Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0699,
+      "cached_input_usd_per_mtok": 0.0689,
+      "output_usd_per_mtok": 1.4
+    },
+    {
+      "source_model_id": "z-ai/glm-5.3-flash",
+      "vendor": "z-ai",
+      "released_at": "2026-08-26T13:59:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.12,
+      "cached_input_usd_per_mtok": 0.02,
+      "output_usd_per_mtok": 0.38
+    },
+    {
+      "source_model_id": "z-ai/glm-5.3-flashx",
+      "vendor": "z-ai",
+      "released_at": "2026-09-18T15:07:00Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.37,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 1.25
+    },
+    {
+      "source_model_id": "z-ai/glm-5.3-flashx-legal",
+      "vendor": "z-ai",
+      "released_at": "2026-11-02T13:29:14Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.37,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 1.25
+    },
+    {
+      "source_model_id": "z-ai/glm-5.3-prime",
+      "vendor": "z-ai",
+      "released_at": "2026-09-23T21:40:51Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.68,
+      "cached_input_usd_per_mtok": 0.336,
+      "output_usd_per_mtok": 5.28
+    },
+    {
+      "source_model_id": "z-ai/glm-5v-turbo",
+      "vendor": "z-ai",
+      "released_at": "2026-04-01T16:37:38Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.2,
+      "cached_input_usd_per_mtok": 0.24,
+      "output_usd_per_mtok": 4
+    },
+    {
+      "source_model_id": "~anthropic/claude-fable-latest",
+      "vendor": "~anthropic",
+      "released_at": "2026-06-09T18:32:24Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 40
+    },
+    {
+      "source_model_id": "~anthropic/claude-haiku-latest",
+      "vendor": "~anthropic",
+      "released_at": "2026-04-27T19:34:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "~anthropic/claude-opus-latest",
+      "vendor": "~anthropic",
+      "released_at": "2026-04-21T18:16:01Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 4,
+      "cached_input_usd_per_mtok": 0.2,
+      "output_usd_per_mtok": 20
+    },
+    {
+      "source_model_id": "~anthropic/claude-sonnet-latest",
+      "vendor": "~anthropic",
+      "released_at": "2026-04-27T19:32:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "~deepseek/deepseek-flash-latest",
+      "vendor": "~deepseek",
+      "released_at": "2026-09-14T15:19:10Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.03,
+      "cached_input_usd_per_mtok": 0.001,
+      "output_usd_per_mtok": 0.2
+    },
+    {
+      "source_model_id": "~deepseek/deepseek-pro-latest",
+      "vendor": "~deepseek",
+      "released_at": "2026-09-14T15:19:34Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0999,
+      "cached_input_usd_per_mtok": 0.0999,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "~deepseek/deepseek-v4-flash-latest",
+      "vendor": "~deepseek",
+      "released_at": "2026-08-01T17:40:09Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.047,
+      "cached_input_usd_per_mtok": 0.035,
+      "output_usd_per_mtok": 0.3
+    },
+    {
+      "source_model_id": "~google/gemini-flash-latest",
+      "vendor": "~google",
+      "released_at": "2026-04-27T19:33:18Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1.5,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 7.5
+    },
+    {
+      "source_model_id": "~google/gemini-pro-latest",
+      "vendor": "~google",
+      "released_at": "2026-04-27T19:34:11Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "~moonshotai/kimi-latest",
+      "vendor": "~moonshotai",
+      "released_at": "2026-04-27T19:33:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1824,
+      "cached_input_usd_per_mtok": 0.18,
+      "output_usd_per_mtok": 11.0055
+    },
+    {
+      "source_model_id": "~openai/gpt-astra-latest",
+      "vendor": "~openai",
+      "released_at": "2026-09-11T12:48:52Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 8,
+      "cached_input_usd_per_mtok": 0.4,
+      "output_usd_per_mtok": 40
+    },
+    {
+      "source_model_id": "~openai/gpt-luna-latest",
+      "vendor": "~openai",
+      "released_at": "2026-09-11T12:48:42Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.1,
+      "cached_input_usd_per_mtok": 0.01,
+      "output_usd_per_mtok": 0.5
+    },
+    {
+      "source_model_id": "~openai/gpt-mini-latest",
+      "vendor": "~openai",
+      "released_at": "2026-04-27T19:34:31Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.75,
+      "cached_input_usd_per_mtok": 0.075,
+      "output_usd_per_mtok": 4.5
+    },
+    {
+      "source_model_id": "~openai/gpt-sol-latest",
+      "vendor": "~openai",
+      "released_at": "2026-09-11T12:48:48Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10
+    },
+    {
+      "source_model_id": "~openai/gpt-terra-latest",
+      "vendor": "~openai",
+      "released_at": "2026-09-11T12:48:45Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 1,
+      "cached_input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 5
+    },
+    {
+      "source_model_id": "~unbiased/pareto-latest",
+      "vendor": "~unbiased",
+      "released_at": "2026-10-13T23:10:50Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.8,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 3.2
+    },
+    {
+      "source_model_id": "~x-ai/grok-latest",
+      "vendor": "~x-ai",
+      "released_at": "2026-07-08T14:02:40Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 2,
+      "cached_input_usd_per_mtok": 0.5,
+      "output_usd_per_mtok": 6
+    },
+    {
+      "source_model_id": "~z-ai/glm-flash-latest",
+      "vendor": "~z-ai",
+      "released_at": "2026-08-27T08:00:33Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0356,
+      "cached_input_usd_per_mtok": 0.03,
+      "output_usd_per_mtok": 0.0815
+    },
+    {
+      "source_model_id": "~z-ai/glm-latest",
+      "vendor": "~z-ai",
+      "released_at": "2026-08-19T14:50:53Z",
+      "deprecated_at": null,
+      "input_usd_per_mtok": 0.0699,
+      "cached_input_usd_per_mtok": 0.0689,
+      "output_usd_per_mtok": 1.4
     }
   ]
 }

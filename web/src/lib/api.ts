@@ -429,3 +429,59 @@ export const pricesApi = {
       { method: "DELETE" },
     ),
 };
+
+export interface SourceModel {
+  source_model_id: string;
+  vendor: string;
+  released_at: string | null;
+  deprecated_at: string | null;
+  billing: Billing;
+  model_id: string;
+  installed: boolean;
+}
+
+export interface PriceSourceCatalog {
+  source_id: string;
+  fetched_at: string;
+  vendors: string[];
+  data: SourceModel[];
+}
+
+export interface SourceModelInstall {
+  source_model_id: string;
+  model_id: string;
+  outcome: "created" | "exists" | "conflict";
+  reason?: string;
+}
+
+export interface PriceSourceInstall {
+  source_id: string;
+  data: SourceModelInstall[];
+}
+
+export interface PriceSourceCatalogQuery {
+  q?: string;
+  vendor?: string;
+  sort?: "name" | "released" | "deprecated";
+  order?: "asc" | "desc";
+}
+
+export const priceSourceCatalogApi = {
+  list: (sourceId: string, query: PriceSourceCatalogQuery = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (query.q) params.set("q", query.q);
+    if (query.vendor) params.set("vendor", query.vendor);
+    if (query.sort) params.set("sort", query.sort);
+    if (query.order) params.set("order", query.order);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return apiRequest<PriceSourceCatalog>(
+      `/price-sources/${encodeURIComponent(sourceId)}/models${suffix}`,
+      { signal },
+    );
+  },
+  install: (sourceId: string, sourceModelIDs: string[]) =>
+    apiRequest<PriceSourceInstall>(
+      `/price-sources/${encodeURIComponent(sourceId)}/models/install`,
+      { method: "POST", body: { source_model_ids: sourceModelIDs } },
+    ),
+};

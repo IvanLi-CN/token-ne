@@ -4,6 +4,7 @@ const routePaths: Record<string, true> = {
   "/models": true,
   "/upstreams": true,
   "/prices": true,
+  "/price-sync": true,
   "/keys": true,
   "/system": true,
   "/system/cores": true,

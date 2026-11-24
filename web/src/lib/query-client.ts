@@ -16,6 +16,8 @@ export const queryKeys = {
   upstreamPolicy: (upstreamId: string) => ["upstreams", upstreamId, "policy"] as const,
   prices: ["prices"] as const,
   priceSources: ["price-sources"] as const,
+  priceSourceCatalog: (sourceId: string, q: string, vendor: string, sort: string, order: string) =>
+    ["price-source-catalog", sourceId, q, vendor, sort, order] as const,
   priceRun: (runId: string) => ["price-sync-runs", runId] as const,
   keys: ["downstream-keys"] as const,
   cores: ["cores"] as const,

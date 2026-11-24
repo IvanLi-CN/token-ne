@@ -47,17 +47,32 @@ type Billing struct {
 	Output *float64 `json:"output_usd_per_mtok"`
 }
 
-// Entry is one source-model row in a versioned dataset.
+// Entry is one source-model row in a versioned dataset. Vendor, released and
+// deprecation dates describe the source row itself; they never reach a quote
+// target and never change routing.
 type Entry struct {
-	SourceModelID   string   `json:"source_model_id"`
-	Input           *float64 `json:"input_usd_per_mtok"`
-	Cached          *float64 `json:"cached_input_usd_per_mtok"`
-	Output          *float64 `json:"output_usd_per_mtok"`
-	ExplicitModelID *string  `json:"explicit_model_id,omitempty"`
+	SourceModelID   string     `json:"source_model_id"`
+	Vendor          string     `json:"vendor,omitempty"`
+	ReleasedAt      *time.Time `json:"released_at,omitempty"`
+	DeprecatedAt    *time.Time `json:"deprecated_at,omitempty"`
+	Input           *float64   `json:"input_usd_per_mtok"`
+	Cached          *float64   `json:"cached_input_usd_per_mtok"`
+	Output          *float64   `json:"output_usd_per_mtok"`
+	ExplicitModelID *string    `json:"explicit_model_id,omitempty"`
 }
 
 func (e Entry) billing() Billing {
 	return Billing{Input: e.Input, Cached: e.Cached, Output: e.Output}
+}
+
+// TargetModelID is the global model this row installs as. An explicit mapping
+// wins; otherwise the row keeps its fully qualified source ID so two vendors
+// that share a short name never collide.
+func (e Entry) TargetModelID() string {
+	if e.ExplicitModelID != nil && *e.ExplicitModelID != "" {
+		return *e.ExplicitModelID
+	}
+	return e.SourceModelID
 }
 
 // Dataset is a versioned, embedded snapshot. FetchedAt is the snapshot time,

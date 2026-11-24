@@ -17,6 +17,7 @@ import KeysPage from "../pages/keys";
 import LoginPage from "../pages/login";
 import ModelsPage from "../pages/models";
 import OverviewPage from "../pages/overview";
+import PriceSyncPage from "../pages/price-sync";
 import PricesPage from "../pages/prices";
 import RequestsPage from "../pages/requests";
 import SettingsPage from "../pages/settings";
@@ -78,6 +79,7 @@ export const routes: RouteObject[] = [
       { path: "models", Component: ModelsPage },
       { path: "upstreams", Component: UpstreamsPage },
       { path: "prices", Component: PricesPage },
+      { path: "price-sync", Component: PriceSyncPage },
       { path: "keys", Component: KeysPage },
       {
         path: "system",
