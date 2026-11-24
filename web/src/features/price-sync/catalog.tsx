@@ -1,9 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { DataTable } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
-import { AudioMoney, Money, TierPrices } from "../../components/price";
-import { Button, Input, StatusBadge } from "../../components/primitives";
+import { formatMoney, Money } from "../../components/price";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Input,
+  Spinner,
+  StatusBadge,
+} from "../../components/primitives";
 import { Select } from "../../components/select";
 import { type PriceSourceInstall, priceSourceCatalogApi, pricesApi } from "../../lib/api";
 import { formatTime } from "../../lib/format";
@@ -192,125 +198,116 @@ export function PriceSourceCatalogSection() {
       </section>
 
       <section className="surface-card">
-        <p className="muted price-legend">
-          金额单位 USD / 100 万 tokens；“—”表示来源未提供该维度；阶梯价在 prompt
-          达到阈值时整份生效。
+        <p className="price-legend">
+          金额单位 USD / 100 万 tokens；“—”表示来源未提供该维度。阶梯价在 prompt
+          达到阈值时整份替换基础价。
         </p>
-        <DataTable
-          caption="价格源模型"
-          rows={rows}
-          rowKey={(row) => row.source_model_id}
-          loading={catalog.isPending}
-          error={errorMessage(catalog.error)}
-          onRetry={() => void catalog.refetch()}
-          emptyTitle="没有匹配的模型"
-          emptyDescription="调整搜索词、供应商或排序条件后重试。"
-          columns={[
-            {
-              key: "select",
-              header: "选择",
-              cell: (row) => (
-                <input
-                  type="checkbox"
-                  aria-label={`选择 ${row.source_model_id}`}
-                  checked={selected.has(row.source_model_id)}
-                  disabled={row.installed}
-                  onChange={() => {
-                    const next = new Set(selected);
-                    if (next.has(row.source_model_id)) next.delete(row.source_model_id);
-                    else next.add(row.source_model_id);
-                    setSelected(next);
-                  }}
-                />
-              ),
-            },
-            {
-              key: "model",
-              header: "模型",
-              cell: (row) => (
-                <div className="model-cell">
-                  <code>{row.source_model_id}</code>
-                  <div className="model-meta">
-                    <span>{row.vendor || "未知供应商"}</span>
-                    <span aria-hidden="true" className="model-meta-sep">
-                      ·
-                    </span>
-                    <span>
-                      {row.released_at ? `发布于 ${formatTime(row.released_at)}` : "发布日期未提供"}
-                    </span>
-                    {row.deprecated_at && (
-                      <>
-                        <span aria-hidden="true" className="model-meta-sep">
-                          ·
-                        </span>
-                        <span className="model-deprecated">
-                          弃用 {formatTime(row.deprecated_at)}
-                        </span>
-                      </>
-                    )}
-                    {row.model_id !== row.source_model_id && (
-                      <>
-                        <span aria-hidden="true" className="model-meta-sep">
-                          ·
-                        </span>
-                        <span>将添加为 {row.model_id}</span>
-                      </>
+        {catalog.isPending ? (
+          <Spinner label="正在加载价格源模型" />
+        ) : catalog.isError ? (
+          <ErrorState
+            message={errorMessage(catalog.error) ?? "加载价格源模型失败"}
+            onRetry={() => void catalog.refetch()}
+          />
+        ) : rows.length === 0 ? (
+          <EmptyState title="没有匹配的模型">调整搜索词、供应商或排序条件后重试。</EmptyState>
+        ) : (
+          <ul className="price-list" aria-label="价格源模型">
+            {rows.map((row) => (
+              <li className="price-row" key={row.source_model_id}>
+                <div className="price-row-head">
+                  <label className="price-row-select">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${row.source_model_id}`}
+                      checked={selected.has(row.source_model_id)}
+                      disabled={row.installed}
+                      onChange={() => {
+                        const next = new Set(selected);
+                        if (next.has(row.source_model_id)) next.delete(row.source_model_id);
+                        else next.add(row.source_model_id);
+                        setSelected(next);
+                      }}
+                    />
+                    <code>{row.source_model_id}</code>
+                  </label>
+                  <div className="price-row-badges">
+                    <span className="mode-chip">按量 · USD / 1M tokens</span>
+                    {row.installed ? (
+                      <StatusBadge tone="success">已添加</StatusBadge>
+                    ) : (
+                      <StatusBadge tone="neutral">未添加</StatusBadge>
                     )}
                   </div>
                 </div>
-              ),
-            },
-            {
-              key: "input",
-              header: "输入",
-              cell: (row) => <Money value={row.billing.input_usd_per_mtok} label="输入价格" />,
-            },
-            {
-              key: "cached",
-              header: "缓存读",
-              cell: (row) => (
-                <Money value={row.billing.cached_input_usd_per_mtok} label="缓存读取价格" />
-              ),
-            },
-            {
-              key: "cache_write",
-              header: "缓存写",
-              cell: (row) => (
-                <Money value={row.billing.cache_write_usd_per_mtok} label="缓存写入价格" />
-              ),
-            },
-            {
-              key: "reasoning",
-              header: "推理",
-              cell: (row) => <Money value={row.billing.reasoning_usd_per_mtok} label="推理价格" />,
-            },
-            {
-              key: "output",
-              header: "输出",
-              cell: (row) => <Money value={row.billing.output_usd_per_mtok} label="输出价格" />,
-            },
-            {
-              key: "audio",
-              header: "音频 入/出",
-              cell: (row) => <AudioMoney billing={row.billing} />,
-            },
-            {
-              key: "tiers",
-              header: "阶梯 入/出",
-              cell: (row) => <TierPrices tiers={row.billing.tiers} />,
-            },
-            {
-              key: "installed",
-              header: "全局模型",
-              cell: (row) =>
-                row.installed ? (
-                  <StatusBadge tone="success">已添加</StatusBadge>
-                ) : (
-                  <StatusBadge tone="neutral">未添加</StatusBadge>
-                ),
-            },
-          ]}
-        />
+                <p className="price-row-meta">
+                  {row.vendor || "未知供应商"} ·{" "}
+                  {row.released_at ? `发布于 ${formatTime(row.released_at)}` : "发布日期未提供"}
+                  {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
+                  {row.model_id !== row.source_model_id ? ` · 将添加为 ${row.model_id}` : ""}
+                </p>
+                <div className="price-groups">
+                  <dl className="price-group">
+                    <dt>输入</dt>
+                    <dd>
+                      <span>基础</span>
+                      <Money value={row.billing.input_usd_per_mtok} label="输入价格" />
+                    </dd>
+                    <dd>
+                      <span>缓存读</span>
+                      <Money value={row.billing.cached_input_usd_per_mtok} label="缓存读取价格" />
+                    </dd>
+                    <dd>
+                      <span>缓存写</span>
+                      <Money value={row.billing.cache_write_usd_per_mtok} label="缓存写入价格" />
+                    </dd>
+                    <dd>
+                      <span>音频</span>
+                      <Money value={row.billing.audio_input_usd_per_mtok} label="音频输入价格" />
+                    </dd>
+                  </dl>
+                  <dl className="price-group">
+                    <dt>输出</dt>
+                    <dd>
+                      <span>基础</span>
+                      <Money value={row.billing.output_usd_per_mtok} label="输出价格" />
+                    </dd>
+                    <dd>
+                      <span>推理</span>
+                      <Money value={row.billing.reasoning_usd_per_mtok} label="推理价格" />
+                    </dd>
+                    <dd>
+                      <span>音频</span>
+                      <Money value={row.billing.audio_output_usd_per_mtok} label="音频输出价格" />
+                    </dd>
+                  </dl>
+                  <dl className="price-group">
+                    <dt>阶梯价</dt>
+                    {row.billing.tiers && row.billing.tiers.length > 0 ? (
+                      row.billing.tiers.map((tier) => (
+                        <dd key={tier.threshold_tokens}>
+                          <span>≥ {tier.threshold_tokens.toLocaleString()}</span>
+                          <span className="tier-items">
+                            {formatMoney(tier.input_usd_per_mtok) ?? "—"} /{" "}
+                            {formatMoney(tier.output_usd_per_mtok) ?? "—"}
+                            {tier.reasoning_usd_per_mtok != null
+                              ? ` · 推 ${formatMoney(tier.reasoning_usd_per_mtok)}`
+                              : ""}
+                          </span>
+                        </dd>
+                      ))
+                    ) : (
+                      <dd>
+                        <span>—</span>
+                        <span className="tier-items muted">无阶梯</span>
+                      </dd>
+                    )}
+                  </dl>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   );
