@@ -1,12 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "../../components/confirm-dialog";
 import { FieldFailure } from "../../components/field-errors";
 import { formatMoney, Money } from "../../components/price";
 import { Button, EmptyState, ErrorState, Input, Spinner } from "../../components/primitives";
 import { Select } from "../../components/select";
-import { type PriceSourceInstall, priceSourceCatalogApi, pricesApi } from "../../lib/api";
+import {
+  type PriceSourceInstall,
+  priceSourceCatalogApi,
+  pricesApi,
+  type SourceModel,
+} from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
+import { modelsApi } from "../models/api";
 import { errorMessage } from "../models/management";
 
 type SortField = "name" | "released" | "deprecated";
@@ -28,8 +35,11 @@ export function PriceSourceCatalogSection() {
   const [vendor, setVendor] = useState("");
   const [sort, setSort] = useState<SortField>("released");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [installing, setInstalling] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<Record<string, boolean>>({});
+  const [confirmation, setConfirmation] = useState<{ ids: string[] }>();
+  const [removalFailures, setRemovalFailures] = useState<{ id: string; reason: string }[]>([]);
+  const drag = useRef<{ next: boolean; ids: string[] } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [installError, setInstallError] = useState<unknown>();
   const [result, setResult] = useState<PriceSourceInstall>();
@@ -49,20 +59,45 @@ export function PriceSourceCatalogSection() {
 
   const rows = catalog.data?.data ?? [];
   const installable = useMemo(() => rows.filter((row) => !row.installed), [rows]);
-  const selectedRows = rows.filter((row) => selected.has(row.source_model_id));
+  const installed = useMemo(() => rows.filter((row) => row.installed), [rows]);
+  const bySourceID = useMemo(() => new Map(rows.map((row) => [row.source_model_id, row])), [rows]);
 
-  async function install() {
-    if (!selectedRows.length || installing) return;
-    setInstalling(true);
+  function switchState(row: SourceModel) {
+    return preview[row.source_model_id] ?? row.installed;
+  }
+
+  async function apply(next: boolean, ids: string[]) {
+    const targets = ids
+      .map((id) => bySourceID.get(id))
+      .filter((row): row is SourceModel => row !== undefined);
+    if (!targets.length || busy) return;
+    setBusy(true);
     setInstallError(undefined);
-    setResult(undefined);
+    setRemovalFailures([]);
+    if (next) setResult(undefined);
     try {
-      const response = await priceSourceCatalogApi.install(
-        sourceId,
-        selectedRows.map((row) => row.source_model_id),
-      );
-      setResult(response);
-      setSelected(new Set());
+      if (next) {
+        const response = await priceSourceCatalogApi.install(
+          sourceId,
+          targets.map((row) => row.source_model_id),
+        );
+        setResult(response);
+      } else {
+        const settled = await Promise.allSettled(
+          targets.map((row) => modelsApi.remove(row.model_id)),
+        );
+        const failures = settled.flatMap((outcome, index) =>
+          outcome.status === "rejected"
+            ? [
+                {
+                  id: targets[index].source_model_id,
+                  reason: errorMessage(outcome.reason) ?? "移除失败",
+                },
+              ]
+            : [],
+        );
+        setRemovalFailures(failures);
+      }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["price-source-catalog"] }),
         client.invalidateQueries({ queryKey: queryKeys.models }),
@@ -70,8 +105,43 @@ export function PriceSourceCatalogSection() {
     } catch (failure) {
       setInstallError(failure);
     } finally {
-      setInstalling(false);
+      setBusy(false);
+      setPreview({});
+      drag.current = null;
     }
+  }
+
+  function request(next: boolean, ids: string[]) {
+    if (!ids.length || busy) return;
+    if (!next) {
+      setConfirmation({ ids });
+      return;
+    }
+    void apply(true, ids);
+  }
+
+  function finishDrag() {
+    const pending = drag.current;
+    drag.current = null;
+    if (!pending) return;
+    setPreview({});
+    request(pending.next, pending.ids);
+  }
+
+  function startDrag(row: SourceModel) {
+    if (busy) return;
+    const next = !switchState(row);
+    drag.current = { next, ids: [row.source_model_id] };
+    setPreview((value) => ({ ...value, [row.source_model_id]: next }));
+    window.addEventListener("pointerup", finishDrag, { once: true });
+  }
+
+  function extendDrag(row: SourceModel) {
+    const pending = drag.current;
+    if (!pending || pending.ids.includes(row.source_model_id)) return;
+    if (switchState(row) === pending.next) return;
+    pending.ids.push(row.source_model_id);
+    setPreview((value) => ({ ...value, [row.source_model_id]: pending.next }));
   }
 
   const created = result?.data.filter((row) => row.outcome === "created").length ?? 0;
@@ -110,7 +180,7 @@ export function PriceSourceCatalogSection() {
                   value={sourceId}
                   onValueChange={(next) => {
                     setSourceId(next);
-                    setSelected(new Set());
+                    setConfirmation(undefined);
                   }}
                   options={(sources.data ?? []).map((source) => ({
                     value: source.id,
@@ -162,26 +232,45 @@ export function PriceSourceCatalogSection() {
 
             <div className="price-actions">
               <Button
-                disabled={!installable.length || installing}
-                onClick={() => setSelected(new Set(installable.map((row) => row.source_model_id)))}
+                disabled={!installable.length || busy}
+                onClick={() =>
+                  request(
+                    true,
+                    installable.map((row) => row.source_model_id),
+                  )
+                }
               >
-                选择全部可添加（{installable.length}）
+                {busy ? "处理中…" : `开启可加入（${installable.length}）`}
               </Button>
               <Button
                 variant="secondary"
-                disabled={!selected.size}
-                onClick={() => setSelected(new Set())}
+                disabled={!installed.length || busy}
+                onClick={() =>
+                  request(
+                    false,
+                    installed.map((row) => row.source_model_id),
+                  )
+                }
               >
-                清除选择
-              </Button>
-              <Button disabled={!selectedRows.length || installing} onClick={() => void install()}>
-                {installing ? "正在添加…" : `添加到全局模型（${selectedRows.length}）`}
+                {`关闭已加入（${installed.length}）`}
               </Button>
               <span className="muted text-sm">
-                已选 {selectedRows.length} 个；已存在于全局模型的行不能重复添加。
+                拖动开关可连续切换多行；关闭即从全局模型移除，需要确认。
               </span>
             </div>
             <FieldFailure error={installError} />
+            {removalFailures.length > 0 && (
+              <div role="alert" className="rounded-xl border border-[var(--border)] p-3 text-sm">
+                移除失败 {removalFailures.length} 个：
+                <ul className="mt-2 list-disc pl-5">
+                  {removalFailures.map((row) => (
+                    <li key={row.id}>
+                      <code title={row.id}>{row.id}</code>：{row.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {result && (
               <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
                 已创建 {created} 个，已存在 {existed} 个
@@ -222,23 +311,29 @@ export function PriceSourceCatalogSection() {
           <ul className="price-list" aria-label="价格源模型">
             {rows.map((row) => (
               <li className="price-row" key={row.source_model_id}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={switchState(row)}
+                  aria-label={`${row.installed ? "从全局模型移除" : "加入全局模型"} ${row.source_model_id}`}
+                  className={`switch${switchState(row) ? " is-on" : ""}`}
+                  disabled={busy}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    startDrag(row);
+                  }}
+                  onPointerEnter={() => extendDrag(row)}
+                  onClick={(event) => {
+                    if (event.detail === 0) request(!switchState(row), [row.source_model_id]);
+                  }}
+                >
+                  <span className="switch-thumb" aria-hidden="true" />
+                </button>
                 <div className="price-identity">
                   <div className="price-row-head">
-                    <label className="price-row-select">
-                      <input
-                        type="checkbox"
-                        aria-label={`选择 ${row.source_model_id}`}
-                        checked={selected.has(row.source_model_id)}
-                        disabled={row.installed}
-                        onChange={() => {
-                          const next = new Set(selected);
-                          if (next.has(row.source_model_id)) next.delete(row.source_model_id);
-                          else next.add(row.source_model_id);
-                          setSelected(next);
-                        }}
-                      />
-                      <code>{row.source_model_id}</code>
-                    </label>
+                    <code className="price-row-id" title={row.source_model_id}>
+                      {row.source_model_id}
+                    </code>
                     <span
                       className="price-row-meta"
                       title={`${row.vendor || "未知供应商"} · ${
@@ -253,16 +348,6 @@ export function PriceSourceCatalogSection() {
                   <div className="price-row-badges">
                     <span className="mode-chip">按量</span>
                     {row.web_search_usd_per_call != null && <span className="mode-chip">按次</span>}
-                    <span
-                      className={row.installed ? "install-state is-installed" : "install-state"}
-                      title={
-                        row.installed
-                          ? "已在全局模型中，不能重复加入"
-                          : "未加入全局模型；勾选后点击“添加到全局模型”"
-                      }
-                    >
-                      {row.installed ? "已加入" : "未加入"}
-                    </span>
                   </div>
                 </div>
                 <div className="price-groups">
@@ -346,6 +431,34 @@ export function PriceSourceCatalogSection() {
           </ul>
         )}
       </section>
+
+      <ConfirmDialog
+        trigger={<span hidden />}
+        open={confirmation !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(undefined);
+        }}
+        title={`从全局模型移除 ${confirmation?.ids.length ?? 0} 个模型？`}
+        description="移除会同时删除该模型的价格与上游绑定；仍被路由规则或上游能力引用的模型会被拒绝并保留。"
+        confirmLabel="移除"
+        pending={busy}
+        onConfirm={() => {
+          const ids = confirmation?.ids ?? [];
+          setConfirmation(undefined);
+          void apply(false, ids);
+        }}
+      >
+        {confirmation && (
+          <ul className="mt-2 list-disc pl-5 text-sm">
+            {confirmation.ids.slice(0, 5).map((id) => (
+              <li key={id}>
+                <code>{bySourceID.get(id)?.model_id ?? id}</code>
+              </li>
+            ))}
+            {confirmation.ids.length > 5 && <li>…共 {confirmation.ids.length} 个</li>}
+          </ul>
+        )}
+      </ConfirmDialog>
     </>
   );
 }
