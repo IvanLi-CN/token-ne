@@ -1709,7 +1709,7 @@ networks:
 说明：
 
 - `socket-proxy` 是推荐的收敛方式；`CONTAINERS=1` 配合 `POST=1` 覆盖创建与删除接口，`ALLOW_START`、`ALLOW_STOP`、`ALLOW_RESTARTS` 控制容器状态操作。如果暂时直接挂载 socket，风险更高，必须保证 API 不暴露公网。
-- `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `172.31.255.10:10085`，`HandlerService` 需要开启 `api.services` 中的对应服务，否则运行时增删会返回未实现。SOCKS5 入站由控制面通过 API 动态创建。
+- `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `172.31.255.10:10085`，且 `api.services` 必须列出 `HandlerService`、`RoutingService` 和 `StatsService`，否则运行时增删或统计会返回未实现。SOCKS5 入站由控制面通过 API 动态创建。
 - Compose 负责控制面、数据库、Caddy、Xray 单例、网络和持久卷，不声明 core service；启动时控制面登记自身产品版本，并自动通过 Docker Engine API 部署精确同版本的 core。
 - Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge`、`core-control` 和 `egress` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载 `bootstrap.json`：管理 API 使用 Unix socket，`/internal/*` 返回 404，空核心池的 `/v1/*` fail-closed 返回 503；Go 启动后装载完整受控配置并对账。
