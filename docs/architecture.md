@@ -528,7 +528,7 @@ sequenceDiagram
 - 默认 `CORE_AUTO_PRUNE=true`。已确认成功部署中的退役实例，以及从未接收流量且 spool 为空的失败实例，在停止并经过默认 5 分钟宽限期后进入自动删除；部署尚未确认、处于回滚窗口或仍可能被回滚使用的实例保留。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役可以使用停止前的最后一次在线 `status` 作为 `spool.unacked_events == 0` 的确认；崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳，必须先重启兼容 core 扫描 spool 并确认零后再销毁。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先重启兼容 core 重放；超过 `CORE_AUTO_PRUNE_MAX_AGE`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先重启兼容 core 重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
 - 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 保留用于异常处置和强制清理。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
 
