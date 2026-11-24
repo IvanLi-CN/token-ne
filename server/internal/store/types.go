@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("not found")
-	ErrConflict  = errors.New("conflict")
-	ErrReference = errors.New("invalid reference")
+	ErrNotFound           = errors.New("not found")
+	ErrConflict           = errors.New("conflict")
+	ErrReference          = errors.New("invalid reference")
+	ErrPriceProfileLocked = errors.New("price profile locked")
 )
 
 type Admin struct {
@@ -25,13 +26,38 @@ type Billing struct {
 	Output *float64 `json:"output_usd_per_mtok"`
 }
 type Model struct {
-	ID       string    `json:"model_id"`
-	Enabled  bool      `json:"enabled"`
-	Mapping  *string   `json:"default_upstream_model"`
-	Shutdown *string   `json:"shutdown_date"`
-	Billing  Billing   `json:"billing"`
-	Created  time.Time `json:"created_at"`
-	Updated  time.Time `json:"updated_at"`
+	ID            string              `json:"model_id"`
+	Enabled       bool                `json:"enabled"`
+	Mapping       *string             `json:"default_upstream_model"`
+	Shutdown      *string             `json:"shutdown_date"`
+	Billing       Billing             `json:"billing"`
+	BillingState  *PriceRevisionState `json:"billing_state,omitempty"`
+	BillingLocked *bool               `json:"billing_locked,omitempty"`
+	ConfirmLocked *bool               `json:"confirm_locked,omitempty"`
+	Created       time.Time           `json:"created_at"`
+	Updated       time.Time           `json:"updated_at"`
+}
+
+// PriceRevisionState is the immutable revision currently published for a
+// price profile. RevisionCreatedAt never changes for a given revision;
+// UpdatedAt is when the owning profile row last changed.
+type PriceRevisionState struct {
+	Source            string    `json:"source"`
+	SourceID          *string   `json:"source_id"`
+	Locked            bool      `json:"locked"`
+	PriceRevisionID   string    `json:"price_revision_id"`
+	RevisionCreatedAt time.Time `json:"revision_created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// PriceProfile is one effective billing profile. Global profiles live on
+// models; Scope is "upstream" for rows returned by Prices.
+type PriceProfile struct {
+	Billing
+	PriceRevisionState
+	ModelID    string `json:"model_id"`
+	UpstreamID string `json:"upstream_id"`
+	Scope      string `json:"scope,omitempty"`
 }
 type Capability struct {
 	ModelID  string  `json:"model_id"`

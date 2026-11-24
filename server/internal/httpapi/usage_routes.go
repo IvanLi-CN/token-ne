@@ -256,6 +256,13 @@ func (a usageAPI) requests(w http.ResponseWriter, r *http.Request) {
 		}
 		f.Model = &s
 	}
+	if s := q.Get("resolved_model"); s != "" {
+		if !validName(s, 256) || strings.ContainsRune(s, 0) {
+			usageBadQuery(w, r, "invalid resolved_model")
+			return
+		}
+		f.ResolvedModel = &s
+	}
 	if s := q.Get("upstream"); s != "" {
 		if !usage.CanonicalUUID(s, false) {
 			usageBadQuery(w, r, "upstream must be a canonical UUID")

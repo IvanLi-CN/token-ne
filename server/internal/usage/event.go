@@ -26,6 +26,7 @@ type Event struct {
 	UpstreamID          *string   `json:"upstream_id"`
 	Endpoint            string    `json:"endpoint"`
 	RequestedModel      *string   `json:"requested_model"`
+	ResolvedModel       *string   `json:"resolved_model"`
 	UpstreamModel       *string   `json:"upstream_model"`
 	Stream              bool      `json:"stream"`
 	HTTPStatus          *int      `json:"http_status"`
@@ -157,7 +158,7 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 		min, max int
 	}{
 		{"request_id", &e.RequestID, 1, 128}, {"core_version", &e.CoreVersion, 1, 128}, {"endpoint", &e.Endpoint, 1, 256},
-		{"requested_model", e.RequestedModel, 0, 256}, {"upstream_model", e.UpstreamModel, 0, 256},
+		{"requested_model", e.RequestedModel, 0, 256}, {"resolved_model", e.ResolvedModel, 1, 256}, {"upstream_model", e.UpstreamModel, 0, 256},
 		{"error_code", e.ErrorCode, 0, 128}, {"error_message", e.ErrorMessage, 0, 1024},
 	} {
 		if v.value != nil {

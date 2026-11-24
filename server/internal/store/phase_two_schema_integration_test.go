@@ -137,7 +137,7 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 			{"price_sync_runs", "applied_at", "timestamptz", "", true},
 			{"upstreams", "capabilities_revision", "int8", "1", false},
 			{"upstream_models", "catalog_model_id", "text", "", true},
-			{"models", "billing_revision_id", "uuid", "", true},
+			{"models", "billing_revision_id", "uuid", "", false},
 			{"models", "billing_revision_scope", "text", "global", false},
 			{"usage_events", "resolved_model", "text", "", true},
 			{"usage_events", "price_revision_id", "uuid", "", true},
@@ -311,27 +311,24 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 	})
 
 	t.Run("billing revision completion", func(t *testing.T) {
-		if _, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok) values($1,0.75)", modelD); e != nil {
-			t.Fatalf("phase-one insert without billing revision: %v", e)
-		}
+		// 00007 enforces the pointer; a model without a revision must be rejected.
+		_, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok) values($1,0.75)", modelD)
+		requirePgErrorCode(t, e, "23502")
+		revisionD := uuid.NewString()
 		if _, e = s.Pool.Exec(ctx, `
 insert into price_revisions (id, model_id, upstream_id, input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok, source, locked, scope)
-select gen_random_uuid(), m.model_id, null, m.input_usd_per_mtok, m.cached_input_usd_per_mtok, m.output_usd_per_mtok, 'manual', false, 'global'
-from models m where m.model_id = $1 and m.billing_revision_id is null`, modelD); e != nil {
-			t.Fatalf("backfill missing billing revision: %v", e)
+values ($1, $2, null, 0.75, null, null, 'manual', false, 'global')`, revisionD, modelD); e != nil {
+			t.Fatalf("insert billing revision: %v", e)
 		}
-		if _, e = s.Pool.Exec(ctx, `
-update models m set billing_revision_id = r.id
-from price_revisions r
-where r.model_id = m.model_id and r.scope = 'global' and r.upstream_id is null and m.model_id = $1 and m.billing_revision_id is null`, modelD); e != nil {
-			t.Fatalf("point model at billing revision: %v", e)
+		if _, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok,billing_revision_id) values($1,0.75,$2)", modelD, revisionD); e != nil {
+			t.Fatalf("insert model with billing revision: %v", e)
 		}
 		var revisionID, price string
 		if e = s.Pool.QueryRow(ctx, `select m.billing_revision_id::text, r.input_usd_per_mtok::text from models m join price_revisions r on r.id = m.billing_revision_id where m.model_id = $1`, modelD).Scan(&revisionID, &price); e != nil {
 			t.Fatalf("model %s billing revision after completion: %v", modelD, e)
 		}
-		if revisionID == "" || price != "0.750000" {
-			t.Fatalf("model %s billing revision %q price %q, want non-empty revision with price 0.750000", modelD, revisionID, price)
+		if revisionID != revisionD || price != "0.750000" {
+			t.Fatalf("model %s billing revision %q price %q, want %q with price 0.750000", modelD, revisionID, price, revisionD)
 		}
 	})
 
@@ -360,6 +357,17 @@ where r.model_id = m.model_id and r.scope = 'global' and r.upstream_id is null a
 			t.Fatalf("capabilities_revision default = %d, want 1", revision)
 		}
 	})
+}
+
+func requirePgErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected SQLSTATE %s, got success", code)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != code {
+		t.Fatalf("got %v, want SQLSTATE %s", err, code)
+	}
 }
 
 func requirePgError(t *testing.T, err error, code, constraint string) {

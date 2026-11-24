@@ -159,18 +159,22 @@ func (s *Store) InvalidateSession(ctx context.Context, id string, a Audit) error
 	})
 }
 
-const modelColumns = "model_id,enabled,default_upstream_model,to_char(shutdown_date,'YYYY-MM-DD'),input_usd_per_mtok::float8,cached_input_usd_per_mtok::float8,output_usd_per_mtok::float8,created_at,updated_at"
+const modelColumns = "m.model_id,m.enabled,m.default_upstream_model,to_char(m.shutdown_date,'YYYY-MM-DD'),m.input_usd_per_mtok::float8,m.cached_input_usd_per_mtok::float8,m.output_usd_per_mtok::float8,m.created_at,m.updated_at,r.source,r.source_id,r.locked,r.id::text,r.created_at"
 
 func scanModel(row pgx.Row) (Model, error) {
 	var m Model
-	e := row.Scan(&m.ID, &m.Enabled, &m.Mapping, &m.Shutdown, &m.Billing.Input, &m.Billing.Cached, &m.Billing.Output, &m.Created, &m.Updated)
+	var state PriceRevisionState
+	e := row.Scan(&m.ID, &m.Enabled, &m.Mapping, &m.Shutdown, &m.Billing.Input, &m.Billing.Cached, &m.Billing.Output, &m.Created, &m.Updated,
+		&state.Source, &state.SourceID, &state.Locked, &state.PriceRevisionID, &state.RevisionCreatedAt)
+	state.UpdatedAt = m.Updated
+	m.BillingState = &state
 	return m, normalize(e)
 }
 func (s *Store) Model(ctx context.Context, id string) (Model, error) {
-	return scanModel(s.Pool.QueryRow(ctx, "select "+modelColumns+" from models where model_id=$1", id))
+	return scanModel(s.Pool.QueryRow(ctx, "select "+modelColumns+" from models m join price_revisions r on r.id=m.billing_revision_id where m.model_id=$1", id))
 }
 func (s *Store) Models(ctx context.Context) ([]Model, error) {
-	rows, e := s.Pool.Query(ctx, "select "+modelColumns+" from models order by model_id")
+	rows, e := s.Pool.Query(ctx, "select "+modelColumns+" from models m join price_revisions r on r.id=m.billing_revision_id order by m.model_id")
 	if e != nil {
 		return nil, e
 	}
@@ -187,12 +191,8 @@ func (s *Store) Models(ctx context.Context) ([]Model, error) {
 }
 func (s *Store) SaveModel(ctx context.Context, m Model, create bool, a Audit) (Model, error) {
 	e := s.mutate(ctx, a, func(tx pgx.Tx) error {
-		q := "update models set enabled=$2,default_upstream_model=$3,shutdown_date=$4::text::date,input_usd_per_mtok=$5,cached_input_usd_per_mtok=$6,output_usd_per_mtok=$7,updated_at=now() where model_id=$1 returning "
-		if create {
-			q = "insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok) values($1,$2,$3,$4::text::date,$5,$6,$7) returning "
-		}
 		var err error
-		m, err = scanModel(tx.QueryRow(ctx, q+modelColumns, m.ID, m.Enabled, m.Mapping, m.Shutdown, m.Billing.Input, m.Billing.Cached, m.Billing.Output))
+		m, err = saveModel(ctx, tx, m, create)
 		return err
 	})
 	return m, e
