@@ -22,4 +22,4 @@
 - `./SPEC.md`
 - `./IMPLEMENTATION.md`
 - `../../adr/0009-global-models-with-upstream-capabilities.md`
-- `../../adr/0013-model-upstream-management-boundaries.md`
+- `../../adr/0014-model-upstream-management-boundaries.md`

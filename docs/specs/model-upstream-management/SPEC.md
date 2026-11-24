@@ -149,7 +149,7 @@
 
 ## Related ADRs
 
-- [ADR 0013：目录、路由、策略与价格作用域分离](../../adr/0013-model-upstream-management-boundaries.md)
+- [ADR 0014：目录、路由、策略与价格作用域分离](../../adr/0014-model-upstream-management-boundaries.md)
 
 ## Visual Evidence
 
