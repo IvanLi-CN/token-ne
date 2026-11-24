@@ -1,7 +1,7 @@
 # 文档索引
 
-- [术语表](../GLOSSARY.md)：Core、控制面、下游、上游、usage spool、模型、映射和上游能力的规范用语。
-- [产品需求文档](./prd.md)：第一期范围、功能需求、非功能需求和验收标准。
+- [术语表](../GLOSSARY.md)：Core、控制面、下游、上游、上游模型目录、目录绑定、映射、模型名称路由、上游承接策略和价格档案的规范用语。
+- [产品需求文档](./prd.md)：第一期与第二期范围、功能需求、非功能需求和验收标准。
 - [技术可行性分析](./feasibility.md)：关键机制验证、容量估算、方案取舍和风险。
 - [开发与部署架构](./architecture.md)：组件边界、请求流程、核心设计、控制面、Caddy HTTP 入口、配置签名、核心私有 spool、数据模型、部署和升级。
 - [核心与控制面通信协议](./protocol.md)：协议版本、端点、信封、严格校验、兼容规则、幂等和重试。
@@ -16,6 +16,7 @@
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
 - [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道、同版本 core 自动部署和恢复边界。
 - [管理员 OIDC 登录 Spec](./specs/oidc-admin-login/SPEC.md)：Authelia 管理登录、身份绑定、本地登录 break-glass、配置优先级和会话 TTL。
+- [模型与上游管理 Spec](./specs/model-upstream-management/SPEC.md)：上游模型目录、目录绑定、上游承接策略、模型名称路由、价格档案和第三方价格同步边界。
 - [产品版本发布 Runbook](./runbooks/release.md)：手动 target、精确镜像与 latest 验证、失败恢复和禁止事项。
 - [管理员 OIDC 登录 Runbook](./runbooks/admin-oidc.md)：Authelia client、首次绑定、私有 CA、强制下线和 break-glass。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。
@@ -36,3 +37,4 @@
 - [ADR 0011：发布同时提供不可变版本和可变部署通道](./adr/0011-mutable-deployment-channel.md)
 - [ADR 0012：管理员 OIDC 登录采用数据库优先配置与单管理员绑定](./adr/0012-oidc-admin-login.md)
 - [ADR 0013：运行时管理全部核心实例](./adr/0013-runtime-managed-core-lifecycle.md)
+- [ADR 0014：目录、路由、策略与价格作用域分离](./adr/0014-model-upstream-management-boundaries.md)

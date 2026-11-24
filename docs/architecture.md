@@ -744,6 +744,9 @@ server/
     store/           pgx、查询、迁移、审计
     usage/           摄入校验、事务写入、费用计算、指标
     cost/            价格匹配与费用计算
+    catalog/         上游模型目录同步、stale 标记和导入建议
+    routing/         控制面路由规则、Glob 冲突校验和预览
+    pricing/         价格源适配、报价差异、锁定和价格修订
     caddy/           管理 API 客户端、配置生成、对账
     orchestrator/    Docker 客户端、实例生命周期、部署状态机
     cores/         核心注册、配置快照、健康与心跳
@@ -771,10 +774,25 @@ server/
 | GET | `/api/requests` | 游标分页请求列表 |
 | GET | `/api/requests/{id}` | 请求详情 |
 | GET/POST | `/api/models` | 全局模型列表/新增 |
-| GET/PUT/DELETE | `/api/models/{model_id}` | 模型详情/编辑/删除 |
+| GET/POST | `/api/model-routes` | 模型名称路由规则列表/新增 |
+| POST | `/api/model-routes/preview` | 预览请求模型名解析和候选 |
+| PUT/DELETE | `/api/model-routes/{route_id}` | 更新/删除模型名称路由规则 |
+| GET/PUT/DELETE | `/api/models/{model_id}` | 模型详情、编辑（含全局默认价格）及删除 |
 | GET/POST | `/api/upstreams` | 上游列表/新增 |
 | GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 能力集合 |
+| GET | `/api/upstreams/{id}/models/catalog` | 查看上游模型目录和 stale 状态 |
+| POST | `/api/upstreams/{id}/models/sync` | 同步单个上游模型目录 |
+| GET | `/api/upstreams/{id}/model-sync-runs/{run_id}` | 查看单个上游模型同步终态 |
+| POST | `/api/upstreams/models/sync` | 批量同步启用上游模型目录 |
+| POST | `/api/upstreams/{id}/models/import` | 显式导入或绑定目录模型 |
+| GET/PUT | `/api/upstreams/{id}/model-policy` | 查看/替换上游模型白名单和黑名单 |
 | POST | `/api/upstreams/{id}/test` | 测试上游 |
+| PUT/DELETE | `/api/upstreams/{id}/models/{model_id}/price` | 编辑或移除上游价格覆盖 |
+| GET | `/api/prices` | 查看当前上游价格覆盖 |
+| GET | `/api/price-sources` | 查看受控价格源 |
+| POST | `/api/price-sources/{source_id}/sync` | 获取价格报价批次 |
+| GET | `/api/price-sync-runs/{run_id}` | 查看价格差异和匹配结果 |
+| POST | `/api/price-sync-runs/{run_id}/apply` | 原子应用选中的价格报价 |
 | GET/POST | `/api/downstream-keys` | Key 列表/创建（只返回一次明文） |
 | PUT/DELETE | `/api/downstream-keys/{id}` | 更新元数据/删除 |
 | POST | `/api/downstream-keys/{id}/rotate` | 轮换并返回一次新明文 |
@@ -791,7 +809,7 @@ server/
 | GET | `/api/audit` | 审计查询 |
 | GET/PUT | `/api/data-plane-settings` | 读取/修改数据面开关（`stream_usage_injection`），写入 `system_state` 并入库审计 |
 
-分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。没有 `model-routes`、`model-catalog` 或独立价格 API；模型与能力分别属于 `/api/models` 和上游聚合。
+分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。目录、路由、策略和价格使用独立 API，但目录项不会隐式成为可路由模型，价格报价不会直接覆盖当前价格。
 
 紧急配置恢复使用本地 CLI，不新增暴露密钥的 HTTP 接口：
 
@@ -842,6 +860,7 @@ flowchart LR
 - 在单个 PostgreSQL 事务中执行多行 `INSERT ... ON CONFLICT (event_id) DO NOTHING`，提交成功后才返回 `202`；数据库不可用返回 `503`，核心保留 spool 重试。
 - `422` 必须带 `events[<index>].<field>` 路径；核心隔离/丢弃单条无效事件，重新组批发送剩余事件，推进处理位点并增加 `usage_send_total{result="dropped"}`；无法定位单条事件时返回 `400`，核心不得推进位点。
 - 费用在写入前按模型当前计费计算；未知价格写 `NULL`。
+- 第二期按 `coalesce(resolved_model, requested_model)` 和 `upstream_id` 选择价格档案：存在该 `(model_id, upstream_id)` 的整份上游覆盖时使用覆盖，否则用全局默认档案。`resolved_model` 缺失或不在当前配置中时回退 `requested_model`；仍无匹配则 `cost_usd` 为 `NULL` 并告警。应用时的 `price_revision_id` 写入用量事实；改价不重算历史。
 - Prometheus 指标在事务提交后更新；数据库失败另有失败计数。
 
 ### Caddy 协调
@@ -909,7 +928,7 @@ flowchart TD
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、下游 Key、重试参数变化都会递增 `config_revision`。
+- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数变化都会递增 `config_revision`。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1168,6 +1187,7 @@ create table upstream_models (
   updated_at timestamptz not null default now(),
   primary key (upstream_id, model_id)
 );
+
 
 create table core_versions (
   id uuid primary key,
@@ -1900,3 +1920,153 @@ token-ne/
 - 用量事件包含 `upstream_id` 和 `core_version`，可支持后续号池和成本归属。
 - Caddy 配置使用稳定 `@id`，可增加更多路由和策略。
 - Docker 编排已经抽象为实例生命周期，可替换为独立控制器。
+
+### 第二期模型路由
+
+请求管线在权限检查前解析模型名。先查全局 Model 精确 ID，再查启用的 exact 规则，最后按 `priority` 升序查启用的 Glob 规则。命中后固定目标和上游限制，目标未启用或未匹配时返回 `404`。Key 权限和承接策略针对解析后的全局 ID。候选通过能力、权重、上游限制和承接策略校验后进入现有调度顺序。用量记录请求名、解析后的模型和实际发送的上游模型名。
+路由规则与全局 Model ID 共享命名空间：`pattern` 等于已有 Model ID 的规则不能保存；新建或导入 Model 时，若已有规则使用同一 `pattern`，同样拒绝并返回字段路径。`glob` 规则使用与承接策略相同的受限 Glob 语言，同优先级重叠按该语言判定。
+路由规则写入、Model 创建和目录导入在事务内先取同一把事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。任何绕过管理 API 的写入必须复用同一校验函数，重叠判定与预览共用实现，避免预览与保存分歧。
+
+### 第二期模型与价格数据扩展
+
+第二期新增事实仍由控制面和 PostgreSQL 持有；目录与报价不进入 core 请求热路径，只有已审核的路由、策略和能力信息进入配置快照，价格修订由控制面在用量摄入时选择。以下表结构表达数据边界，实际迁移时必须保持同一主键、唯一性和原子应用语义。
+
+```sql
+create table upstream_model_catalog (
+  upstream_id uuid not null references upstreams(id) on delete cascade,
+  upstream_model_id text not null,
+  object text,
+  owned_by text,
+  provider_created bigint,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  current_in_latest_sync boolean not null default false,
+  stale_since timestamptz,
+  last_sync_id uuid,
+  primary key (upstream_id, upstream_model_id)
+);
+
+alter table upstreams add column capabilities_revision bigint not null default 1;
+
+alter table upstream_models add column catalog_model_id text;
+alter table upstream_models add constraint upstream_models_catalog_reference
+  foreign key (upstream_id, catalog_model_id)
+  references upstream_model_catalog(upstream_id, upstream_model_id)
+  on delete no action deferrable initially deferred;
+
+create unique index upstream_models_one_global_binding
+  on upstream_models (upstream_id, catalog_model_id)
+  where catalog_model_id is not null;
+
+create table upstream_model_sync_runs (
+  id uuid primary key,
+  upstream_id uuid not null references upstreams(id) on delete cascade,
+  state text not null check (state in ('running', 'succeeded', 'failed')),
+  started_at timestamptz not null,
+  lease_until timestamptz not null,
+  finished_at timestamptz,
+  discovered_count int not null default 0,
+  error text,
+  created_at timestamptz not null default now()
+);
+
+create unique index upstream_model_sync_runs_one_running
+  on upstream_model_sync_runs (upstream_id) where state = 'running';
+
+create unique index upstream_model_sync_runs_upstream_run
+  on upstream_model_sync_runs (upstream_id, id);
+
+alter table upstream_model_catalog add constraint upstream_model_catalog_last_sync
+  foreign key (upstream_id, last_sync_id)
+  references upstream_model_sync_runs (upstream_id, id)
+  on delete no action deferrable initially deferred;
+
+领取同步时先锁定上游，若存在未过期的运行记录则返回 `409 catalog_sync_running`；若租约过期则先将旧 run 标记失败，再创建新 run。worker 定期续租。应用结果时事务必须确认 run 仍是 `running` 且租约有效，并在该上游行锁保护下与目录快照一起提交终态。过期 worker 的晚到响应只能写入 run 错误，不能更新目录或 stale 状态。
+
+create table upstream_model_policies (
+  upstream_id uuid primary key references upstreams(id) on delete cascade,
+  default_action text not null check (default_action in ('allow', 'deny')),
+  allow_patterns jsonb not null default '[]'::jsonb,
+  deny_patterns jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table model_route_rules (
+  id uuid primary key,
+  pattern text not null,
+  match_type text not null check (match_type in ('exact', 'glob')),
+  target_model_id text not null references models(model_id) on delete restrict,
+  upstream_id uuid references upstreams(id) on delete restrict,
+  priority int not null default 100,
+  enabled boolean not null default true,
+  description text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index model_route_rules_exact_pattern
+  on model_route_rules (pattern) where enabled and match_type = 'exact';
+
+create table price_revisions (
+  id uuid primary key,
+  model_id text not null,
+  upstream_id uuid,
+  input_usd_per_mtok numeric(14,6),
+  cached_input_usd_per_mtok numeric(14,6),
+  output_usd_per_mtok numeric(14,6),
+  source text not null check (source in ('manual', 'price_source')),
+  source_id text,
+  locked boolean not null,
+  created_at timestamptz not null default now(),
+  scope text not null check ((scope = 'global' and upstream_id is null) or (scope = 'upstream' and upstream_id is not null)),
+  unique (id, model_id, scope),
+  unique (id, model_id, scope, upstream_id)
+);
+
+alter table models add column billing_revision_id uuid;
+alter table models add column billing_revision_scope text not null default 'global' check (billing_revision_scope = 'global');
+alter table models add constraint models_billing_revision_scope
+  foreign key (billing_revision_id, model_id, billing_revision_scope)
+  references price_revisions(id, model_id, scope)
+  deferrable initially deferred;
+
+-- 回填完成后收紧：alter table models alter column billing_revision_id set not null;
+
+create table model_prices (
+  id uuid primary key,
+  model_id text not null references models(model_id) on delete restrict,
+  upstream_id uuid not null references upstreams(id) on delete restrict,
+  scope text not null default 'upstream' check (scope = 'upstream'),
+  input_usd_per_mtok numeric(14,6),
+  cached_input_usd_per_mtok numeric(14,6),
+  output_usd_per_mtok numeric(14,6),
+  source text not null default 'manual',
+  locked boolean not null default false,
+  price_revision_id uuid not null,
+  updated_at timestamptz not null default now(),
+  foreign key (price_revision_id, model_id, scope, upstream_id)
+    references price_revisions(id, model_id, scope, upstream_id)
+);
+
+create unique index model_prices_upstream_scope on model_prices (model_id, upstream_id);
+
+create table price_sync_runs (
+  id uuid primary key,
+  source_id text not null,
+  state text not null check (state in ('running', 'ready', 'applied', 'failed')),
+  fetched_at timestamptz,
+  applied_at timestamptz,
+  quotes jsonb not null default '[]'::jsonb,
+  price_revision_ids uuid[] not null default '{}',
+  error text,
+  created_at timestamptz not null default now()
+);
+```
+
+- 目录同步只写 `upstream_model_catalog` 和 `upstream_model_sync_runs`。每个上游同一时间最多运行一个同步。同步失败保留目录，成功时在同一事务内写入快照和终态。
+- 导入和能力全量编辑先锁定同一上游行，在事务内提交能力变更与递增 `capabilities_revision`。全量编辑先比对 revision，保留仍在集合内的能力对应的 `catalog_model_id`。目录绑定身份属于控制面，配置快照只导出实际路由所需字段。
+- 全局当前价格保存在 `models` 的 billing 字段，上游当前覆盖保存在 `model_prices`。每条历史修订分别标明 `scope=global|upstream`，且保存 `model_id` 和可空的 `upstream_id`。全局当前修订通过 billing revision 外键限制为同模型的 global scope；上游覆盖含 `scope=upstream` 并通过复合外键限制为同模型、同上游的 upstream scope。历史修订不以模型/上游外键限制生命周期删除。报价应用事务先锁定批次行和全部目标行（`select ... for update`），再重检 `base_price_revision_id`：非空时必须等于目标当前修订，为 `null` 时目标必须仍不存在。成功后追加本批 `price_revision_ids` 并更新 `applied_at`，不覆盖此前批次结果；批次 `state` 为 `failed` 或仍为 `running` 时拒绝。基线过期以 `409 stale_price_quote` 回滚整批。
+- 批次 `state` 在首次成功应用后为 `applied`，且仍可继续应用剩余报价；`applied_at` 表示最近一次成功应用时间，不是终结标记。
+- 第二期迁移为每个既有 Model 回填一条 `scope=global`、`source=manual`、`locked=false` 的价格修订，并把 `billing_revision_id` 指向它；新建 Model、目录导入新建 Model 和首次改价都在同一事务内创建初始修订。因此二期模型响应总有非空 `billing_state.price_revision_id`。
+- 第二期迁移为 `usage_events` 增加可空的 `resolved_model` 和 `price_revision_id`，并为 `resolved_model` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名与上游 ID；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
+- 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。

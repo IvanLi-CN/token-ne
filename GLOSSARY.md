@@ -72,6 +72,38 @@ _Avoid_: Model route, supported model list, catalog entry
 对某个上游实际发送的模型名：上游级覆盖优先，其次全局映射，最后回退公开模型名。
 _Avoid_: Default target, resolved route
 
+**Upstream model catalog**:
+某个上游最近一次成功同步得到的模型发现结果；目录项不自动创建全局模型或上游模型能力。
+_Avoid_: Upstream model capability, model route, public model list
+
+**Catalog binding**:
+某个目录项与其上游模型能力之间的显式关联；决定目录项的 `bound_model_id`，与上游模型名称改写字段互相独立。
+_Avoid_: Upstream model name override, capability flag
+
+**Resolved model**:
+请求模型名经过精确模型 ID 或启用的名称路由规则解析后的全局模型 ID；下游 Key 权限和候选选择使用该名称。
+_Avoid_: Requested model, effective model name
+
+**Model route rule**:
+把下游请求模型名按精确或 Glob 模式解析到一个全局模型的规则；可选限制候选上游，但不直接指向裸上游模型名。
+_Avoid_: Model mapping, upstream model capability, alias table
+
+**Upstream model policy**:
+作用于全局模型 ID 的上游白名单/黑名单策略；黑名单命中优先于白名单，策略不创建能力关系。
+_Avoid_: Upstream capability, downstream model permission
+
+**Price profile**:
+一个全局默认或上游作用域的输入、缓存输入和输出价格集合，单位为 USD / 一百万 tokens；`null` 表示未知，`0` 表示免费。
+_Avoid_: Price quote, cost history, tariff
+
+**Price quote**:
+由受控第三方价格源标准化得到、带来源和匹配方式的候选价格；必须经过审核或明确的安全批量规则才能应用。
+_Avoid_: Effective price, price profile
+
+**Price revision**:
+一次原子应用的价格变更身份；用量事件引用它以保留费用计算上下文，改价不重算历史费用。
+_Avoid_: Product version, price source
+
 **Applied weights**:
 已经应用并正在决定流量分配的实例权重集合。
 _Avoid_: Current weights, live weights

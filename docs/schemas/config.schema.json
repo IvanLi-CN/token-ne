@@ -20,6 +20,17 @@
     "limits"
   ],
   "additionalProperties": true,
+  "allOf": [
+    {
+      "if": { "required": ["model_routes"], "properties": { "model_routes": { "minItems": 1 } } },
+      "then": { "properties": { "features": { "required": ["model_name_routing"], "properties": { "model_name_routing": { "const": true } } } } }
+    },
+    {
+      "if": { "required": ["upstream_policies"], "properties": { "upstream_policies": { "minItems": 1 } } },
+      "then": { "properties": { "features": { "required": ["upstream_model_policy"], "properties": { "upstream_model_policy": { "const": true } } } } }
+    }
+  ],
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing or upstream_model_policy is absent or false, its corresponding array must be absent or empty. Route and policy object schemas reject unknown fields because silently ignoring a misspelled routing field is unsafe.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -40,7 +51,9 @@
         "responses": { "type": "boolean" },
         "embeddings": { "type": "boolean" },
         "stream_usage_injection": { "type": "boolean" },
-        "status_rewrite": { "type": "boolean" }
+        "status_rewrite": { "type": "boolean" },
+        "model_name_routing": { "type": "boolean" },
+        "upstream_model_policy": { "type": "boolean" }
       },
       "additionalProperties": true
     },
@@ -59,6 +72,15 @@
     "upstream_models": {
       "type": "array",
       "items": { "$ref": "#/$defs/upstreamModel" }
+    },
+    "model_routes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/modelRoute" }
+    },
+    "upstream_policies": {
+      "type": "array",
+      "$comment": "Both publisher and core must additionally reject duplicate upstream_id values, even when the policy objects differ; JSON Schema uniqueItems cannot enforce key uniqueness.",
+      "items": { "$ref": "#/$defs/upstreamPolicy" }
     },
     "retry": { "$ref": "#/$defs/retry" },
     "status_rewrite": { "$ref": "#/$defs/statusRewrite" },
@@ -157,6 +179,44 @@
         "weight": { "type": "integer", "minimum": 0, "maximum": 10000 }
       },
       "additionalProperties": true
+    },
+    "modelRoute": {
+      "type": "object",
+      "required": ["id", "pattern", "match_type", "target_model_id", "priority", "enabled"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "pattern": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "match_type": { "enum": ["exact", "glob"] },
+        "target_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "upstream_id": { "type": ["string", "null"], "format": "uuid" },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "enabled": { "type": "boolean" },
+        "description": { "type": ["string", "null"], "maxLength": 1024 }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "match_type": { "const": "glob" } }, "required": ["match_type"] },
+          "then": { "properties": { "pattern": { "$ref": "#/$defs/globPattern" } } }
+        }
+      ]
+    },
+    "globPattern": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\[\\]{}\\\\\\x00-\\x1f\\x7f]+$"
+    },
+    "upstreamPolicy": {
+      "type": "object",
+      "required": ["upstream_id", "default_action", "allow_patterns", "deny_patterns"],
+      "properties": {
+        "upstream_id": { "type": "string", "format": "uuid" },
+        "default_action": { "enum": ["allow", "deny"] },
+        "allow_patterns": { "type": "array", "items": { "$ref": "#/$defs/globPattern" }, "uniqueItems": true },
+        "deny_patterns": { "type": "array", "items": { "$ref": "#/$defs/globPattern" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
     },
     "retry": {
       "type": "object",
