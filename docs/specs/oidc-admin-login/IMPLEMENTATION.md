@@ -6,7 +6,7 @@
 
 - Implementation: 已实现，待实机 Authelia 验证
 - Lifecycle: active
-- Catalog note: 后端、迁移、API、Web 设置页、视觉证据与 Authelia runbook 已落地；真实 Authelia 联调仍待验证
+- Catalog note: 后端、迁移、API、Web 设置页、视觉证据与 Authelia runbook 已落地；本地登录关闭时由保存确认 Dialog 收集当前密码；真实 Authelia 联调仍待验证
 
 ## Implementation Coverage
 
@@ -38,7 +38,7 @@
 | `server/internal/httpapi/oidc.go` | OIDC start/callback、绑定、audit 与 metrics |
 | `server/internal/httpapi/auth.go` | 本地登录开关、可配置 TTL、失败审计 |
 | `server/cmd/api/main.go`、`auth_cli.go` | startup 检查、环境变量重叠告警、`api auth local-login enable` |
-| `web/src/features/settings/page.tsx` | 系统设置页、确认、测试连接、绑定与强制下线 |
+| `web/src/features/settings/page.tsx` | 系统设置页、关闭本地登录时在保存 Dialog 中验证密码、错误恢复、测试连接、绑定与强制下线 |
 | `web/src/pages/login/index.tsx` | OIDC 登录入口与通用错误 |
 | `web/src/app/shell.tsx`、`router.tsx`、`lib/guards.ts` | 导航、路由与安全 return path |
 | `ops/.env.example`、`ops/compose.yaml`、`ops/README.md` | OIDC 部署环境变量 |

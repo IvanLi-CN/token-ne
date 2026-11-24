@@ -64,6 +64,22 @@ func TestValidation(t *testing.T) {
 		t.Fatal("mapped private IP accepted")
 	}
 }
+
+func TestNormalizeUpstreamBaseURLRemovesOnlyTrailingVersionSegment(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"https://api.example/v1", "https://api.example"},
+		{"https://api.example/v1/", "https://api.example"},
+		{"https://api.example/step_plan/v1", "https://api.example/step_plan"},
+		{"https://api.example/gateway%2Fv1", "https://api.example/gateway%2Fv1"},
+		{"https://api.example/gateway%2Fv1/v1", "https://api.example/gateway%2Fv1"},
+		{"https://api.example/v1/compatible", "https://api.example/v1/compatible"},
+	} {
+		if got := normalizeUpstreamBaseURL(tc.input); got != tc.want {
+			t.Errorf("normalizeUpstreamBaseURL(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestPagination(t *testing.T) {
 	c := store.Cursor{Time: time.Now().UTC(), ID: uuid.NewString()}
 	v, e := DecodeCursor(EncodeCursor(c))

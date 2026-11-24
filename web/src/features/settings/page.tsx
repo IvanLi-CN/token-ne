@@ -38,12 +38,14 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
+  const currentPasswordRef = useRef<HTMLInputElement>(null);
   const secretRef = useRef<HTMLInputElement>(null);
   const submittedChangeRef = useRef(false);
   const [localLoginEnabled, setLocalLoginEnabled] = useState(true);
   const [clearSecret, setClearSecret] = useState(false);
   const [pendingSave, setPendingSave] = useState<AuthSettingsInput>();
   const [saveChanges, setSaveChanges] = useState<string[]>([]);
+  const [saveConfirmError, setSaveConfirmError] = useState("");
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   const [saveConflict, setSaveConflict] = useState(false);
   const [saveNotice, setSaveNotice] = useState("");
@@ -61,15 +63,34 @@ export default function SettingsPage() {
       if (value.revision === settings.data?.revision || !submittedChangeRef.current) {
         client.setQueryData(queryKeys.authSettings, value);
         setSaveNotice("没有需要保存的变更，当前会话保持有效。");
+        setSaveConfirmError("");
+        setSaveConfirmOpen(false);
+        setPendingSave(undefined);
+        if (currentPasswordRef.current) currentPasswordRef.current.value = "";
         return;
       }
+      setSaveConfirmError("");
+      setSaveConfirmOpen(false);
+      setPendingSave(undefined);
+      if (currentPasswordRef.current) currentPasswordRef.current.value = "";
       client.clear();
       void navigate("/login?returnTo=%2Fsystem%2Fsettings", { replace: true });
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) {
+      const passwordRejected =
+        error instanceof ApiError &&
+        error.details.some((field) => field.path === "current_password");
+      if (currentPasswordRef.current) currentPasswordRef.current.value = "";
+      if (passwordRejected) {
+        setSaveConfirmError("当前密码不正确，请重新输入。");
+      } else if (error instanceof ApiError && error.status === 409) {
         setSaveConflict(true);
+        setSaveConfirmError(
+          "设置已被其他管理员修改，已重新加载最新设置；请取消对话框并确认后重新保存。",
+        );
         void settings.refetch();
+      } else {
+        setSaveConfirmError(errorMessage(error) ?? "保存认证设置失败，请重试。");
       }
     },
   });
@@ -86,6 +107,11 @@ export default function SettingsPage() {
       setClearSecret(false);
     }
   }, [settings.data]);
+  useEffect(() => {
+    // The field is disabled while the mutation is pending, so focus it only after it settles.
+    if (save.isPending || !saveConfirmError.startsWith("当前密码")) return;
+    currentPasswordRef.current?.focus();
+  }, [save.isPending, saveConfirmError]);
   const providerLocked = !localLoginEnabled;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,7 +122,6 @@ export default function SettingsPage() {
     submittedChangeRef.current = false;
     const data = new FormData(event.currentTarget);
     const secret = clearSecret ? "" : String(data.get("client_secret") ?? "");
-    const password = String(data.get("current_password") ?? "");
     const body: AuthSettingsInput = {
       revision: settings.data.revision,
       oidc_enabled: data.has("oidc_enabled"),
@@ -110,7 +135,6 @@ export default function SettingsPage() {
       session_ttl_hours: Math.round(Number(data.get("session_ttl_days")) * 24),
       ...(secret ? { client_secret: secret } : {}),
       ...(clearSecret ? { client_secret: "" } : {}),
-      ...(password ? { current_password: password } : {}),
     };
     const changes: string[] = [];
     if (settings.data.local_login_enabled && !body.local_login_enabled)
@@ -129,10 +153,27 @@ export default function SettingsPage() {
     if (changes.length > 0) {
       setPendingSave(body);
       setSaveChanges(changes);
+      setSaveConfirmError("");
       setSaveConfirmOpen(true);
       return;
     }
     save.mutate(body);
+  }
+  function confirmSave() {
+    if (!pendingSave || save.isPending || saveConflict) return;
+    if (saveChanges.includes("关闭本地登录")) {
+      const password = currentPasswordRef.current?.value ?? "";
+      if (!password) {
+        setSaveConfirmError("当前密码不能为空，请重新输入。");
+        currentPasswordRef.current?.focus();
+        return;
+      }
+      setSaveConfirmError("");
+      save.mutate({ ...pendingSave, current_password: password });
+      return;
+    }
+    setSaveConfirmError("");
+    save.mutate(pendingSave);
   }
   function runTest() {
     const form = formRef.current;
@@ -158,8 +199,7 @@ export default function SettingsPage() {
     );
   }
   const value = settings.data;
-  const localWasEnabled = value.local_login_enabled;
-  const showPassword = localWasEnabled && !localLoginEnabled;
+  const requiresCurrentPassword = saveChanges.includes("关闭本地登录");
   const canBind = value.oidc_enabled && value.issuer_url && value.client_id;
   return (
     <>
@@ -322,20 +362,9 @@ export default function SettingsPage() {
                   defaultValue={Math.round(value.session_ttl_hours / 24)}
                 />
               </Field>
-              {showPassword && (
-                <Field label="当前密码" hint="关闭本地登录前必须验证当前密码。">
-                  <input
-                    className="input rounded-xl"
-                    name="current_password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                  />
-                </Field>
-              )}
               <p className="muted text-xs sm:col-span-2">
-                关闭本地登录前，请先在无痕窗口完成一次 OIDC
-                登录；如果配置错误导致无法登录，请在服务器执行{" "}
+                关闭本地登录前，请确认 OIDC
+                已启用且身份已绑定，并先在无痕窗口完成一次登录；如需恢复，请在服务器执行{" "}
                 <code>api auth local-login enable</code>。
               </p>
             </div>
@@ -409,24 +438,69 @@ export default function SettingsPage() {
                 {saveNotice}
               </p>
             )}
-            <FormError error={saveConflict ? undefined : save.error} />
+            {!saveConfirmOpen && <FormError error={saveConflict ? undefined : save.error} />}
             <ConfirmDialog
               trigger={
                 <button type="button" tabIndex={-1} className="visually-hidden">
                   确认认证设置变更
                 </button>
               }
-              title="确认认证设置变更？"
-              description={`以下变更需要确认：${saveChanges.join("、")}。保存后当前会话可能失效，需要重新登录。`}
+              title={requiresCurrentPassword ? "关闭本地登录？" : "确认认证设置变更？"}
+              description={
+                requiresCurrentPassword
+                  ? "关闭后只允许使用已启用且已绑定的 OIDC 身份登录；请确保已在无痕窗口验证 OIDC 登录。保存后当前会话失效，需要重新登录。"
+                  : `以下变更需要确认：${saveChanges.join("、")}。保存后当前会话可能失效，需要重新登录。`
+              }
               open={saveConfirmOpen}
-              onOpenChange={setSaveConfirmOpen}
-              pending={save.isPending}
-              confirmLabel="确认保存"
-              onConfirm={() => {
-                if (pendingSave) save.mutate(pendingSave);
-                setSaveConfirmOpen(false);
+              onOpenChange={(open) => {
+                setSaveConfirmOpen(open);
+                if (!open) {
+                  setPendingSave(undefined);
+                  setSaveConfirmError("");
+                  if (currentPasswordRef.current) currentPasswordRef.current.value = "";
+                  save.reset();
+                }
               }}
-            />
+              pending={save.isPending}
+              confirmDisabled={saveConflict}
+              errorId="save-confirm-error"
+              error={saveConfirmError || undefined}
+              confirmLabel={requiresCurrentPassword ? "验证并保存" : "确认保存"}
+              onConfirm={confirmSave}
+            >
+              {requiresCurrentPassword && (
+                <div className="field">
+                  <label htmlFor="disable-local-login-password">当前密码</label>
+                  <input
+                    id="disable-local-login-password"
+                    ref={currentPasswordRef}
+                    className="input rounded-xl"
+                    type="password"
+                    autoComplete="current-password"
+                    aria-describedby={
+                      saveConfirmError.startsWith("当前密码")
+                        ? "disable-local-login-password-hint save-confirm-error"
+                        : "disable-local-login-password-hint"
+                    }
+                    aria-invalid={saveConfirmError.startsWith("当前密码") || undefined}
+                    aria-errormessage={
+                      saveConfirmError.startsWith("当前密码") ? "save-confirm-error" : undefined
+                    }
+                    disabled={save.isPending}
+                    onChange={() => setSaveConfirmError("")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        confirmSave();
+                      }
+                    }}
+                  />
+                  <small id="disable-local-login-password-hint" className="muted">
+                    仅用于验证本次操作，不会保存。
+                  </small>
+                </div>
+              )}
+            </ConfirmDialog>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="muted text-xs">保存认证配置或 TTL 后当前会话会失效，需要重新登录。</p>
               <div className="flex flex-wrap gap-2">

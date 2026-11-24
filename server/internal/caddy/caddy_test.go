@@ -31,7 +31,7 @@ func TestGenerateRoutesAndZeroWeight(t *testing.T) {
 			t.Fatal("default TLS")
 		}
 		if len(pool) < 2 {
-			if !strings.Contains(text, `"status_code":503`) {
+			if !strings.Contains(text, `"status_code":503`) || strings.Contains(text, `"dial":"core:8080"`) {
 				t.Fatal("zero pool not disabled")
 			}
 		} else {

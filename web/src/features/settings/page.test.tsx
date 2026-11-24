@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../../app/providers";
@@ -84,7 +84,7 @@ describe("system settings", () => {
     expect(saved?.client_secret).toBeUndefined();
   });
 
-  it("requires a password when local login is turned off", async () => {
+  it("asks for the current password in the save dialog when local login is disabled", async () => {
     let saved: Record<string, unknown> | undefined;
     vi.stubGlobal(
       "fetch",
@@ -100,14 +100,92 @@ describe("system settings", () => {
     mount();
     await screen.findByDisplayValue("https://auth.example.com");
     fireEvent.click(screen.getByLabelText("允许本地用户名/密码登录"));
-    fireEvent.change(await screen.findByLabelText("当前密码"), {
+    expect(screen.queryByLabelText("当前密码")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    const dialog = await screen.findByRole("dialog", { name: "关闭本地登录？" });
+    const confirm = within(dialog).getByRole("button", { name: "验证并保存" });
+    fireEvent.click(confirm);
+    expect(within(dialog).getByRole("alert").textContent).toBe("当前密码不能为空，请重新输入。");
+    expect(screen.getByLabelText("当前密码").getAttribute("aria-invalid")).toBe("true");
+    expect(saved).toBeUndefined();
+
+    fireEvent.change(within(dialog).getByLabelText("当前密码"), {
       target: { value: "current-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
-    fireEvent.click(await screen.findByRole("button", { name: "确认保存" }));
+    fireEvent.click(confirm);
     await waitFor(() => expect(saved).toBeDefined());
     expect(saved?.local_login_enabled).toBe(false);
     expect(saved?.current_password).toBe("current-password");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the disable-login dialog open after an incorrect password", async () => {
+    let attempts = 0;
+    let saved: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url !== "/api/settings/auth") return Promise.resolve(response({}, 404));
+        if (init?.method === "PUT") {
+          attempts++;
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          if (attempts === 1) {
+            return Promise.resolve(
+              response(
+                {
+                  error: {
+                    code: "validation_error",
+                    message: "认证设置无效",
+                    request_id: "request-1",
+                    details: [
+                      { path: "current_password", reason: "is required to disable local login" },
+                    ],
+                  },
+                },
+                422,
+              ),
+            );
+          }
+          saved = body;
+          return Promise.resolve(
+            response({ ...settings, revision: 2, local_login_enabled: false }),
+          );
+        }
+        return Promise.resolve(response(settings));
+      }),
+    );
+    mount();
+    await screen.findByDisplayValue("https://auth.example.com");
+    fireEvent.change(screen.getByLabelText("会话 TTL（天）"), { target: { value: "45" } });
+    fireEvent.click(screen.getByLabelText("允许本地用户名/密码登录"));
+    fireEvent.click(screen.getByRole("button", { name: "保存认证设置" }));
+    const dialog = await screen.findByRole("dialog", { name: "关闭本地登录？" });
+    const password = within(dialog).getByLabelText("当前密码") as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "incorrect-password" } });
+    const confirm = within(dialog).getByRole("button", { name: "验证并保存" });
+    confirm.focus();
+    fireEvent.click(confirm);
+
+    expect(await within(dialog).findByText("当前密码不正确，请重新输入。")).toBeTruthy();
+    expect(password.disabled).toBe(false);
+    expect(document.activeElement).toBe(password);
+    expect(password.getAttribute("aria-invalid")).toBe("true");
+    expect(password.value).toBe("");
+    expect(screen.getByDisplayValue("45")).toBeTruthy();
+    expect((screen.getByLabelText("允许本地用户名/密码登录") as HTMLInputElement).checked).toBe(
+      false,
+    );
+
+    fireEvent.change(password, { target: { value: "correct-password" } });
+    fireEvent.keyDown(password, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(saved).toBeDefined());
+    expect(attempts).toBe(2);
+    expect(saved?.current_password).toBe("correct-password");
+    expect(saved?.session_ttl_hours).toBe(1080);
+    expect(saved?.local_login_enabled).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps the session when the server reports no changes", async () => {

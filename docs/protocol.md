@@ -319,7 +319,7 @@ Idempotency-Key: <batch_id>
 }
 ```
 
-完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；第二期配置可以增加 `model_routes` 和 `upstream_policies`；上游目录、报价批次和价格修订不进入 core 配置。`upstreams[].base_url` 不含隐式版本段，core 按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
+完整字段和默认值以 [`schemas/config.schema.json`](./schemas/config.schema.json) 为准。`models` 是全局模型；`upstream_models` 是显式能力关系；第二期配置可以增加 `model_routes` 和 `upstream_policies`；上游目录、报价批次和价格修订不进入 core 配置。`upstreams[].base_url` 的规范格式不含隐式版本段。历史配置末尾带 `/v1` 时，core 只规范化末尾版本段后再按 [`upstream-http.md`](./upstream-http.md) 追加下游路径。
 
 配置中的未知字段必须忽略；但核心声明为安全或路由语义的字段不能被静默忽略。缺失的可选字段使用文档默认值。未知的必填枚举值、未知的认证方式、未知的路由匹配类型、引用不存在的上游、重复 ID、非法 URL、负数 token/超时都必须拒绝。
 
@@ -344,7 +344,7 @@ Idempotency-Key: <batch_id>
 - `config_schema_version` 必须在核心声明的范围内。
 - 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记不与其它配置字段绑定对应关系。第二期的能力标记与各自数组的一致性见下一条。控制面不得向未声明能力的核心发送依赖该能力的配置。
 - 第二期配置用 `features.model_name_routing` 标记 `model_routes`，用 `features.upstream_model_policy` 标记 `upstream_policies`。对应数组非空时 feature 必须为 `true`；feature 缺失或为 `false` 时数组必须缺失或为空。标记和配置不符返回 `422`。JSON Schema 之后的语义校验还必须检查 policy 的 `upstream_id` 唯一性、全部引用存在性，以及路由 `glob` 模式和 policy 两个列表的受限 Glob 语法；Glob 仅允许 `*` 与 `?` 作为通配符，区分大小写，拒绝方括号、花括号、反斜线和控制字符。路由与策略对象拒绝未知字段。
-- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
+- `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），规范格式不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址；历史末尾 `/v1` 后缀由 core 兼容剥离。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
 - `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。

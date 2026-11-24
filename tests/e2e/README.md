@@ -19,6 +19,8 @@ docker compose --env-file ops/.env.e2e \
 The mock is reachable inside the project as `http://mock-upstream:8080`. Configure an upstream
 with that base URL through the control-plane API.
 
+Released API images automatically deploy the core matching their runtime product version. A local development API reports `0.0.0-dev` and intentionally does not pull a production core; build a local core image, set `CORE_IMAGE_REPOSITORY` to that local repository, register its exact version, and start a deployment through the control-plane API before sending `/v1/*` requests. The bootstrap Caddy route returns 503 until a managed core has been configured and admitted.
+
 ## Scenarios
 
 ```sh

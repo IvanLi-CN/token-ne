@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -69,6 +70,26 @@ func (s *Snapshots) streamUsageInjection(ctx context.Context, tx pgx.Tx) (*bool,
 		return nil, e
 	}
 	return &enabled, nil
+}
+
+// normalizeSnapshotUpstreamBaseURL keeps snapshots compatible with cores whose
+// stored upstream URL predates the base-path contract.
+func normalizeSnapshotUpstreamBaseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	if path != "/v1" && !strings.HasSuffix(path, "/v1") {
+		return raw
+	}
+	path = strings.TrimSuffix(path, "/v1")
+	u.RawPath = path
+	u.Path, err = url.PathUnescape(path)
+	if err != nil {
+		return raw
+	}
+	return u.String()
 }
 
 type configBody struct {
@@ -195,7 +216,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 			return Snapshot{}, errors.New("decrypt core upstream credential")
 		}
 		{
-			c.Upstreams = append(c.Upstreams, upstream{ID: v.ID, Name: v.Name, BaseURL: v.BaseURL, AuthStyle: v.AuthStyle, Key: key, Enabled: v.Enabled, Connect: v.Connect, FirstByte: v.FirstByte, Idle: v.Idle})
+			c.Upstreams = append(c.Upstreams, upstream{ID: v.ID, Name: v.Name, BaseURL: normalizeSnapshotUpstreamBaseURL(v.BaseURL), AuthStyle: v.AuthStyle, Key: key, Enabled: v.Enabled, Connect: v.Connect, FirstByte: v.FirstByte, Idle: v.Idle})
 		}
 	}
 	c.Models, c.Keys, c.Capabilities, e = filterConfig(c.Models, c.Keys, c.Capabilities)

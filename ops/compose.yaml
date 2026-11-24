@@ -134,45 +134,6 @@ services:
     networks:
       - edge
 
-  core:
-    image: ${CORE_IMAGE:-token-ne-core:0.1.0}
-    build:
-      context: ..
-      dockerfile: core/Dockerfile
-    depends_on:
-      api:
-        condition: service_healthy
-    environment:
-      CORE_VERSION: ${CORE_VERSION:-0.1.0}
-      CORE_INSTANCE_ID: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
-      CORE_CONTROL_PLANE_URL: http://api:8080
-      CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN:?set CORE_CONTROL_TOKEN in the deployment environment}
-      CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
-      CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
-      CORE_CONFIG_OVERRIDE: /var/lib/token-ne/state/config.override.json
-      CORE_CACHE_KEY: ${CORE_CACHE_KEY:?set CORE_CACHE_KEY in the deployment environment}
-      CORE_ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
-      CORE_STATE_DIR: /var/lib/token-ne/state
-      CORE_LISTEN: 0.0.0.0:8080
-      CORE_METRICS_LISTEN: 0.0.0.0:9091
-    expose:
-      - "8080"
-      - "9091"
-    volumes:
-      - ${CORE_STATE_HOST_DIR:?set an absolute CORE_STATE_HOST_DIR}/0193f0c2-7b1a-7c3e-9f00-0000000000b1:/var/lib/token-ne/state
-    labels:
-      com.token-ne.role: core
-      com.token-ne.version: ${CORE_VERSION:-0.1.0}
-      com.token-ne.instance: 0193f0c2-7b1a-7c3e-9f00-0000000000b1
-    healthcheck:
-      test: ["CMD", "/app/core", "healthcheck"]
-      interval: 5s
-      timeout: 2s
-      retries: 20
-    networks:
-      - edge
-      - core-control
-
 volumes:
   pgdata:
   caddy_data:
