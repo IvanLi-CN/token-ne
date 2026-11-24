@@ -70,12 +70,13 @@
 
 - 默认不跟随上游 3xx；3xx 一律映射为 `502 upstream_protocol_error`，不重试，不透传 `Location`。
 - TLS 证书校验默认开启；第一期不支持自定义 CA 或跳过校验。
-- 不使用系统代理环境变量；如需代理，后续显式配置。
+- 不使用系统代理环境变量。上游可通过 `egress_proxy_id` 显式绑定出站代理；core 使用该档案的 `socks5h` 端点经 Xray 连接，未绑定则直连。代理不可用时不得回退直连。
 - HTTP/2 可由客户端库自动协商；不承诺上游必须支持 HTTP/2。
 
 ## 超时
 
 - `connect_timeout_ms`：TCP/TLS 连接。
+- 绑定出站代理时，`connect_timeout_ms` 覆盖到 Xray SOCKS5 入站的连接与握手；上游首字节超时从请求经隧道写出后开始计。
 - `first_byte_timeout_ms`：发送请求到响应头/首字节。
 - `idle_timeout_ms`：两个响应 chunk 之间。
 - `request_max_duration_ms`：整个下游请求的硬上限，不是单次尝试超时；达到后不再重试。

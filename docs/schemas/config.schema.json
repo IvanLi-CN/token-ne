@@ -28,9 +28,50 @@
     {
       "if": { "required": ["upstream_policies"], "properties": { "upstream_policies": { "minItems": 1 } } },
       "then": { "properties": { "features": { "required": ["upstream_model_policy"], "properties": { "upstream_model_policy": { "const": true } } } } }
+    },
+    {
+      "if": { "required": ["egress_proxies"], "properties": { "egress_proxies": { "minItems": 1 } } },
+      "then": { "properties": { "features": { "required": ["egress_proxy"], "properties": { "egress_proxy": { "const": true } } } } }
+    },
+    {
+      "if": {
+        "required": ["upstreams"],
+        "properties": {
+          "upstreams": {
+            "contains": {
+              "required": ["egress_proxy_id"],
+              "properties": { "egress_proxy_id": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "then": { "properties": { "features": { "required": ["egress_proxy"], "properties": { "egress_proxy": { "const": true } } } } }
+    },
+    {
+      "if": {
+        "not": {
+          "required": ["features"],
+          "properties": {
+            "features": {
+              "required": ["egress_proxy"],
+              "properties": { "egress_proxy": { "const": true } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "egress_proxies": { "maxItems": 0 },
+          "upstreams": {
+            "items": {
+              "properties": { "egress_proxy_id": { "type": "null" } }
+            }
+          }
+        }
+      }
     }
   ],
-  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing or upstream_model_policy is absent or false, its corresponding array must be absent or empty. Route and policy object schemas reject unknown fields because silently ignoring a misspelled routing field is unsafe.",
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -53,7 +94,8 @@
         "stream_usage_injection": { "type": "boolean" },
         "status_rewrite": { "type": "boolean" },
         "model_name_routing": { "type": "boolean" },
-        "upstream_model_policy": { "type": "boolean" }
+        "upstream_model_policy": { "type": "boolean" },
+        "egress_proxy": { "type": "boolean" }
       },
       "additionalProperties": true
     },
@@ -68,6 +110,11 @@
     "upstreams": {
       "type": "array",
       "items": { "$ref": "#/$defs/upstream" }
+    },
+    "egress_proxies": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/egressProxy" }
     },
     "upstream_models": {
       "type": "array",
@@ -160,9 +207,28 @@
         "connect_timeout_ms": { "type": "integer", "minimum": 100 },
         "first_byte_timeout_ms": { "type": "integer", "minimum": 100 },
         "idle_timeout_ms": { "type": "integer", "minimum": 100 },
+        "egress_proxy_id": { "type": ["string", "null"], "format": "uuid" },
         "enabled": { "type": "boolean" }
       },
       "additionalProperties": true
+    },
+    "egressProxy": {
+      "type": "object",
+      "required": ["id", "endpoint", "enabled"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 256,
+          "pattern": "^socks5h://[^/@?#\\s]+:[0-9]{1,5}$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Effective routing eligibility. True only when the control plane has enabled the profile and its runtime state is ready; degraded or disabled profiles are false."
+        }
+      },
+      "additionalProperties": false
     },
     "upstreamModel": {
       "type": "object",

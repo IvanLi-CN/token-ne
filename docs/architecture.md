@@ -2,12 +2,14 @@
 
 ## 设计原则
 
-- **数据面与控制面分离**：`/v1/*` 请求只经过 Caddy 和 Rust 核心；PostgreSQL、Go API、Docker 和 Caddy 管理面都不在请求热路径上。
+- **数据面与控制面分离**：`/v1/*` 请求只经过 Caddy、Rust 核心，以及绑定出站代理时的 Xray；PostgreSQL、Go API、Docker 和 Caddy 管理面都不在请求热路径上。Xray API 只在配置和对账时使用。
 - **提交前可重试，提交后只透传**：重试的边界是“是否已经向下游写出首个响应字节/语义增量”，不是“上游是否失败”。
 - **版本是部署单元，实例是流量单元**：一个核心版本可以有多个实例；Caddy 权重作用在实例上。
 - **配置是快照，不是数据库连接**：核心拿到一份完整、可校验、可缓存的配置快照；控制面不可用时继续用快照服务。
 - **单一事实来源**：PostgreSQL 保存业务事实和控制面管理的期望状态；第一期状态码改写文件是显式外部输入，必须随部署备份；Caddy 和 Docker 是执行器；Prometheus 只保存指标，不保存计费事实。
 - **可恢复的编排**：所有部署、权重、实例状态写入数据库；控制面重启后按期望状态对账，而不是依赖内存。
+- **出站代理是控制面安全设施**：第三方代理协议、服务器地址和凭据只存在于控制面和 Xray 单例；核心只拿到内部 SOCKS5 端点、代理档案 ID 和启用状态。代理不可用时请求失败，不回退直连或改用其他档案。
+- **默认自动回收**：已确认部署中的退役核心在停止且 spool 清零后由控制面自动销毁，容器与状态目录不依赖常规手工 prune；异常、观测缺失或 spool 未清零的实例保留并告警。
 
 ## 命名约定
 
@@ -30,9 +32,15 @@ flowchart LR
     Caddy -->|"/v1/*"| Pool["Rust 核心池<br/>v1 / v2 / ..."]
     Caddy -->|"/api/*, /, /healthz, /readyz"| API["Go 控制面 :8080"]
     Pool -->|"改写、路由、重试、透传"| Upstream["OpenAI 兼容上游"]
+    Pool -->|"绑定代理时 SOCKS5h"| Xray["Xray 单例<br/>SOCKS5 入站 / 协议出站"]
+    Xray -->|"第三方代理协议"| Forward["上游正向代理"]
+    Forward --> Upstream
+    Pool -->|"未绑定代理时直连"| Upstream
     Pool -->|"批量用量事件"| API
     API --> PG[("PostgreSQL 19")]
     API -->|"管理 API"| Caddy
+    API -->|"gRPC API"| Xray
+    API -->|"测试/目录同步 SOCKS5"| Xray
     API -->|"Docker Engine API"| Docker["Docker / Compose 项目"]
     Docker --> Pool
     Prom["外部 Prometheus"] -->|"抓取 /metrics :9090"| API
@@ -40,16 +48,17 @@ flowchart LR
     Browser["管理员浏览器"] --> TLS
 ```
 
-Caddy 只负责项目内 HTTP 路由和加权转发；TLS 终止、证书和公网域名由宿主上的外部反向代理负责。Caddy 管理面使用 `/run/caddy/admin.sock` Unix socket，只与 API 共享；PostgreSQL 和 Docker socket 只在 `data` 网络，核心控制接口只在 `core-control` 网络；core 不加入 `data`。
+Caddy 只负责项目内 HTTP 路由和加权转发；TLS 终止、证书和公网域名由宿主上的外部反向代理负责。Caddy 管理面使用 `/run/caddy/admin.sock` Unix socket，只与 API 共享；PostgreSQL 和 Docker socket 只在 `data` 网络，核心控制接口只在 `core-control` 网络；core 不加入 `data`。出站代理启用时，core 通过 `egress` 网络访问 Xray 的 SOCKS5 入站；Xray API 只在 `xray-control` 网络对控制面可达，core 不加入该网络。
 
 ## 组件职责
 
 | 组件 | 语言/镜像 | 职责 | 不负责 |
 | --- | --- | --- | --- |
 | Caddy | `caddy:2.11.9-alpine` | 项目内 HTTP 入口、`/v1/*` 加权转发、健康检查、SSE 刷新、管理 API 被 Go 调用 | 不终止 TLS（默认）、不解析请求体、不做模型改写、不做内容重试 |
-| Rust 核心 | 自建镜像 | 下游认证、模型映射、上游候选选择、提交前重试、SSE 解析、用量提取、透传、排水、核心私有 usage spool、内部运行指标 | 不直连数据库、不管理容器、不读取控制面状态目录；内部 `/metrics` 仅供调试，不作为外部抓取合同 |
-| Go 控制面 | 自建镜像 | 管理 API、Web 静态站点、用量摄入、PostgreSQL、Caddy 协调、Docker 编排、Prometheus 指标 | 不转发 `/v1/*` 请求，不读取或重放核心 spool |
-| PostgreSQL | `postgres:19.0-alpine` | 全局模型、上游能力、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
+| Rust 核心 | 自建镜像 | 下游认证、模型映射、上游候选选择、出站代理选择、提交前重试、SSE 解析、用量提取、透传、排水、核心私有 usage spool、内部运行指标 | 不直连数据库、不管理容器、不读取控制面状态目录；内部 `/metrics` 仅供调试，不作为外部抓取合同 |
+| Go 控制面 | 自建镜像 | 管理 API、Web 静态站点、用量摄入、PostgreSQL、Caddy 协调、Docker 编排、出站代理档案与 Xray 对账、Prometheus 指标 | 不转发 `/v1/*` 请求，不读取或重放核心 spool，不终止上游 TLS |
+| Xray | `ghcr.io/xtls/xray-core` 固定版本或 digest | 单例出站代理转换器；通过 gRPC API 接收代理档案，提供内部 SOCKS5 入站，按 `inboundTag -> outboundTag` 路由到第三方代理协议 | 不处理下游请求、不终止上游 TLS、不解析或注入上游 API Key、不保存代理档案事实、不发布宿主端口 |
+| PostgreSQL | `postgres:19.0-alpine` | 全局模型、上游能力、出站代理档案、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
 | Prometheus | 外部 | 抓取 Go `/metrics`、存储指标 | 不作为计费或请求事实来源 |
 | Grafana | 外部 | 展示指标 | 不直连 PostgreSQL |
 | Docker Engine | 宿主机 | 运行 Compose 服务与动态核心容器 | 不参与请求路由决策 |
@@ -76,6 +85,9 @@ Internet
 │              core-vA-B-C-2:8080       ▼                   │
 │              state volumes          /var/run/docker.sock    │
 │                                                             │
+│  xray: SOCKS5 inbounds (egress)   gRPC API (xray-control)  │
+│        ▲ core/API                        ▲ API             │
+│                                                             │
 │  api metrics :9090 ◄──── 外部 Prometheus                    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -85,10 +97,11 @@ Internet
 - 可选 `CADDY_TLS_MODE=auto` 时，Caddy 额外监听 443 并由 Go 生成自动 HTTPS 配置；该模式需要额外的 Compose 端口映射。
 - `api` 的 8080 只在 Compose 网络内；9090 通过 `127.0.0.1:${METRICS_PORT:-9090}` 映射给外部 Prometheus，不经过 Caddy。若 Prometheus 在另一台主机，改为绑定受控私网/VPN 地址。
 - `postgres` 不发布端口。
-- 核心容器不发布端口，只加入 Docker 用户网络；Caddy 通过容器 DNS 名访问。容器名中的版本会做 DNS 安全化处理（非字母数字替换为 `-`），例如版本 `0.0.5` 实例名为 `token-ne-core-0-0-5-<deployment>-1`。
+- 核心容器不发布端口，只加入 Docker 用户网络；Caddy 通过容器 DNS 名访问。容器名中的版本会做 DNS 安全化处理（非字母数字替换为 `-`），例如版本 `0.0.5` 实例名为 `token-ne-core-0-0-5-<deployment>-1`。核心加入 `egress` 网络，并通过 `socks5h://xray:<port>` 访问 Xray。
 - Compose 不声明 core service；控制面以自身发布产品版本登记相同版本的 core，并通过 Docker API 创建精确版本或 digest 的实例。新实例完成配置确认前 Caddy 不会将流量发给它。
 - 每个核心实例挂载独立状态目录：加密配置缓存和核心私有 usage spool 都在该目录；控制面不挂载该目录用于读取或重放，只通过 heartbeat/status 观察 spool 摘要。
-- 网络分为 `edge`（Caddy HTTP、API、核心）、`core-control`（API、核心）、`data`（API、PostgreSQL、socket-proxy）。Caddy 管理面走 API 与 Caddy 共享的 Unix socket，不在任何网络上；核心不加入 `data`，因此无法触达 Caddy 管理面、Docker socket 或数据库。
+- 网络分为 `edge`（Caddy HTTP、API、核心）、`core-control`（API、核心）、`data`（API、PostgreSQL、socket-proxy），以及出站代理的 `egress`（Xray、核心、API）和 `xray-control`（Xray、API）。Caddy 管理面走 API 与 Caddy 共享的 Unix socket，不在任何网络上；核心不加入 `data` 和 `xray-control`，因此无法触达 Caddy 管理面、Docker socket、数据库或 Xray API。
+- `xray` 是 Compose 声明服务，生命周期由 Compose 管理；控制面不创建、删除或重启 Xray 容器。Xray 不发布宿主端口，不加入 `edge` 或 `data`；gRPC API 只绑定 `xray-control` 地址，核心只能通过 `egress` 使用 SOCKS5 入站。
 
 ## 请求流程
 
@@ -120,6 +133,7 @@ sequenceDiagram
 - 请求体在读取时建立一次性快照，用于多次尝试；上限 32 MiB。
 - 非流式响应在 1 MiB 缓冲上限内检查错误；超过上限后按成功响应提交并继续透传。
 - 响应体解析用量是旁路行为，不阻塞已提交的响应写出。
+- 绑定出站代理时，core 按上游的 `egress_proxy_id` 选择对应 SOCKS5 客户端，先与 Xray 建立隧道；上游域名由 Xray 解析，上游 TLS 仍由 core 端到端校验。代理不可用时按连接失败处理，不回退直连。
 
 ### 流式请求
 
@@ -153,6 +167,7 @@ sequenceDiagram
 - 上游断开、空闲超时、客户端断开都只记录终态；不再尝试其他上游。
 - 客户端断开时取消上游请求，记录 `client_disconnected`。
 - 已提交的流不会因为 Caddy 配置重载而中断。
+- 绑定出站代理时，core 到上游的箭头实际经 Xray SOCKS5 隧道；提交前代理连接失败按可重试连接错误处理，提交后中断按 `aborted` 或 `upstream_stream_error` 记录。
 
 ### 重试状态机
 
@@ -190,6 +205,7 @@ core/src/
   proxy/
     body.rs         有界请求体读取、一次性快照、模型改写
     routing.rs      全局模型查找、映射继承、上游候选排序与权重选择
+    egress.rs       出站代理绑定、每档案 SOCKS5h 客户端、连接失败分类
     upstream.rs     reqwest 客户端、URL/头构造、超时
     attempt.rs      单次尝试、状态分类、响应头处理
     retry.rs        重试判定、预算、退避
@@ -219,14 +235,14 @@ core/src/
 1. **接收与限额**：检查方法、路径、请求体大小、并发上限；生成 `request_id`（默认 UUIDv7，可复用合法的下游 `x-request-id`）。
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
-4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用且 `weight > 0`，按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
+4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用、`weight > 0`，绑定代理时还要求对应 `egress_proxies[]` 启用且可用；按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
 5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或数据面开关 `stream_usage_injection` 为 `false` 时跳过。
-6. **尝试**：构造上游 URL、认证头、透传头；发送请求；等待响应头；分类状态。
+6. **尝试**：构造上游 URL、认证头、透传头；未绑定代理时直连，绑定代理时使用该档案的 SOCKS5h 客户端经 Xray 发送；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
    - 流式：增量解析 SSE；在首个语义增量前不提交；错误事件触发重试；增量到达后提交并原样透传。
 8. **旁路提取**：在透传字节上做 tee，提取 usage、模型、事件类型；不阻塞写出。
-9. **终态**：记录状态、错误、TTFT、TTFB、耗时、字节数；组装用量事件；进入有界上报队列。
+9. **终态**：记录状态、错误、TTFT、TTFB、耗时、字节数、`egress_mode` 和 `egress_proxy_id`；组装用量事件；进入有界上报队列。
 10. **排水**：收到排水中标记或 SIGTERM 后停止接受新请求；等待在途归零；超时后强制退出并记录。
 
 ### 提交前判定
@@ -286,6 +302,8 @@ core/src/
 
 超时值可以按上游覆盖；控制面推送配置时做范围校验。
 
+连接出站代理的 TCP/TLS 握手使用 `connect_timeout_ms`；首字节超时从上游请求写出后开始计。代理自身不可用不改变这些超时语义。
+
 ### 配置快照与缓存
 
 核心配置由 Go 生成，包含：
@@ -302,7 +320,8 @@ core/src/
     "responses": true,
     "embeddings": true,
     "stream_usage_injection": true,
-    "status_rewrite": true
+    "status_rewrite": true,
+    "egress_proxy": true
   },
   "downstream_keys": [
     {
@@ -338,6 +357,14 @@ core/src/
       "connect_timeout_ms": 10000,
       "first_byte_timeout_ms": 90000,
       "idle_timeout_ms": 300000,
+      "egress_proxy_id": "0193f0c2-7b1a-7c3e-9f00-000000000008",
+      "enabled": true
+    }
+  ],
+  "egress_proxies": [
+    {
+      "id": "0193f0c2-7b1a-7c3e-9f00-000000000008",
+      "endpoint": "socks5h://xray:15001",
       "enabled": true
     }
   ],
@@ -429,6 +456,8 @@ core/src/
 
 `usage.token` 必须等于控制面的 `CORE_CONTROL_TOKEN`；core 只把这个值用于 `/internal/v1/usage/batch`，不得用于任何其他接口。
 
+`egress_proxies[].endpoint` 必须是本项目 Xray 单例的 SOCKS5 入站；第三方代理协议、服务器地址、凭据和 Xray API 地址不进入 core 快照。`egress_proxies[].enabled` 是控制面计算后的有效路由资格：只有管理员启用且运行态 `ready` 时为 `true`；`degraded` 或禁用时为 `false`。控制面保留仍被上游引用的不可用档案项，避免悬空引用；恢复后通过新 revision 将 `enabled` 置回 `true`。`upstreams[].egress_proxy_id` 为空或缺失表示直连；非空时必须引用同一快照中的代理档案。绑定档案 `enabled=false` 的上游不进入候选，core 不回退直连或改用其他档案。
+
 ```mermaid
 sequenceDiagram
     participant K as Rust 核心
@@ -493,6 +522,15 @@ sequenceDiagram
 - Go 调 `POST /containers/{id}/stop?t=<grace>`；核心收到 SIGTERM 后停止接受新连接，等待在途结束，flush spool 后退出。
 - 超过最大排水等待（默认 30 分钟）后强制停止，写入审计和指标；这会中断长流，必须显式记录。
 - Caddy 主动健康检查使用核心 `/readyz`；排水中 `/readyz` 返回 503，Docker liveness 继续使用 `/healthz`。
+
+### 退役实例自动销毁
+
+- 默认 `CORE_AUTO_PRUNE=true`。已确认成功部署中的退役实例，以及从未接收流量且 spool 为空的失败实例，在停止并经过默认 5 分钟宽限期后进入自动删除；部署尚未确认、处于回滚窗口或仍可能被回滚使用的实例保留。
+- 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
+- 正常退役可以使用停止前的最后一次在线 `status` 作为 `spool.unacked_events == 0` 的确认；崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳，必须先重启兼容 core 扫描 spool 并确认零后再销毁。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先重启兼容 core 重放；超过 `CORE_AUTO_PRUNE_MAX_AGE`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
+- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 保留用于异常处置和强制清理。
+- 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
 
 ### 用量 spool 与离线重放
 
@@ -631,6 +669,8 @@ $CORE_STATE_DIR/
 
 未知值在旧版本核心中归一化为 `unknown` 并告警；新增值必须保持上一版本的映射默认。
 
+出站代理连接、SOCKS5 握手或代理链路建立失败归入 `connect_error`；代理链路在已提交后中断归入 `aborted` 或 `upstream_stream_error`。不新增代理专用错误枚举，避免状态码改写和旧核心兼容分叉。
+
 ### 状态码改写
 
 目标不是伪装成功，而是避免下游 Agent 把**可重试的临时失败**误判为永久 4xx 并停止重试。改写只发生在提交前、重试预算耗尽后：
@@ -747,6 +787,8 @@ server/
     catalog/         上游模型目录同步、stale 标记和导入建议
     routing/         控制面路由规则、Glob 冲突校验和预览
     pricing/         价格源适配、报价差异、锁定和价格修订
+    egress/          出站代理档案、端口分配、Xray 期望状态
+    xray/            Xray gRPC 客户端、入站/出站/路由对账
     caddy/           管理 API 客户端、配置生成、对账
     orchestrator/    Docker 客户端、实例生命周期、部署状态机
     cores/         核心注册、配置快照、健康与心跳
@@ -788,6 +830,9 @@ server/
 | GET/PUT | `/api/upstreams/{id}/model-policy` | 查看/替换上游模型白名单和黑名单 |
 | POST | `/api/upstreams/{id}/test` | 测试上游 |
 | PUT/DELETE | `/api/upstreams/{id}/models/{model_id}/price` | 编辑或移除上游价格覆盖 |
+| GET/POST | `/api/egress-proxies` | 出站代理档案列表/新增 |
+| GET/PUT/DELETE | `/api/egress-proxies/{id}` | 出站代理详情/编辑/删除；被上游引用时删除返回 `409` |
+| POST | `/api/egress-proxies/{id}/test` | 通过该代理测试受控目标 |
 | GET | `/api/prices` | 查看当前上游价格覆盖 |
 | GET | `/api/price-sources` | 查看受控价格源 |
 | POST | `/api/price-sources/{source_id}/sync` | 获取价格报价批次 |
@@ -809,7 +854,7 @@ server/
 | GET | `/api/audit` | 审计查询 |
 | GET/PUT | `/api/data-plane-settings` | 读取/修改数据面开关（`stream_usage_injection`），写入 `system_state` 并入库审计 |
 
-分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。目录、路由、策略和价格使用独立 API，但目录项不会隐式成为可路由模型，价格报价不会直接覆盖当前价格。
+分页使用游标：`cursor` + `limit`，返回 `next_cursor`，避免深分页。目录、路由、策略、出站代理和价格使用独立 API，但目录项不会隐式成为可路由模型，价格报价不会直接覆盖当前价格。上游写入接受可选 `egress_proxy_id`；绑定禁用或 `degraded` 代理时允许保存但必须显示不可用，上游不进入候选。
 
 紧急配置恢复使用本地 CLI，不新增暴露密钥的 HTTP 接口：
 
@@ -837,6 +882,18 @@ api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>
 
 所有 `/internal/v1/*` 请求必须带 `X-Token-Ne-Protocol-Version: 1` 和 `X-Token-Ne-Request-Id`；控制面与核心都按协议文档执行严格校验。
 
+### Xray 出站代理对账
+
+- 出站代理档案保存在 PostgreSQL；控制面是 Xray 的唯一写入者，管理员 API 和浏览器不直接连接 Xray。
+- Xray 是 Compose 声明服务，控制面不创建、删除或重启其容器。启动配置只包含 gRPC API、默认 blackhole 和日志/路由骨架；不存在默认直连 outbound。
+- 每个档案分配稳定的内部 SOCKS5 入站端口（来自 `XRAY_PROXY_PORT_MIN`–`XRAY_PROXY_PORT_MAX`，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。
+- 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则，通过 `StatsService` 读取运行态统计。
+- 控制面启动、Xray 重启和档案变更后读取 Xray 的 inbound/outbound 列表，补齐缺失项、移除不属于期望状态的 `egress:` 标签，验证路由后才把档案标记为 `ready`。数据库是期望状态，Xray 运行态可重建。
+- 对账或 API 应用失败时档案进入 `degraded` 并告警；绑定它的上游不进入候选，已存在请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置；管理员启用状态、运行态 `ready` 变化或端点变化才递增配置 revision，以便发布有效的 `enabled` 值。
+- 档案被上游引用时删除返回 `409`；禁用后其 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。历史用量保留原 `egress_proxy_id`，删除档案不重写历史。
+- Xray API 不提供认证，安全依赖 `xray-control` 网络隔离和只绑定该网络地址；核心不加入该网络。
+
 ### 用量摄入
 
 ```mermaid
@@ -861,6 +918,7 @@ flowchart LR
 - `422` 必须带 `events[<index>].<field>` 路径；核心隔离/丢弃单条无效事件，重新组批发送剩余事件，推进处理位点并增加 `usage_send_total{result="dropped"}`；无法定位单条事件时返回 `400`，核心不得推进位点。
 - 费用在写入前按模型当前计费计算；未知价格写 `NULL`。
 - 第二期按 `coalesce(resolved_model, requested_model)` 和 `upstream_id` 选择价格档案：存在该 `(model_id, upstream_id)` 的整份上游覆盖时使用覆盖，否则用全局默认档案。`resolved_model` 缺失或不在当前配置中时回退 `requested_model`；仍无匹配则 `cost_usd` 为 `NULL` 并告警。应用时的 `price_revision_id` 写入用量事实；改价不重算历史。
+- 第二期事件保存 `egress_mode` 和 `egress_proxy_id`；代理 ID 是历史归因，不要求当前仍是有效档案。删除代理档案、禁用或改绑不重写历史费用和归因。
 - Prometheus 指标在事务提交后更新；数据库失败另有失败计数。
 
 ### Caddy 协调
@@ -875,7 +933,7 @@ flowchart TD
     V -->|失败| K["保留旧配置 + 告警指标"]
 ```
 
-- 只有同时满足“实例健康、`config.source=control_plane`、`override_active=false`、`config_revision_applied == config_revision_desired`、`config.hash == 期望哈希`、`last_controlled_at` 非空”的实例才进入上游数组。手动 override 实例即使 `last_controlled_at` 仍有旧值也不得接流量；从未被成功控制的实例权重始终为 0 且不写入 Caddy。`PUT /internal/v1/config` 在 override 存在时返回 409 `override_active`，控制面保留期望 revision。
+- 只有同时满足“实例健康、`config.source=control_plane`、`override_active=false`、`config_revision_applied == config_revision_desired`、`config.hash == 期望哈希`、`last_controlled_at` 非空”的实例才进入上游数组。存在绑定出站代理的上游时，实例还必须声明 `egress_proxy` 能力并应用包含这些绑定的 revision。手动 override 实例即使 `last_controlled_at` 仍有旧值也不得接流量；从未被成功控制的实例权重始终为 0 且不写入 Caddy。`PUT /internal/v1/config` 在 override 存在时返回 409 `override_active`，控制面保留期望 revision。
 - 使用 PostgreSQL advisory lock 保证只有一个协调器；部署状态机在应用内再加互斥，禁止并发部署。
 - 生成配置时保留稳定的 `@id`：`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa`、`token-ne-deny-internal`。
 - 任何变化（TLS、路由、健康检查、upstream 数组、权重）都生成完整 JSON 并走 `POST /load`；不再使用分离的 `PATCH`，避免权重与 upstream 顺序错位。Caddy 会重建并替换 `http` app，因此每次应用都按同一稳定窗口处理。
@@ -901,7 +959,7 @@ flowchart TD
 - 宿主机或 Docker daemon 重启后，`restart=no` 的动态实例不会自行恢复；接管时必须重新启动它们，再等待 ready 后加入 Caddy。
 - 创建容器：
   - 镜像由核心镜像仓库加版本 tag 或版本登记的 digest 组成；新版本部署在创建前自动拉取并刷新该镜像。
-  - 加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络。
+  - 加入 `CORE_NETWORKS` 指定的 `edge`、`core-control` 和 `egress` 网络。
   - 不发布端口。
   - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。`CORE_VERSION` 必须与核心 `/internal/v1/meta` 报告的版本完全一致；Compose 标签、核心自报版本不一致时，控制面拒绝接管实例。
   - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。API 在创建容器前用 `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）启动一次性 helper，以 root 在宿主机父目录创建实例子目录并 chown 给 core UID `10001`；Docker 直接创建 bind 目录会得到 root:root `0755`，非 root core 无法写入。控制面不拉取该镜像，宿主机必须已预拉取。
@@ -910,7 +968,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。动态 core 实例必须使用精确版本或 digest；`latest` 只能作为控制面部署通道，不能作为 core 实例身份。
-- 清理入口：单实例使用 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
+- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -921,14 +979,15 @@ flowchart TD
 - `docker compose up` 不会为动态版本创建或修复容器；它们只由 Go 控制面创建。
 - `docker compose down --remove-orphans` 会删除项目内不在 Compose 文件中的容器，包括动态核心。
 - 不带 `--remove-orphans` 的 `docker compose down` 只处理声明服务，可能留下动态核心。
-- `POST /api/cores/prune` 是控制面清理入口；执行前必须确认对应实例最后一次观测为 `spool.unacked_events == 0`，并记录审计。
-- 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它，清理必须显式进行。
+- 默认部署自动销毁退役实例；`POST /api/cores/prune` 是异常处置和强制清理入口，执行前必须确认对应实例最后一次观测为 `spool.unacked_events == 0`，并记录审计。
+- 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它。默认部署由控制面在 spool 确认后自动删除退役实例的状态目录，异常场景保留给手工 prune。
+- Xray 是 Compose 声明的单例服务，不由此 Docker 编排器创建或删除；核心的创建流程只负责把核心接入 `egress` 网络。
 
 如果要求动态核心必须是 Compose 声明 service，需要引入 Compose CLI adapter：Go 生成 override 文件并调用 `docker compose up/scale`。这会把容器生命周期、文件状态和并发锁耦合在一起，第一期不采用。
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数变化都会递增 `config_revision`。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
+- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理的启用状态、运行态 `ready` 变化或端点变化都会递增 `config_revision`。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1510,6 +1569,19 @@ services:
     networks:
       - data
 
+  xray:
+    image: ${XRAY_IMAGE:?set a pinned xtls/xray-core image}
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./xray/bootstrap.json:/etc/xray/config.json:ro
+    expose:
+      - "10085"
+    networks:
+      egress:
+      xray-control:
+        ipv4_address: 172.31.255.10
+
   api:
     build:
       context: ..
@@ -1517,6 +1589,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      xray:
+        condition: service_started
     environment:
       DATABASE_URL: postgres://token_ne:${POSTGRES_PASSWORD}@postgres:5432/token_ne?sslmode=disable
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
@@ -1525,7 +1599,14 @@ services:
       CADDY_TLS_MODE: ${CADDY_TLS_MODE:-off}
       CADDY_HTTP_PORT: ${CADDY_HTTP_PORT:-8080}
       DOCKER_HOST: tcp://socket-proxy:2375
-      CORE_NETWORKS: token_ne_edge,token_ne_core_control
+      CORE_NETWORKS: token_ne_edge,token_ne_core_control,token_ne_egress
+      CORE_AUTO_PRUNE: ${CORE_AUTO_PRUNE:-true}
+      CORE_AUTO_PRUNE_GRACE_SECONDS: ${CORE_AUTO_PRUNE_GRACE_SECONDS:-300}
+      CORE_AUTO_PRUNE_MAX_AGE_SECONDS: ${CORE_AUTO_PRUNE_MAX_AGE_SECONDS:-86400}
+      XRAY_API_URL: 172.31.255.10:10085
+      XRAY_PROXY_PORT_MIN: ${XRAY_PROXY_PORT_MIN:-15000}
+      XRAY_PROXY_PORT_MAX: ${XRAY_PROXY_PORT_MAX:-15999}
+      XRAY_RECONCILE_INTERVAL_SECONDS: ${XRAY_RECONCILE_INTERVAL_SECONDS:-30}
       CORE_CONTROL_TOKEN: ${CORE_CONTROL_TOKEN}
       CORE_CONFIG_SIGNING_KEY: ${CORE_CONFIG_SIGNING_KEY:-}
       CORE_CONFIG_SIGNATURE_MODE: ${CORE_CONFIG_SIGNATURE_MODE:-warn}
@@ -1557,6 +1638,8 @@ services:
     networks:
       - edge
       - core-control
+      - egress
+      - xray-control
       - data
 
   caddy-init:
@@ -1612,6 +1695,13 @@ networks:
     name: token_ne_edge
   core-control:
     name: token_ne_core_control
+  egress:
+    name: token_ne_egress
+  xray-control:
+    name: token_ne_xray_control
+    ipam:
+      config:
+        - subnet: 172.31.255.0/24
   data:
     name: token_ne_data
 ```
@@ -1619,8 +1709,9 @@ networks:
 说明：
 
 - `socket-proxy` 是推荐的收敛方式；`CONTAINERS=1` 配合 `POST=1` 覆盖创建与删除接口，`ALLOW_START`、`ALLOW_STOP`、`ALLOW_RESTARTS` 控制容器状态操作。如果暂时直接挂载 socket，风险更高，必须保证 API 不暴露公网。
-- Compose 只负责控制面、数据库、Caddy、网络和持久卷，不声明 core service；启动时控制面登记自身产品版本，并自动通过 Docker Engine API 部署精确同版本的 core。
-- Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
+- `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `172.31.255.10:10085`，SOCKS5 入站由控制面通过 API 动态创建。
+- Compose 负责控制面、数据库、Caddy、Xray 单例、网络和持久卷，不声明 core service；启动时控制面登记自身产品版本，并自动通过 Docker Engine API 部署精确同版本的 core。
+- Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的 `edge`、`core-control` 和 `egress` 网络，使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载 `bootstrap.json`：管理 API 使用 Unix socket，`/internal/*` 返回 404，空核心池的 `/v1/*` fail-closed 返回 503；Go 启动后装载完整受控配置并对账。
 - Caddy 默认只映射 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 到容器 `:80`；外部 TLS 反向代理负责公网 443。只有 `CADDY_TLS_MODE=auto` 才需要额外的 443 映射。
 - `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。动态实例的子目录由 API 通过一次性 helper 创建，避免 Docker 以 root 创建不可写的 bind 目录；控制面不拉取 `CORE_STATE_INIT_IMAGE`，该镜像必须已在宿主机预拉取（默认 `busybox:1.37` 由 `caddy-init` 服务顺带拉取）。
@@ -1649,7 +1740,7 @@ networks:
 | `AUTH_LOCAL_LOGIN_ENABLED` | 是否允许本地用户名/密码登录 | 否，默认 `true` |
 | `AUTH_SESSION_TTL_HOURS` | 会话 TTL，范围 1–2160，默认 720 | 否 |
 | `OIDC_CA_FILE` | 访问私有 CA 签发的 Authelia 时使用的 CA 文件路径；不写入数据库 | 否 |
-| `MASTER_KEY` | 上游密钥加密主密钥，base64 32 字节 | 是 |
+| `MASTER_KEY` | 上游密钥和出站代理凭据的加密主密钥，base64 32 字节 | 是 |
 | `CORE_CONTROL_TOKEN` | 控制面与核心共享 Token | 是 |
 | `CORE_CONFIG_SIGNING_KEY` | 可选签名密钥；不配置则不做签名 | 否 |
 | `CORE_CONFIG_SIGNATURE_MODE` | `off`、`warn`（默认）、`enforce` | 否 |
@@ -1659,7 +1750,14 @@ networks:
 | `CORE_STATE_INIT_IMAGE` | 为动态实例创建状态子目录的一次性容器镜像，默认 `busybox:1.37`；控制面不拉取，必须已在宿主机预拉取 | 否 |
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
-| `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control` | 否 |
+| `CORE_NETWORKS` | Go 创建核心容器时加入的网络，默认 `token_ne_edge,token_ne_core_control,token_ne_egress` | 否 |
+| `CORE_AUTO_PRUNE` | 是否自动销毁已确认退役且 spool 清零的核心实例，默认 `true` | 否 |
+| `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
+| `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
+| `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像 | 是 |
+| `XRAY_API_URL` | Xray gRPC API 地址，默认 `172.31.255.10:10085`，只在 `xray-control` 网络可达 | 否 |
+| `XRAY_PROXY_PORT_MIN` / `XRAY_PROXY_PORT_MAX` | 动态 SOCKS5 入站端口范围，默认 15000–15999 | 否 |
+| `XRAY_RECONCILE_INTERVAL_SECONDS` | Xray 运行态对账周期，默认 30 秒 | 否 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
 | `STREAM_USAGE_INJECTION` | 数据面开关的部署默认值，默认 `true`；Cores 页或 `PUT /api/data-plane-settings` 保存的选择优先于它。关闭后核心不再注入 `stream_options.include_usage`，流式用量依赖上游返回 | 否 |
@@ -1673,10 +1771,11 @@ networks:
 
 1. 外部 TLS 反向代理已运行，并把 HTTP 请求转发到宿主 loopback 的 Caddy 端口。
 2. `postgres` 健康。
-3. `api` 迁移数据库、引导管理员、启动 HTTP 和指标端口、启动协调器。
-4. `caddy` 启动（默认 HTTP），初始 `/v1/*` 返回 503；Go 装载完整配置。
-5. 控制面自动登记自身产品版本，并按该精确版本创建动态 core；core 拉取配置后，控制面确认成功控制才将它加入 Caddy 上游。没有成功控制记录的实例不得接流量；手动 override 只用于已登记实例的紧急恢复。
-6. 外部 Prometheus 开始抓取；Grafana 导入仪表盘。
+3. `xray` 启动，gRPC API 在 `xray-control` 可达；控制面启动后对账已有代理档案。Xray 不可用不阻断直连上游和管理 API。
+4. `api` 迁移数据库、引导管理员、启动 HTTP 和指标端口、启动协调器。
+5. `caddy` 启动（默认 HTTP），初始 `/v1/*` 返回 503；Go 装载完整配置。
+6. 控制面自动登记自身产品版本，并按该精确版本创建动态 core；core 拉取配置后，控制面确认成功控制才将它加入 Caddy 上游。没有成功控制记录的实例不得接流量；手动 override 只用于已登记实例的紧急恢复。
+7. 外部 Prometheus 开始抓取；Grafana 导入仪表盘。
 
 ### 静态站点构建
 
@@ -1700,13 +1799,13 @@ networks:
 
 ### 升级流程
 
-1. **预检**：数据库备份；确认当前权重、实例健康、无进行中的部署；记录当前镜像 digest、配置 revision 和 spool 未确认量。
+1. **预检**：数据库备份；确认当前权重、实例健康、无进行中的部署；记录当前镜像 digest、配置 revision 和 spool 未确认量。存在绑定出站代理的上游时，确认所有参与切换的版本声明 `egress_proxy` 能力；旧核心不能获得正权重。
 2. **登记版本**：正常 release 升级时，控制面启动自动登记与 API `/api/version` 相同的 core 版本；需要部署其他候选版本时，管理员也可手动登记版本、协议版本和配置 schema 范围。镜像引用由 `CORE_IMAGE_REPOSITORY` 与版本（标签或 digest）推导，不由客户端传入。
 3. **预热**：同版本 core 由控制面启动流程自动创建；其他候选版本通过部署 API 创建。新实例以权重 0 预热，控制面创建实例前自动拉取精确目标镜像，等待 `/readyz` 和配置 revision 一致。
 4. **冒烟**：从 API 容器直接请求新实例，使用 `x-token-ne-probe: 1`；该请求照常生成用量事件，不使用特殊跳过逻辑；响应头仅作为日志/审计标记。
 5. **切换**：默认自动推进（`auto_advance` 默认 `true`）：实例 ready 后自动进入 10%，再按 `0 → 10 → 50 → 100` 推进；每阶段至少 60 秒；观察错误率、p95 延迟、TTFT 和上游错误。关闭自动推进时用 `POST /api/cores/deployments/{id}/shift` 手动推进。
-6. **排水**：旧版本权重归零；等待 `inflight == 0`；尽量等待 spool 未确认事件清零；停止容器；保留版本记录、镜像 digest 和状态目录。若 spool 未清零，停止后用兼容 core 重启并自行重放。
-7. **完成**：更新部署状态；记录审计和指标。
+6. **排水**：旧版本权重归零；等待 `inflight == 0`；尽量等待 spool 未确认事件清零；停止容器；保留版本记录和镜像 digest。若 spool 未清零，停止后用兼容 core 重启并自行重放；若已清零，按自动销毁规则处理容器和状态目录。
+7. **完成**：更新部署状态；记录审计和指标。部署确认后，退役实例进入自动销毁候选。
 
 旧版本或需要刷新本地镜像时，显式调用 `POST /api/cores/versions/{version_id}/pull`；部署新版本之外的场景不会自动拉取。
 
@@ -1714,7 +1813,7 @@ networks:
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 如果旧实例已删除，按登记的镜像 digest 重新创建，复用原状态目录，权重 0 预热后再接流量；由兼容 core 启动时自行重放该实例的 spool。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
+3. 如果旧实例和状态目录仍在，复用它们；如果已被自动销毁，按登记的镜像 digest 重新创建实例和新的状态目录，权重 0 预热后再接流量。被自动销毁前提是 spool 已确认清零，因此不需要重放旧 spool。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
@@ -1738,6 +1837,10 @@ networks:
 | 所有核心不可用 | `/v1/*` 返回 503 | 管理界面可用 | 部署新实例；检查镜像/配置 |
 | 上游不可用 | 核心按候选重试；重试耗尽后按策略改写成 503，原始状态记录在请求事实中 | 指标和请求记录可见 | 修复上游或调整候选 |
 | Docker API 不可用 | 现有核心继续运行 | 无法部署/排水 | 恢复 socket proxy；对账 |
+| Xray 不可用或重启 | 绑定代理的上游请求按连接失败重试，耗尽后返回 503；直连上游不受影响 | 出错、对账失败 | 恢复 Xray；控制面重新对账；不回退直连 |
+| Xray API 应用失败 | 档案 `degraded`，绑定上游没有候选 | 档案状态和告警可见 | 修复 API/配置后重试对账；不得改用其他档案或直连 |
+| 出站代理凭据错误或代理拒绝连接 | 只用该档案的上游失败，按连接错误处理 | 测试和对账状态可见 | 更新档案凭据；更新成功后无需重启 core |
+| 自动销毁失败 | 容器和状态目录保留，不影响数据面 | 指标/审计标记失败 | 检查 Docker/权限；退避重试或手工 prune |
 | 配置推送失败 | 核心用旧配置；新请求可能路由到旧模型 | 部署阻塞 | 修复网络/Token；重试推送 |
 | 用量 spool 满 | 代理不受影响 | 控制面可见 `spool_dropped_total` 和最早未确认时间 | 提高容量、恢复控制面、降低请求量；评估是否引入外部队列 |
 | 配置缓存缺失或损坏 | 核心无法 ready，不接流量 | 实例无法加入上游 | 控制面在线时重新下发配置；紧急时用 override 并记录审计 |
@@ -1753,10 +1856,11 @@ networks:
 - **内部 API**：`CORE_CONTROL_TOKEN`；常量时间比较；只在 Compose 网络。
 - **核心指标**：`CORE_METRICS_LISTEN=9091` 只在内网；不发布宿主端口，Caddy 不路由；外部 Prometheus 不直接抓取。
 - **Caddy 管理 API**：无内建认证；只通过 API 与 Caddy 共享的 `/run/caddy/admin.sock` Unix socket 访问，不监听网络端口；只有 API 容器调用。
+- **Xray API**：无内建认证；只绑定 `xray-control` 网络地址，只有 API 容器可达；核心不加入该网络。Xray 不发布宿主端口，不加入 `edge` 或 `data`。
 - **Docker socket**：通过 socket proxy 收敛；仍然高权限，控制面被攻破等价于宿主机风险。后续拆独立 `core-controller`。
-- **密钥**：上游密钥与 OIDC client secret 使用 AES-256-GCM；下游 Key 只存 SHA-256；auth flow 的 PKCE verifier 加密、state 只存哈希；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
-- **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 spool，不含原始请求/响应正文、请求头或上游密钥明文。
-- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。OIDC issuer 是管理员配置的控制面依赖，允许内网 HTTPS，`http` 仅允许 loopback，私有 CA 通过 `OIDC_CA_FILE` 注入。
+- **密钥**：上游密钥、出站代理凭据与 OIDC client secret 使用 AES-256-GCM；下游 Key 只存 SHA-256；auth flow 的 PKCE verifier 加密、state 只存哈希；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
+- **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 spool，不含原始请求/响应正文、请求头、上游密钥明文或代理凭据。
+- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。出站代理不绕过该限制；代理服务器地址可以位于受控私网，但只能由管理员显式配置，不能来自下游请求。OIDC issuer 是管理员配置的控制面依赖，允许内网 HTTPS，`http` 仅允许 loopback，私有 CA 通过 `OIDC_CA_FILE` 注入。
 - **请求体**：默认不持久化；错误消息最多 1 KiB；不记录 Authorization。
 - **审计**：关键写操作记录 actor、动作、目标、变更摘要（脱敏）和来源 IP。
 
@@ -1803,26 +1907,31 @@ networks:
 | `token_ne_core_spool_oldest_unacked_seconds` | gauge | version, instance |
 | `token_ne_core_spool_dropped_total` | counter | version, instance |
 | `token_ne_core_forced_drain_total` | counter | version |
+| `token_ne_core_auto_prune_total` | counter | result |
+| `token_ne_egress_proxy_up` | gauge | profile, state |
+| `token_ne_xray_api_apply_total` | counter | result |
+| `token_ne_xray_reconcile_total` | counter | result |
+| `token_ne_proxy_egress_requests_total` | counter | core_version, proxy, status |
 | `token_ne_caddy_apply_total` | counter | result |
 | `token_ne_db_pool_connections` | gauge | state |
 
 标签基数控制：
 
 - 不允许 `request_id`、`event_id`、`api_key`、上游密钥、OIDC `subject`、邮箱、错误消息作为标签。
-- `model` 和 `upstream` 来自配置，数量有限；`core_version` 来自版本登记，数量有限；未知值归一化为 `unknown`。
+- `model`、`upstream` 和代理 `profile` 来自配置，数量有限；`core_version` 来自版本登记，数量有限；未知值归一化为 `unknown`。
 - `status` 使用 HTTP 状态码或有限结果分类。
 
 ### 日志
 
-- JSON 结构化日志，包含 `request_id`、`core_version`、`instance`、`model`、`upstream`、`status`、`duration_ms`、`ttft_ms`、`attempts`。
-- 不记录请求/响应正文、Authorization、上游密钥。
+- JSON 结构化日志，包含 `request_id`、`core_version`、`instance`、`model`、`upstream`、`egress_proxy`、`status`、`duration_ms`、`ttft_ms`、`attempts`。
+- 不记录请求/响应正文、Authorization、上游密钥、代理凭据。
 - Caddy 访问日志开启，保留 7 天；不记录 Authorization。
 - 控制面审计日志写入 PostgreSQL，普通运行日志输出到 stdout。
 
 ### Grafana
 
-- `ops/grafana/dashboards/token-ne-overview.json`：请求量、成功率、p95 延迟、TTFT、token、费用、重试、上游错误、状态码改写次数和策略来源。
-- `ops/grafana/dashboards/token-ne-cores.json`：版本、实例、权重、在途数、配置 revision/age/source/override、签名告警、spool 字节/未确认数/最早未确认时间、排水状态。
+- `ops/grafana/dashboards/token-ne-overview.json`：请求量、成功率、p95 延迟、TTFT、token、费用、重试、上游错误、出站代理请求、状态码改写次数和策略来源。
+- `ops/grafana/dashboards/token-ne-cores.json`：版本、实例、权重、在途数、配置 revision/age/source/override、签名告警、spool 字节/未确认数/最早未确认时间、排水状态、自动销毁结果、出站代理对账状态。
 - `ops/prometheus/scrape.example.yml`：单抓取目标示例。
 - 仪表盘通过 Grafana 导入，不放入 Compose。
 
@@ -1831,6 +1940,7 @@ networks:
 ### 核心
 
 - 单元测试：SSE 解析、首语义增量识别、错误分类、模型映射继承、上游候选排序、重试预算、URL 拼接、密钥校验。
+- 出站代理：上游绑定选择对应 SOCKS5h 客户端；代理禁用或连接失败时该上游失败且不回退直连；直连上游不受影响。
 - 集成测试：mock 上游注入 503、429、首字节超时、SSE 错误事件、提交后断开、慢流；验证不重复输出。
 - 状态码改写矩阵：429/5xx/网络失败重试耗尽后为 503 + `Retry-After`；400/404 保持；已提交 SSE 不改写；`x-token-ne-no-status-rewrite: 1` 跳过。
 - 属性测试：随机 SSE 分片不改变透传字节；JSON 改写不改变其他字段。
@@ -1842,6 +1952,8 @@ networks:
 
 - 单元测试：Caddy 配置生成、权重计算、部署状态机、费用计算、Key 哈希、上游 URL 校验。
 - 集成测试：PostgreSQL 容器中跑迁移和用量幂等；mock Caddy 管理 API 验证完整 `POST /load`、`/readyz` 健康检查和权重/upstream 原子更新；mock Docker API 验证创建/接管/排水/标签清理。
+- 出站代理：mock Xray gRPC API 验证入站/出站/路由创建与删除、启动对账、孤儿清理、端口分配和 `degraded` 状态；验证代理凭据不出现在日志、API 响应和配置快照。
+- 自动销毁：正常退役、spool 非零、崩溃/状态缺失、回滚窗口、强制排水和删除失败。
 - 契约测试：OpenAPI 管理/下游接口、核心配置 schema、用量事件 schema、heartbeat/status schema、错误码和 golden fixtures。
 - 前端：Vitest + Testing Library；关键页面 Playwright 冒烟。
 
@@ -1855,6 +1967,7 @@ networks:
 - 控制面停机，继续产生用量；恢复后由 core 重放且不重复。
 - `/v1/models` 和 `/v1/models/{model}` 通过官方 schema 校验。
 - 控制面重启后对账。
+- 创建代理档案并绑定上游，mock 正向代理观察到连接；停止 Xray 后请求失败且没有直连回退，恢复后对账恢复。
 - Prometheus 抓取和 Grafana 数据源冒烟（可选）。
 
 ### CI 门禁
@@ -1878,6 +1991,8 @@ token-ne/
     go.mod
     cmd/api/
     internal/
+      egress/
+      xray/
     migrations/
     Dockerfile
   web/
@@ -1891,6 +2006,7 @@ token-ne/
   ops/
     compose.yaml
     caddy/bootstrap.json
+    xray/bootstrap.json
     grafana/dashboards/
     prometheus/
   docs/
@@ -1913,23 +2029,34 @@ token-ne/
 
 ## 阶段边界
 
-第一期只实现本文描述的能力。以下能力在 schema 和接口上预留扩展点，但不实现：
+第一期只实现上述第一期能力。以下能力在 schema 和接口上预留扩展点，但不实现：
 
 - 上游 `kind` 从 `api_key` 扩展到 `oauth_account`；上游能力关系仍指向 `model_id`。
 - 核心能力协商和配置 schema 版本已经存在，可支持不同版本并行。
 - 用量事件包含 `upstream_id` 和 `core_version`，可支持后续号池和成本归属。
 - Caddy 配置使用稳定 `@id`，可增加更多路由和策略。
 - Docker 编排已经抽象为实例生命周期，可替换为独立控制器。
+- 出站代理在第二期实现：单例 Xray、控制面 gRPC 对账、上游绑定和 `egress_proxy` 能力协商。
 
 ### 第二期模型路由
 
 请求管线在权限检查前解析模型名。先查全局 Model 精确 ID，再查启用的 exact 规则，最后按 `priority` 升序查启用的 Glob 规则。命中后固定目标和上游限制，目标未启用或未匹配时返回 `404`。Key 权限和承接策略针对解析后的全局 ID。候选通过能力、权重、上游限制和承接策略校验后进入现有调度顺序。用量记录请求名、解析后的模型和实际发送的上游模型名。
 路由规则与全局 Model ID 共享命名空间：`pattern` 等于已有 Model ID 的规则不能保存；新建或导入 Model 时，若已有规则使用同一 `pattern`，同样拒绝并返回字段路径。`glob` 规则使用与承接策略相同的受限 Glob 语言，同优先级重叠按该语言判定。
-路由规则写入、Model 创建和目录导入在事务内先取同一把事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。任何绕过管理 API 的写入必须复用同一校验函数，重叠判定与预览共用实现，避免预览与保存分歧。
+路由规则写入、Model 创建和目录导入在事务内先取同一事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。任何绕过管理 API 的写入必须复用同一校验函数，重叠判定与预览共用实现，避免预览与保存分歧。
 
-### 第二期模型与价格数据扩展
+### 第二期出站代理
 
-第二期新增事实仍由控制面和 PostgreSQL 持有；目录与报价不进入 core 请求热路径，只有已审核的路由、策略和能力信息进入配置快照，价格修订由控制面在用量摄入时选择。以下表结构表达数据边界，实际迁移时必须保持同一主键、唯一性和原子应用语义。
+控制面保存出站代理档案，Xray 单例在 Compose 中运行。控制面是 Xray 的唯一写入者，通过 gRPC `HandlerService`、`RoutingService` 和 `StatsService` 增加/删除 SOCKS5 入站、协议出站和路由规则，并在启动、Xray 重启和变更后对账。数据库是期望状态，Xray 运行态可重建。
+
+出站代理协议支持 HTTP(S)、SOCKS5、Shadowsocks、VMess、VLESS 和 Trojan；传输和 TLS 选项按协议枚举。第三方代理服务器地址、协议细节和凭据只存在于控制面和 Xray outbound，不进入 core 快照。核心只拿到内部 `socks5h://<xray>:<port>` 端点、代理档案 ID 和启用状态。
+
+`egress_proxies` 是配置快照的完整函数；被禁用、对账失败或不可用的代理绑定的上游不进入候选。核心不得回退直连或改用其他代理档案。Xray 启动配置只有 API、blackhole 和路由骨架，未匹配流量不能直连。
+
+旧核心未声明 `egress_proxy` 时不能接收出站代理字段；部署中存在绑定代理的上游时，旧核心不能获得正权重。代理档案删除、禁用、对账失败和 Xray 不可用都不重写历史用量中的 `egress_proxy_id`。
+
+### 第二期模型、价格与出站代理数据扩展
+
+第二期新增事实仍由控制面和 PostgreSQL 持有；目录、报价和出站代理档案不进入 core 请求热路径，只有已审核的路由、策略、能力信息和内部代理端点进入配置快照，价格修订由控制面在用量摄入时选择。以下表结构表达数据边界，实际迁移时必须保持同一主键、唯一性和原子应用语义。
 
 ```sql
 create table upstream_model_catalog (
@@ -2061,6 +2188,34 @@ create table price_sync_runs (
   error text,
   created_at timestamptz not null default now()
 );
+
+create table egress_proxies (
+  id uuid primary key,
+  name text not null unique,
+  protocol text not null check (protocol in ('http', 'socks5', 'shadowsocks', 'vmess', 'vless', 'trojan')),
+  server text not null,
+  port int not null check (port between 1 and 65535),
+  credentials_ciphertext bytea,
+  credentials_nonce bytea,
+  transport jsonb not null default '{}'::jsonb,
+  tls jsonb not null default '{}'::jsonb,
+  enabled boolean not null default true,
+  inbound_port int not null unique check (inbound_port between 1024 and 65535),
+  runtime_state text not null default 'pending' check (runtime_state in ('pending', 'ready', 'degraded', 'disabled')),
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check ((credentials_ciphertext is null) = (credentials_nonce is null))
+);
+
+alter table upstreams add column egress_proxy_id uuid references egress_proxies(id) on delete restrict;
+
+alter table usage_events add column egress_mode text not null default 'direct'
+  check (egress_mode in ('direct', 'proxy'));
+alter table usage_events add column egress_proxy_id uuid;
+
+create index usage_events_egress_proxy_time
+  on usage_events (egress_proxy_id, occurred_at desc);
 ```
 
 - 目录同步只写 `upstream_model_catalog` 和 `upstream_model_sync_runs`。每个上游同一时间最多运行一个同步。同步失败保留目录，成功时在同一事务内写入快照和终态。
@@ -2068,5 +2223,9 @@ create table price_sync_runs (
 - 全局当前价格保存在 `models` 的 billing 字段，上游当前覆盖保存在 `model_prices`。每条历史修订分别标明 `scope=global|upstream`，且保存 `model_id` 和可空的 `upstream_id`。全局当前修订通过 billing revision 外键限制为同模型的 global scope；上游覆盖含 `scope=upstream` 并通过复合外键限制为同模型、同上游的 upstream scope。历史修订不以模型/上游外键限制生命周期删除。报价应用事务先锁定批次行和全部目标行（`select ... for update`），再重检 `base_price_revision_id`：非空时必须等于目标当前修订，为 `null` 时目标必须仍不存在。成功后追加本批 `price_revision_ids` 并更新 `applied_at`，不覆盖此前批次结果；批次 `state` 为 `failed` 或仍为 `running` 时拒绝。基线过期以 `409 stale_price_quote` 回滚整批。
 - 批次 `state` 在首次成功应用后为 `applied`，且仍可继续应用剩余报价；`applied_at` 表示最近一次成功应用时间，不是终结标记。
 - 第二期迁移为每个既有 Model 回填一条 `scope=global`、`source=manual`、`locked=false` 的价格修订，并把 `billing_revision_id` 指向它；新建 Model、目录导入新建 Model 和首次改价都在同一事务内创建初始修订。因此二期模型响应总有非空 `billing_state.price_revision_id`。
-- 第二期迁移为 `usage_events` 增加可空的 `resolved_model` 和 `price_revision_id`，并为 `resolved_model` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名与上游 ID；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
+- 第二期迁移为 `usage_events` 增加可空的 `resolved_model`、`price_revision_id`、`egress_mode` 和 `egress_proxy_id`，并为 `resolved_model`、`egress_proxy_id` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名与上游 ID；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 或 `egress_proxy_id` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
 - 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。
+- 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，只写不读；API、日志、审计和 core 快照不出现明文。`server`、`port`、`transport` 和 `tls` 只用于控制面生成 Xray outbound，不进入 core 快照；`transport` 和 `tls` 只保存非秘密选项，私钥、密码和 token 必须进入 `credentials_ciphertext`。
+- `egress_proxies.inbound_port` 由控制面在配置范围内分配并持久化；端口只在该档案的 Xray 运行态清理完成后回收。`runtime_state` 是对账观测，不是期望状态；管理员期望启用状态以数据库 `enabled` 为准，core 快照中的 `egress_proxies[].enabled` 是管理员状态与 `runtime_state` 计算后的有效资格。
+- `upstreams.egress_proxy_id` 使用 `on delete restrict`，删除仍被上游引用的档案由 API 返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。
+- `usage_events.egress_proxy_id` 是历史归因，不设外键；删除代理档案或改绑不重写历史。`egress_mode` 为 `direct` 时该列必须为空。
