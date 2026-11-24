@@ -1335,3 +1335,44 @@ th {
   color: var(--accent);
   flex: none;
 }
+.price-metrics {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 7.6rem;
+  white-space: nowrap;
+}
+.price-metric {
+  display: grid;
+  grid-template-columns: 2.1rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.45rem;
+}
+.price-metric-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.price-metric-value {
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
+}
+.empty-value {
+  display: inline-flex;
+  min-height: 1.3rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--muted);
+  border-radius: 0.3rem;
+  padding: 0.05rem 0.3rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}

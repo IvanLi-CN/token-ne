@@ -22,9 +22,34 @@ const sortLabels: Record<SortField, string> = {
   deprecated: "废弃时间",
 };
 
-function priceLabel(billing: SourceModel["billing"]) {
-  const value = (price: number | null) => (price === null ? "—" : `$${price}`);
-  return `入 ${value(billing.input_usd_per_mtok)} · 缓 ${value(billing.cached_input_usd_per_mtok)} · 出 ${value(billing.output_usd_per_mtok)}`;
+function PriceCell({ billing }: { billing: SourceModel["billing"] }) {
+  const metrics = [
+    ["输入", billing.input_usd_per_mtok],
+    ["缓存", billing.cached_input_usd_per_mtok],
+    ["输出", billing.output_usd_per_mtok],
+  ] as const;
+  return (
+    <div className="price-metrics">
+      {metrics.map(([label, price]) => (
+        <div className="price-metric" key={label}>
+          <span className="price-metric-label">{label}</span>
+          {price === null ? (
+            <EmptyValue label={`${label}价格`} />
+          ) : (
+            <span className="price-metric-value">${price}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyValue({ label }: { label: string }) {
+  return (
+    <span role="img" className="empty-value" title={`${label}未提供`} aria-label={`${label}未提供`}>
+      未提供
+    </span>
+  );
 }
 
 export function PriceSourceCatalogSection() {
@@ -241,11 +266,16 @@ export function PriceSourceCatalogSection() {
                 </div>
               ),
             },
-            { key: "vendor", header: "供应商", cell: (row) => row.vendor || "—" },
+            {
+              key: "vendor",
+              header: "供应商",
+              cell: (row) => (row.vendor ? row.vendor : <EmptyValue label="供应商" />),
+            },
             {
               key: "released",
               header: "发布时间",
-              cell: (row) => formatTime(row.released_at),
+              cell: (row) =>
+                row.released_at ? formatTime(row.released_at) : <EmptyValue label="发布时间" />,
             },
             {
               key: "deprecated",
@@ -254,10 +284,14 @@ export function PriceSourceCatalogSection() {
                 row.deprecated_at ? (
                   <StatusBadge tone="warning">{formatTime(row.deprecated_at)}</StatusBadge>
                 ) : (
-                  "—"
+                  <EmptyValue label="废弃时间" />
                 ),
             },
-            { key: "price", header: "价格 / Mtok", cell: (row) => priceLabel(row.billing) },
+            {
+              key: "price",
+              header: "价格 / Mtok",
+              cell: (row) => <PriceCell billing={row.billing} />,
+            },
             {
               key: "installed",
               header: "全局模型",
