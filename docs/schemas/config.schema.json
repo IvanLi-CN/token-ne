@@ -71,7 +71,7 @@
       }
     }
   ],
-  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, non-canonical UUIDs (format is annotation-only here), dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -113,7 +113,6 @@
     },
     "egress_proxies": {
       "type": "array",
-      "maxItems": 256,
       "items": { "$ref": "#/$defs/egressProxy" }
     },
     "upstream_models": {
@@ -135,6 +134,7 @@
     "limits": { "$ref": "#/$defs/limits" }
   },
   "$defs": {
+    "nullableUuid": { "type": ["string", "null"], "format": "uuid" },
     "downstreamKey": {
       "type": "object",
       "required": ["id", "name", "sha256", "enabled", "allowed_models", "max_inflight"],
@@ -207,11 +207,7 @@
         "connect_timeout_ms": { "type": "integer", "minimum": 100 },
         "first_byte_timeout_ms": { "type": "integer", "minimum": 100 },
         "idle_timeout_ms": { "type": "integer", "minimum": 100 },
-        "egress_proxy_id": {
-          "type": ["string", "null"],
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
+        "egress_proxy_id": { "$ref": "#/$defs/nullableUuid" },
         "enabled": { "type": "boolean" }
       },
       "additionalProperties": true
@@ -220,16 +216,12 @@
       "type": "object",
       "required": ["id", "endpoint", "enabled"],
       "properties": {
-        "id": {
-          "type": "string",
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
+        "id": { "type": "string", "format": "uuid" },
         "endpoint": {
           "type": "string",
           "format": "uri",
           "maxLength": 256,
-          "pattern": "^socks5h://(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\\[[0-9A-Fa-f:.]+\\]):(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+          "pattern": "^socks5h://(?:(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)|\\[(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:))\\]):(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
         },
         "enabled": {
           "type": "boolean",
