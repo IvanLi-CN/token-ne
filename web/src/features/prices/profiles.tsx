@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
+import { AudioMoney, Money, TierPrices } from "../../components/price";
 import { Button, StatusBadge } from "../../components/primitives";
 import { Select } from "../../components/select";
 import { type Billing, type PriceProfile, type PriceProfileInput, pricesApi } from "../../lib/api";
@@ -10,7 +11,7 @@ import { formatTime } from "../../lib/format";
 import type { Model } from "../models/api";
 import { ActionGroup, Editor, errorMessage, Field } from "../models/management";
 import type { Upstream } from "../upstreams/api";
-import { BillingCell, RevisionCell } from "./presentation";
+import { RevisionCell } from "./presentation";
 
 const prices = [
   ["input_usd_per_mtok", "输入价格"],
@@ -344,10 +345,82 @@ export function PriceProfilesSection({
                 ),
               },
               {
-                key: "billing",
-                header: "当前值",
+                key: "input",
+                header: "输入",
                 cell: (row) => (
-                  <BillingCell billing={row.kind === "global" ? row.model.billing : row.profile} />
+                  <Money
+                    value={
+                      (row.kind === "global" ? row.model.billing : row.profile).input_usd_per_mtok
+                    }
+                    label="输入价格"
+                  />
+                ),
+              },
+              {
+                key: "cached",
+                header: "缓存读",
+                cell: (row) => (
+                  <Money
+                    value={
+                      (row.kind === "global" ? row.model.billing : row.profile)
+                        .cached_input_usd_per_mtok
+                    }
+                    label="缓存读取价格"
+                  />
+                ),
+              },
+              {
+                key: "write",
+                header: "缓存写",
+                cell: (row) => (
+                  <Money
+                    value={
+                      (row.kind === "global" ? row.model.billing : row.profile)
+                        .cache_write_usd_per_mtok
+                    }
+                    label="缓存写入价格"
+                  />
+                ),
+              },
+              {
+                key: "reasoning",
+                header: "推理",
+                cell: (row) => (
+                  <Money
+                    value={
+                      (row.kind === "global" ? row.model.billing : row.profile)
+                        .reasoning_usd_per_mtok
+                    }
+                    label="推理价格"
+                  />
+                ),
+              },
+              {
+                key: "output",
+                header: "输出",
+                cell: (row) => (
+                  <Money
+                    value={
+                      (row.kind === "global" ? row.model.billing : row.profile).output_usd_per_mtok
+                    }
+                    label="输出价格"
+                  />
+                ),
+              },
+              {
+                key: "audio",
+                header: "音频 入/出",
+                cell: (row) => (
+                  <AudioMoney billing={row.kind === "global" ? row.model.billing : row.profile} />
+                ),
+              },
+              {
+                key: "tiers",
+                header: "阶梯 入/出",
+                cell: (row) => (
+                  <TierPrices
+                    tiers={(row.kind === "global" ? row.model.billing : row.profile).tiers}
+                  />
                 ),
               },
               {

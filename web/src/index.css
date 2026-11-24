@@ -1335,44 +1335,68 @@ th {
   color: var(--accent);
   flex: none;
 }
-.price-metrics {
+.price-missing {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.price-legend {
+  margin: 0;
+  padding: 0.75rem 1.25rem 0;
+  font-size: 0.75rem;
+}
+.price-num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.price-secondary {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.price-sep {
+  color: var(--muted);
+}
+.model-cell {
+  display: grid;
+  gap: 0.2rem;
+}
+.model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.6rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.model-deprecated {
+  color: var(--warning);
+}
+.tier-list {
   display: grid;
   gap: 0.1rem;
-  min-width: 7.6rem;
-  white-space: nowrap;
 }
-.price-metric {
-  display: grid;
-  grid-template-columns: 2.1rem minmax(0, 1fr);
+.tier-line {
+  display: flex;
+  gap: 0.4rem;
   align-items: baseline;
-  gap: 0.45rem;
-}
-.price-metric-label {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 600;
-  line-height: 1.35;
-}
-.price-metric-value {
-  color: var(--fg);
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: right;
-}
-.empty-value {
-  display: inline-flex;
-  min-height: 1.3rem;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--muted);
-  border-radius: 0.3rem;
-  padding: 0.05rem 0.3rem;
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 500;
-  line-height: 1;
   white-space: nowrap;
+}
+.tier-threshold {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.1rem;
+}
+.tier-prices {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--fg);
+}
+
+.model-meta-sep {
+  color: var(--border);
 }

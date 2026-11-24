@@ -2,14 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
+import { AudioMoney, Money, TierPrices } from "../../components/price";
 import { Button, Input, StatusBadge } from "../../components/primitives";
 import { Select } from "../../components/select";
-import {
-  type PriceSourceInstall,
-  priceSourceCatalogApi,
-  pricesApi,
-  type SourceModel,
-} from "../../lib/api";
+import { type PriceSourceInstall, priceSourceCatalogApi, pricesApi } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
 import { errorMessage } from "../models/management";
@@ -21,48 +17,6 @@ const sortLabels: Record<SortField, string> = {
   released: "发布时间",
   deprecated: "废弃时间",
 };
-
-function PriceCell({ billing }: { billing: SourceModel["billing"] }) {
-  const metrics: Array<[string, number | null | undefined]> = [
-    ["输入", billing.input_usd_per_mtok],
-    ["缓存", billing.cached_input_usd_per_mtok],
-    ...(billing.cache_write_usd_per_mtok != null
-      ? ([["缓存写", billing.cache_write_usd_per_mtok]] as Array<[string, number | null]>)
-      : []),
-    ...(billing.audio_input_usd_per_mtok != null
-      ? ([["音频入", billing.audio_input_usd_per_mtok]] as Array<[string, number | null]>)
-      : []),
-    ...(billing.audio_output_usd_per_mtok != null
-      ? ([["音频出", billing.audio_output_usd_per_mtok]] as Array<[string, number | null]>)
-      : []),
-    ...(billing.reasoning_usd_per_mtok != null
-      ? ([["推理", billing.reasoning_usd_per_mtok]] as Array<[string, number | null]>)
-      : []),
-    ["输出", billing.output_usd_per_mtok],
-  ];
-  return (
-    <div className="price-metrics">
-      {metrics.map(([label, price]) => (
-        <div className="price-metric" key={label}>
-          <span className="price-metric-label">{label}</span>
-          {price === null ? (
-            <EmptyValue label={`${label}价格`} />
-          ) : (
-            <span className="price-metric-value">${price}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyValue({ label }: { label: string }) {
-  return (
-    <span role="img" className="empty-value" title={`${label}未提供`} aria-label={`${label}未提供`}>
-      未提供
-    </span>
-  );
-}
 
 export function PriceSourceCatalogSection() {
   const client = useQueryClient();
@@ -238,6 +192,10 @@ export function PriceSourceCatalogSection() {
       </section>
 
       <section className="surface-card">
+        <p className="muted price-legend">
+          金额单位 USD / 100 万 tokens；“—”表示来源未提供该维度；阶梯价在 prompt
+          达到阈值时整份生效。
+        </p>
         <DataTable
           caption="价格源模型"
           rows={rows}
@@ -270,39 +228,76 @@ export function PriceSourceCatalogSection() {
               key: "model",
               header: "模型",
               cell: (row) => (
-                <div>
+                <div className="model-cell">
                   <code>{row.source_model_id}</code>
-                  {row.model_id !== row.source_model_id && (
-                    <div className="muted text-xs">将添加为 {row.model_id}</div>
-                  )}
+                  <div className="model-meta">
+                    <span>{row.vendor || "未知供应商"}</span>
+                    <span aria-hidden="true" className="model-meta-sep">
+                      ·
+                    </span>
+                    <span>
+                      {row.released_at ? `发布于 ${formatTime(row.released_at)}` : "发布日期未提供"}
+                    </span>
+                    {row.deprecated_at && (
+                      <>
+                        <span aria-hidden="true" className="model-meta-sep">
+                          ·
+                        </span>
+                        <span className="model-deprecated">
+                          弃用 {formatTime(row.deprecated_at)}
+                        </span>
+                      </>
+                    )}
+                    {row.model_id !== row.source_model_id && (
+                      <>
+                        <span aria-hidden="true" className="model-meta-sep">
+                          ·
+                        </span>
+                        <span>将添加为 {row.model_id}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               ),
             },
             {
-              key: "vendor",
-              header: "供应商",
-              cell: (row) => (row.vendor ? row.vendor : <EmptyValue label="供应商" />),
+              key: "input",
+              header: "输入",
+              cell: (row) => <Money value={row.billing.input_usd_per_mtok} label="输入价格" />,
             },
             {
-              key: "released",
-              header: "发布时间",
-              cell: (row) =>
-                row.released_at ? formatTime(row.released_at) : <EmptyValue label="发布时间" />,
+              key: "cached",
+              header: "缓存读",
+              cell: (row) => (
+                <Money value={row.billing.cached_input_usd_per_mtok} label="缓存读取价格" />
+              ),
             },
             {
-              key: "deprecated",
-              header: "废弃时间",
-              cell: (row) =>
-                row.deprecated_at ? (
-                  <StatusBadge tone="warning">{formatTime(row.deprecated_at)}</StatusBadge>
-                ) : (
-                  <EmptyValue label="废弃时间" />
-                ),
+              key: "cache_write",
+              header: "缓存写",
+              cell: (row) => (
+                <Money value={row.billing.cache_write_usd_per_mtok} label="缓存写入价格" />
+              ),
             },
             {
-              key: "price",
-              header: "价格 / Mtok",
-              cell: (row) => <PriceCell billing={row.billing} />,
+              key: "reasoning",
+              header: "推理",
+              cell: (row) => <Money value={row.billing.reasoning_usd_per_mtok} label="推理价格" />,
+            },
+            {
+              key: "output",
+              header: "输出",
+              cell: (row) => <Money value={row.billing.output_usd_per_mtok} label="输出价格" />,
+            },
+            {
+              key: "audio",
+              header: "音频 入/出",
+              cell: (row) => <AudioMoney billing={row.billing} />,
+            },
+            {
+              key: "tiers",
+              header: "阶梯 入/出",
+              cell: (row) => <TierPrices tiers={row.billing.tiers} />,
             },
             {
               key: "installed",
