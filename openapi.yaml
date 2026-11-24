@@ -1171,6 +1171,87 @@ paths:
           $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    get:
+      tags: [prices]
+      summary: 列出受控价格源的模型
+      operationId: listPriceSourceModels
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: vendor
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, released, deprecated]
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: 价格源模型清单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceCatalog"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models/install:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [prices]
+      summary: 把价格源模型批量加入全局模型
+      operationId: installPriceSourceModels
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceSourceInstallInput"
+      responses:
+        "201":
+          description: 逐行安装结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceInstall"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminBadRequest"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sync-runs/{run_id}:
     parameters:
       - $ref: "#/components/parameters/SyncRunId"
@@ -3127,6 +3208,81 @@ components:
           items:
             type: string
       description: 控制面要求每个被选中的非安全报价都出现在 `reviewed_quote_ids` 中，且该列表必须是 `quote_ids` 的子集；任一目标的当前修订与报价基线不一致就整批拒绝。`force_locked` 只单独确认锁定档案，不代替逐项审核。应用事务先锁定批次行和全部目标行，成功后追加本批 `price_revision_ids`、更新 `applied_at`，不覆盖之前的批次结果；拒绝时批次保持 `ready`。
+    PriceSourceCatalog:
+      type: object
+      required: [source_id, fetched_at, vendors, data]
+      properties:
+        source_id:
+          type: string
+        fetched_at:
+          type: string
+          format: date-time
+        vendors:
+          type: array
+          items:
+            type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceModel"
+    SourceModel:
+      type: object
+      required: [source_model_id, vendor, released_at, deprecated_at, billing, model_id, installed]
+      properties:
+        source_model_id:
+          type: string
+          maxLength: 256
+        vendor:
+          type: string
+        released_at:
+          type: [string, "null"]
+          format: date-time
+        deprecated_at:
+          type: [string, "null"]
+          format: date-time
+        billing:
+          $ref: "#/components/schemas/Billing"
+        model_id:
+          type: string
+          description: 加入全局模型时使用的目标 ID（显式映射优先，否则为来源 ID）。
+        installed:
+          type: boolean
+          description: 目标 ID 是否已存在于全局模型。
+    PriceSourceInstallInput:
+      type: object
+      required: [source_model_ids]
+      properties:
+        source_model_ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 256
+    PriceSourceInstall:
+      type: object
+      required: [source_id, data]
+      properties:
+        source_id:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceModelInstall"
+    SourceModelInstall:
+      type: object
+      required: [source_model_id, model_id, outcome]
+      properties:
+        source_model_id:
+          type: string
+        model_id:
+          type: string
+        outcome:
+          type: string
+          enum: [created, exists, conflict]
+        reason:
+          type: string
     Upstream:
       type: object
       required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]

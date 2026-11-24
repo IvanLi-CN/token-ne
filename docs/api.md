@@ -80,6 +80,12 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 报价保存生成时的目标当前价格修订和目标档案更新时间；`base_price_revision_id` 为 `null` 表示生成时目标覆盖尚不存在，应用前必须仍不存在。应用事务锁定批次行和全部目标行后重检基线；若任一目标已变化，返回 `409 stale_price_quote` 并整批回滚，要求重新同步。
 - `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内追加全部新修订 ID 到批次，不覆盖此前的应用结果。`reviewed_quote_ids` 必须是 `quote_ids` 的子集，并列出所有已选非安全报价。锁定档案仍需以 `force_locked=true` 单独确认；此确认不代替逐项审核。拒绝码：`409 stale_price_quote`、`409 quote_review_required`、`409 price_profile_locked`、`409 price_run_not_ready`、`422 quote_not_applicable`；任一拒绝都不修改价格。
 
+## 价格源模型目录
+
+- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单与 `installed` 状态。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；缺失日期固定排在最后。
+- `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），在同一事务内为每行创建 `enabled=false` 的全局模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created`、`exists` 或 `conflict`。已存在的模型、被路由规则占用的名称和未知的来源行都不会被覆盖。
+- 该接口只创建全局模型，不创建上游能力、路由规则或承接策略；新建模型沿用名称保留规则，未知来源返回 `404`。
+
 ## 模型与用量归因
 
 - 第二期用量事实同时保留 `requested_model`、`resolved_model`、`upstream_model`、`upstream_id` 和 `price_revision_id`。

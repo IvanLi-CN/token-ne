@@ -109,6 +109,13 @@
 - Outputs: Models shows route conflicts with the field path and preview results; Upstreams shows the latest sync state, stale items, bindings and the effective policy; Prices shows current value, proposed value, base revision, scope and lock state, and distinguishes `stale_price_quote`, `quote_review_required`, `price_profile_locked`, and `quote_not_applicable` with distinct next actions.
 - covers: `../../prd.md#fr-22-模型管理与用量归因`
 
+### REQ-MUM-013
+
+- The system MUST expose the controlled price-source catalog as its own surface and install selected rows as global models in one batch.
+- Inputs: a controlled source ID, an optional name query, a vendor filter, a sort field (`name`, `released`, `deprecated`), an order, and a selection of source model IDs.
+- Outputs: rows carrying the source model ID, vendor, release and deprecation dates, the three prices, the target global model ID, and whether that model already exists; rows without a date sort last. Installing creates disabled global models with their initial `source=price_source` revision in one transaction and reports `created`, `exists` or `conflict` per row; an existing model or a name reserved by a route rule is never overwritten.
+- covers: `../../prd.md#fr-24-价格源模型目录`
+
 ## Verification
 
 ### VER-MUM-001
@@ -146,6 +153,12 @@
 - Method: Web component tests plus visual evidence for the Models, Upstreams, and Prices surfaces.
 - covers: `REQ-MUM-012`
 - Pass condition: a conflicting route rule renders the field path; an upstream without a policy renders `allow` with empty lists; a catalog view renders the latest run state and stale markers; a price run renders current and proposed values with the base revision and renders each rejection code with a distinct next action; a locked profile requires the confirmation step before the mutation is sent.
+
+### VER-MUM-007
+
+- Method: store integration tests over the embedded snapshot, HTTP contract tests for the two catalog endpoints, and Web component tests for filtering, ordering and batch installation.
+- covers: `REQ-MUM-013`
+- Pass condition: the catalog reports vendors and dates; a name query and a vendor filter narrow the rows; release and deprecation ordering are deterministic with missing dates last; installing two rows creates two disabled models each with an initial revision; a second install reports `exists`; a name reserved by a route rule reports `conflict` and creates nothing.
 
 ## Related ADRs
 

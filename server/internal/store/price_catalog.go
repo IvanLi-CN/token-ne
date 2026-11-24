@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"time"
 
@@ -51,6 +52,9 @@ type PriceSourceInstall struct {
 func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceSourceCatalog, error) {
 	dataset, err := (pricesource.Builtin{}).Fetch(sourceID)
 	if err != nil {
+		if errors.Is(err, pricesource.ErrSourceNotFound) {
+			return PriceSourceCatalog{}, ErrNotFound
+		}
 		return PriceSourceCatalog{}, normalize(err)
 	}
 	targets := make([]string, 0, len(dataset.Models))
@@ -101,6 +105,9 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, ids []string, a Audit) (PriceSourceInstall, error) {
 	dataset, err := (pricesource.Builtin{}).Fetch(sourceID)
 	if err != nil {
+		if errors.Is(err, pricesource.ErrSourceNotFound) {
+			return PriceSourceInstall{}, ErrNotFound
+		}
 		return PriceSourceInstall{}, normalize(err)
 	}
 	byID := make(map[string]pricesource.Entry, len(dataset.Models))

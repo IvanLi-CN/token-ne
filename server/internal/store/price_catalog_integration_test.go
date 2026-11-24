@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -125,5 +126,12 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 	}
 	if len(conflict.Data) != 1 || conflict.Data[0].Outcome != "conflict" {
 		t.Fatalf("reserved-name install = %+v, want conflict", conflict.Data)
+	}
+
+	if _, e = s.PriceSourceCatalog(ctx, "unknown-source"); !errors.Is(e, ErrNotFound) {
+		t.Fatalf("unknown source catalog = %v, want ErrNotFound", e)
+	}
+	if _, e = s.InstallPriceSourceModels(ctx, "unknown-source", []string{"gpt-4o-mini"}, audit); !errors.Is(e, ErrNotFound) {
+		t.Fatalf("unknown source install = %v, want ErrNotFound", e)
 	}
 }
