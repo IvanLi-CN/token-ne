@@ -251,19 +251,28 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         Ok(Err(_)) => return api_error(StatusCode::BAD_REQUEST, "invalid_request"),
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"),
     };
-    let Some(model) = routing::lookup(config, &body.model) else {
+    let Some(resolution) = routing::resolve(config, &body.model) else {
         return api_error(StatusCode::NOT_FOUND, "model_not_found");
     };
-    if !routing::allowed(&config.downstream_keys[auth.key_index], &body.model) {
+    // 权限检查使用解析后的全局 Model ID，别名不能绕过 Key 的模型白名单。
+    if !routing::allowed(
+        &config.downstream_keys[auth.key_index],
+        &resolution.model.model_id,
+    ) {
         return api_error(StatusCode::FORBIDDEN, "model_not_allowed");
     }
-    let candidates = routing::candidates(config, &body.model, &mut rand::rng());
+    let candidates = routing::candidates(
+        config,
+        &resolution.model.model_id,
+        resolution.upstream_id,
+        &mut rand::rng(),
+    );
     retry::forward(ForwardRequest {
         parts,
         body,
         config,
         options: &state.core.options.validation,
-        model,
+        model: resolution.model,
         key_id: &config.downstream_keys[auth.key_index].id,
         candidates,
         started: auth.started,

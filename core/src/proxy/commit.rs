@@ -60,6 +60,8 @@ pub struct ForwardingFacts {
     pub downstream_key_id: String,
     pub endpoint: String,
     pub requested_model: String,
+    /// 名称路由后的全局 Model ID；路由在转发前已完成，因此与 attempt 数无关。
+    pub resolved_model: Option<String>,
     pub upstream_id: Option<String>,
     pub upstream_model: Option<String>,
     pub stream: bool,
