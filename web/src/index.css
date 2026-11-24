@@ -1654,7 +1654,7 @@ th {
 @media (max-width: 1180px) {
   .price-row {
     grid-template-columns: minmax(0, 1fr) 2.15rem;
-    min-height: 9.4rem;
+    min-height: 5.6rem;
   }
   .switch {
     grid-column: 2;
@@ -1664,6 +1664,24 @@ th {
   .price-identity,
   .price-groups {
     grid-column: 1;
+  }
+  .price-identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.6rem;
+  }
+  .price-row-head {
+    display: contents;
+  }
+  .price-row-id {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .price-row-meta {
+    flex: 0 1 auto;
+    min-width: 0;
   }
   .price-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
