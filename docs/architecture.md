@@ -532,7 +532,7 @@ sequenceDiagram
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为确认；该观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成，或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
 - 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致。观测非零或缺失时先重启兼容 core 重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，同时停止自动重启与自动重试，只保留观测。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选；未清除时只由手工 `POST /api/cores/prune` 处置。
 - 状态目录由 `CORE_STATE_INIT_IMAGE` 的一次性 helper 以 root 删除：把宿主机 `CORE_STATE_HOST_DIR` 挂载到 helper 的 `/state`，执行 `rm -rf /state/<instance_id>`；`<instance_id>` 必须通过规范 UUID 校验后才拼接路径。API 容器始终不挂载状态根目录，也不读取 spool 文件。
-- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 只对已停止实例生效：最后一次在线 `status` 观测为 `spool.unacked_events == 0` 时删除容器和状态目录；观测非零或缺失时先重启兼容 core 重放，强制清理只能删除容器并保留状态目录直到清零确认。
+- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时先重启兼容 core 重放，强制清理只能删除容器并保留状态目录直到清零确认。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
 
 ### 用量 spool 与离线重放
@@ -970,7 +970,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。动态 core 实例必须使用精确版本或 digest；`latest` 只能作为控制面部署通道，不能作为 core 实例身份。
-- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止且最后一次在线 `status` 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零、缺失或仅有过期心跳时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
+- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止、且排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零、缺失、仅有过期心跳或早于排水完成时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -981,7 +981,7 @@ flowchart TD
 - `docker compose up` 不会为动态版本创建或修复容器；它们只由 Go 控制面创建。
 - `docker compose down --remove-orphans` 会删除项目内不在 Compose 文件中的容器，包括动态核心。
 - 不带 `--remove-orphans` 的 `docker compose down` 只处理声明服务，可能留下动态核心。
-- 默认部署自动销毁退役实例；`POST /api/cores/prune` 是异常处置和强制清理入口，执行前必须确认对应实例最后一次在线 `status` 观测为 `spool.unacked_events == 0`，并记录审计；过期心跳不能作为清零依据。
+- 默认部署自动销毁退役实例；`POST /api/cores/prune` 是异常处置入口。删除容器和状态目录前必须确认对应实例排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0`，并记录审计；过期心跳、早于排水完成的观测、崩溃或强制停止都不能作为清零依据。观测非零或缺失时只能强制删除容器，状态目录保留到清零确认。
 - 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它。默认部署由控制面在 spool 确认后自动删除退役实例的状态目录，异常场景保留给手工 prune。
 - Xray 是 Compose 声明的单例服务，不由此 Docker 编排器创建或删除；核心的创建流程只负责把核心接入 `egress` 网络。
 
@@ -1759,7 +1759,7 @@ networks:
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络；一期默认 `token_ne_edge,token_ne_core_control`，第二期追加 `token_ne_egress` | 否 |
-| `CORE_AUTO_PRUNE` | 是否自动销毁部署已 `completed`、回滚窗口已过、排水已完成且 spool 清零的核心实例，默认 `true` | 否 |
+| `CORE_AUTO_PRUNE` | 是否自动销毁部署已 `completed`、自停止起宽限期已过、排水已完成且 spool 清零的核心实例，默认 `true` | 否 |
 | `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
 | `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
 | `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像；仅第二期 Compose 必需 | 第二期是 |
@@ -1825,7 +1825,7 @@ networks:
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 如果旧实例和状态目录仍在，复用它们；如果已被自动销毁，按登记的镜像 digest 重新创建实例和新的状态目录，权重 0 预热后再接流量。被自动销毁前提是 spool 已确认清零，因此不需要重放旧 spool。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
+3. 按状态目录是否存在分支，而不是按容器是否存在：原状态目录仍在时复用它，由兼容 core 重放其 spool，容器缺失时按登记的镜像 digest 重建实例（强制清理删除了容器、或删除 helper 失败，都可能出现“目录在、容器不在”）；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零，不需要重放。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
@@ -2228,9 +2228,11 @@ alter table usage_events add column egress_mode text
 alter table usage_events add column egress_proxy_id uuid;
 
 alter table usage_events add constraint usage_events_egress_pair check (
-  (egress_mode = 'proxy' and egress_proxy_id is not null) or
-  (egress_mode = 'direct' and egress_proxy_id is null) or
-  (egress_mode is null and egress_proxy_id is null)
+  (
+    (egress_mode = 'proxy' and egress_proxy_id is not null) or
+    (egress_mode = 'direct' and egress_proxy_id is null) or
+    (egress_mode is null and egress_proxy_id is null)
+  ) is true
 );
 
 create index usage_events_egress_proxy_time
@@ -2245,6 +2247,6 @@ create index usage_events_egress_proxy_time
 - 第二期迁移为 `usage_events` 增加可空的 `resolved_model`、`price_revision_id`、`egress_mode` 和 `egress_proxy_id`，并为 `resolved_model`、`egress_proxy_id` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名、上游 ID，以及 `egress_mode`（`proxy` 时还必须带 `egress_proxy_id`）；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 或 `egress_proxy_id` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
 - 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。
 - 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，只写不读；API、日志、审计和 core 快照不出现明文。`server`、`port`、`transport` 和 `tls` 只用于控制面生成 Xray outbound，不进入 core 快照；`transport` 和 `tls` 只保存非秘密选项，私钥、密码和 token 必须进入 `credentials_ciphertext`。
-- `egress_proxies.inbound_port` 由控制面在配置范围内分配并持久化；端口只在该档案的 Xray 运行态清理完成后回收。`runtime_state` 是对账观测，不是期望状态；管理员期望启用状态以数据库 `enabled` 为准，core 快照中的 `egress_proxies[].enabled` 是管理员状态与 `runtime_state` 计算后的有效资格，只有 `ready` 为真。`swapping` 表示出站热替换进行中，期间路由始终指向一个已存在的出站，因此有效资格保持为启用，但不进入 `ready`；这类状态变化不发布新 revision。
+- `egress_proxies.inbound_port` 由控制面在配置范围内分配并持久化；端口只在该档案的 Xray 运行态清理完成后回收。`runtime_state` 是对账观测，不是期望状态；管理员期望启用状态以数据库 `enabled` 为准，core 快照中的 `egress_proxies[].enabled` 是管理员状态与 `runtime_state` 计算后的有效资格：管理员启用且（`runtime_state = ready`，或 `runtime_state = swapping` 且路由指向已存在的出站）时为 `true`，其余状态为 `false`。`swapping` 期间有效资格保持为启用但不进入 `ready`，这类状态变化不发布新 revision。
 - `upstreams.egress_proxy_id` 使用 `on delete restrict`，删除仍被上游引用的档案由 API 返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。
 - `usage_events.egress_proxy_id` 是历史归因，不设外键；删除代理档案或改绑不重写历史。`egress_mode` 可空，表示一期或未记录事件；`proxy` 时 `egress_proxy_id` 必填，`direct` 时必须为空，两者由 `usage_events_egress_pair` 约束保证。
