@@ -71,7 +71,7 @@
       }
     }
   ],
-  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, non-canonical UUIDs (format is annotation-only here), dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
+  "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
   "properties": {
     "protocol_version": { "const": 1 },
     "config_schema_version": { "type": "integer", "minimum": 1 },
@@ -139,7 +139,11 @@
       "type": "object",
       "required": ["id", "name", "sha256", "enabled", "allowed_models", "max_inflight"],
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "enabled": { "type": "boolean" },
@@ -199,7 +203,11 @@
         "enabled"
       ],
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
         "base_url": { "type": "string", "format": "uri", "pattern": "^https://" },
         "auth_style": { "enum": ["bearer", "api_key"] },
@@ -207,7 +215,11 @@
         "connect_timeout_ms": { "type": "integer", "minimum": 100 },
         "first_byte_timeout_ms": { "type": "integer", "minimum": 100 },
         "idle_timeout_ms": { "type": "integer", "minimum": 100 },
-        "egress_proxy_id": { "$ref": "#/$defs/nullableUuid" },
+        "egress_proxy_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "enabled": { "type": "boolean" }
       },
       "additionalProperties": true
@@ -216,7 +228,11 @@
       "type": "object",
       "required": ["id", "endpoint", "enabled"],
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "endpoint": {
           "type": "string",
           "format": "uri",
@@ -225,7 +241,7 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Effective routing eligibility. True only when the control plane has enabled the profile and its runtime state is ready; degraded or disabled profiles are false."
+          "description": "Effective routing eligibility. True only when the control plane has enabled the profile and its runtime state is ready or swapping with a live routed outbound; degraded, pending or disabled profiles are false."
         }
       },
       "additionalProperties": false
@@ -250,7 +266,11 @@
       "type": "object",
       "required": ["id", "pattern", "match_type", "target_model_id", "priority", "enabled"],
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "pattern": { "type": "string", "minLength": 1, "maxLength": 256 },
         "match_type": { "enum": ["exact", "glob"] },
         "target_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },

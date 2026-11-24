@@ -12,12 +12,13 @@
 
 - `Demo runtime`：在 React 首次渲染之前安装 mock transport、固定演示身份，并以正式 `routes` 启动的运行时。
 - `Demo build`：`web` 的独立 Vite 构建目标，`base=/demo/`，产物 `web/dist-demo`，不进入 API 镜像。
-- `Scene`：一组可复现的演示数据与初始状态（例如 `overview`、`cores`、`usage-anomaly`）。
+- `Scene`：一组可复现的演示数据与初始状态（`overview`、`requests`、`models`、`upstreams`、`keys`、`cores`、`settings`，以及用于登录跳转演练的 `session-expired`）。
 - `Persona`：演示用的管理员身份；只影响 UI 可见文案与权限提示，不产生真实会话。
-- `Share state`：写入 URL query 的可分享状态（scene、persona、network、data 开关），前缀 `d_`。
+- `Share state`：写入 URL query 的可分享状态（persona、network、data 开关），前缀 `d_`；scene 单独使用 `demo=<scene-id>`，不进入 `d_` 组。
 - `Panel layout`：Inspector 的展示形态（pinned rail / floating / drawer / collapsed bubble），**只**存 `localStorage`（沿用 `token-ne.` 前缀，例如 `token-ne.demo.panel`），不进入分享 URL。
 - `Simulated mutation`：只修改内存模型的写操作，必须在 Inspector 中标注并保留近期记录。
 - Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、静态托管路径 `/demo/**`。
+- `Demo router`：以 `basename=/demo` 启动的正式 `routes`，读写 `window.location` 与 history；不能用只存在于内存的 router，否则 `demo`/`d_*` 无法跨刷新保持。
 
 ## Requirements
 
@@ -39,7 +40,7 @@
 
 - The demo MUST satisfy the production session boundary instead of bypassing it.
 - Inputs: production `sessionLoader` calling `authApi.me()`.
-- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. A `401` from the mock MUST still exercise the production redirect path.
+- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. The `session-expired` scene MUST make that endpoint answer `401` so the production redirect path is exercised; no other scene returns `401`.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-004
@@ -60,7 +61,7 @@
 
 - Scene selection and shareable state MUST be URL-encoded and MUST survive reload.
 - Inputs: `?demo=<scene-id>` and `d_*` query keys.
-- Outputs: the demo starts in the named scene with the named persona/network/data toggles; changing scene or share state MUST use client-side navigation and MUST NOT trigger a full document reload.
+- Outputs: the demo starts in the named scene with the named persona/network/data toggles; changing scene or share state MUST use client-side navigation via the demo router's history API and MUST NOT trigger a full document reload. Reading `demo`/`d_*` at boot and writing them on change are both required: a memory-only router that never touches `window.location` does not satisfy this requirement.
 - Compatibility: demo query keys MUST NOT collide with production query keys; production code MUST NOT read `demo` or `d_*`.
 
 ### REQ-DEMO-007
@@ -73,7 +74,7 @@
 
 - Static hosting of `/demo/**` MUST provide deep-link recovery for unknown sub-paths.
 - Inputs: a request for `/demo/<any-known-route>` after reload.
-- Outputs: the demo `index.html` with a `200`, not the host's 404 page. This is a hosting obligation: the API image does not serve `/demo`.
+- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must fall back to `/demo/demo.html`; renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation: the API image does not serve `/demo`.
 - Compatibility: the production SPA fallback in `server/internal/web/static.go` MUST NOT be reused as demo hosting; it must stay scoped to `dist`.
 
 ### REQ-DEMO-009
@@ -95,7 +96,7 @@
 | --- | --- |
 | REQ-DEMO-001 | `web/src/demo/entry.tsx`, `web/src/App.tsx`, `web/src/app/router.tsx` |
 | REQ-DEMO-002 | `web/src/demo/mock/transport.ts` |
-| REQ-DEMO-003 | `web/src/demo/mock/auth.ts`, `web/src/lib/api.ts`, `web/src/app/router.tsx` |
+| REQ-DEMO-003 | `web/src/demo/mock/auth.ts`, `web/src/demo/scenes/`（`session-expired`）, `web/src/lib/api.ts`, `web/src/app/router.tsx` |
 | REQ-DEMO-004 | `web/src/demo/mock/state.ts`, `web/src/demo/inspector/` |
 | REQ-DEMO-005 | `web/package.json`, `web/vite.config.ts`, `web/demo.html` |
 | REQ-DEMO-006 | `web/src/demo/scenes/`, `web/src/demo/share-state.ts` |
