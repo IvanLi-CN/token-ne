@@ -121,14 +121,6 @@ func TestPhaseTwoBackfill(t *testing.T) {
 		}
 	}
 
-	var billingNullable string
-	if e = db.QueryRowContext(ctx, "select is_nullable from information_schema.columns where table_schema='public' and table_name='models' and column_name='billing_revision_id'").Scan(&billingNullable); e != nil {
-		t.Fatal(e)
-	}
-	if billingNullable != "NO" {
-		t.Fatalf("models.billing_revision_id is_nullable=%s, want NO", billingNullable)
-	}
-
 	rows, e := db.QueryContext(ctx, "select column_name, udt_name, is_nullable from information_schema.columns where table_schema='public' and table_name='usage_events' and column_name in ('resolved_model','price_revision_id')")
 	if e != nil {
 		t.Fatal(e)

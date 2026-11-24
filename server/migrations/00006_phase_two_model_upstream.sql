@@ -89,6 +89,7 @@ create table price_revisions (
   unique (id, model_id, scope, upstream_id)
 );
 
+-- billing_revision_id stays nullable until phase-two writers create the initial revision in the same transaction. A later migration tightens it to NOT NULL, so the phase-one insert path may leave it empty in the meantime.
 alter table models add column billing_revision_id uuid;
 
 alter table models add column billing_revision_scope text not null default 'global' check (billing_revision_scope = 'global');
@@ -100,8 +101,6 @@ from models m;
 update models m set billing_revision_id = r.id
 from price_revisions r
 where r.model_id = m.model_id and r.scope = 'global' and r.upstream_id is null;
-
-alter table models alter column billing_revision_id set not null;
 
 alter table models add constraint models_billing_revision_scope
   foreign key (billing_revision_id, model_id, billing_revision_scope)

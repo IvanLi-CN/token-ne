@@ -35,6 +35,7 @@ func TestMigrationsCompile(t *testing.T) {
 		text := string(b)
 		allSQL.WriteString(text)
 		up := strings.Split(strings.Split(text, "-- +goose Up")[1], "-- +goose Down")[0]
+		up = regexp.MustCompile(`(?m)^\s*--.*$`).ReplaceAllString(up, "")
 		mock.ExpectBegin()
 		for _, stmt := range strings.Split(up, ";") {
 			if strings.TrimSpace(stmt) != "" {

@@ -30,8 +30,9 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 	modelA := "p2-a-" + suffix
 	modelB := "p2-b-" + suffix
 	modelC := "p2-c-" + suffix
+	modelD := "p2-d-" + suffix
 	revisionA, revisionB := uuid.NewString(), uuid.NewString()
-	models := []string{modelA, modelB, modelC}
+	models := []string{modelA, modelB, modelC, modelD}
 	catalogItem := "vendor/catalog-" + suffix
 
 	t.Cleanup(func() {
@@ -136,7 +137,7 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 			{"price_sync_runs", "applied_at", "timestamptz", "", true},
 			{"upstreams", "capabilities_revision", "int8", "1", false},
 			{"upstream_models", "catalog_model_id", "text", "", true},
-			{"models", "billing_revision_id", "uuid", "", false},
+			{"models", "billing_revision_id", "uuid", "", true},
 			{"models", "billing_revision_scope", "text", "global", false},
 			{"usage_events", "resolved_model", "text", "", true},
 			{"usage_events", "price_revision_id", "uuid", "", true},
@@ -307,6 +308,31 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 	t.Run("billing revision scope", func(t *testing.T) {
 		_, e = s.Pool.Exec(ctx, "insert into models(model_id,billing_revision_id) values($1,$2)", modelC, revisionA)
 		requirePgError(t, e, "23503", "models_billing_revision_scope")
+	})
+
+	t.Run("billing revision completion", func(t *testing.T) {
+		if _, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok) values($1,0.75)", modelD); e != nil {
+			t.Fatalf("phase-one insert without billing revision: %v", e)
+		}
+		if _, e = s.Pool.Exec(ctx, `
+insert into price_revisions (id, model_id, upstream_id, input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok, source, locked, scope)
+select gen_random_uuid(), m.model_id, null, m.input_usd_per_mtok, m.cached_input_usd_per_mtok, m.output_usd_per_mtok, 'manual', false, 'global'
+from models m where m.model_id = $1 and m.billing_revision_id is null`, modelD); e != nil {
+			t.Fatalf("backfill missing billing revision: %v", e)
+		}
+		if _, e = s.Pool.Exec(ctx, `
+update models m set billing_revision_id = r.id
+from price_revisions r
+where r.model_id = m.model_id and r.scope = 'global' and r.upstream_id is null and m.model_id = $1 and m.billing_revision_id is null`, modelD); e != nil {
+			t.Fatalf("point model at billing revision: %v", e)
+		}
+		var revisionID, price string
+		if e = s.Pool.QueryRow(ctx, `select m.billing_revision_id::text, r.input_usd_per_mtok::text from models m join price_revisions r on r.id = m.billing_revision_id where m.model_id = $1`, modelD).Scan(&revisionID, &price); e != nil {
+			t.Fatalf("model %s billing revision after completion: %v", modelD, e)
+		}
+		if revisionID == "" || price != "0.750000" {
+			t.Fatalf("model %s billing revision %q price %q, want non-empty revision with price 0.750000", modelD, revisionID, price)
+		}
 	})
 
 	t.Run("route rule exact uniqueness", func(t *testing.T) {
