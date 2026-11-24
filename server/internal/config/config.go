@@ -39,6 +39,11 @@ type Config struct {
 
 	AuthEnv              AuthEnvSet
 	StreamUsageInjection bool
+	// SecondPhaseModelManagement is the single deployment switch for the
+	// phase-two management contract; it is published as
+	// features.second_phase_model_management by GET /api/version and defaults
+	// to false.
+	SecondPhaseModelManagement bool
 }
 
 func Load() (Config, error) {
@@ -110,6 +115,12 @@ func Load() (Config, error) {
 		c.StreamUsageInjection, e = strconv.ParseBool(s)
 		if e != nil {
 			return c, errors.New("STREAM_USAGE_INJECTION must be boolean")
+		}
+	}
+	if s := os.Getenv("SECOND_PHASE_MODEL_MANAGEMENT"); s != "" {
+		c.SecondPhaseModelManagement, e = strconv.ParseBool(s)
+		if e != nil {
+			return c, errors.New("SECOND_PHASE_MODEL_MANAGEMENT must be boolean")
 		}
 	}
 	return c, c.Validate()
