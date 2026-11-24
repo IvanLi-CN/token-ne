@@ -22,7 +22,18 @@ func TestLoad(t *testing.T) {
 		t.Fatal("STREAM_USAGE_INJECTION=false was ignored")
 	}
 	t.Setenv("STREAM_USAGE_INJECTION", "")
-	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}, {"STREAM_USAGE_INJECTION", "maybe"}} {
+	if c, _ := Load(); c.SecondPhaseModelManagement {
+		t.Fatal("SECOND_PHASE_MODEL_MANAGEMENT must default to false")
+	}
+	t.Setenv("SECOND_PHASE_MODEL_MANAGEMENT", "true")
+	if c, _ := Load(); !c.SecondPhaseModelManagement {
+		t.Fatal("SECOND_PHASE_MODEL_MANAGEMENT=true was ignored")
+	}
+	t.Setenv("SECOND_PHASE_MODEL_MANAGEMENT", "false")
+	if c, _ := Load(); c.SecondPhaseModelManagement {
+		t.Fatal("SECOND_PHASE_MODEL_MANAGEMENT=false was ignored")
+	}
+	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}, {"STREAM_USAGE_INJECTION", "maybe"}, {"SECOND_PHASE_MODEL_MANAGEMENT", "maybe"}} {
 		t.Run(tc.k, func(t *testing.T) {
 			t.Setenv(tc.k, tc.v)
 			if _, e := Load(); e == nil {
