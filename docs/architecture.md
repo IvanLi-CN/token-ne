@@ -237,7 +237,7 @@ core/src/
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
 4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用、`weight > 0`，绑定代理时还要求对应 `egress_proxies[]` 启用且可用；按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
 5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或数据面开关 `stream_usage_injection` 为 `false` 时跳过。
-6. **尝试**：构造上游 URL、认证头、透传头；未绑定代理时直连，绑定代理时使用该档案的 SOCKS5h 客户端经 Xray 发送；等待响应头；分类状态。
+6. **尝试**：构造上游 URL、认证头、透传头；未绑定代理时直连，绑定代理时使用该档案的 SOCKS5h 客户端经 Xray 发送。绑定代理时 `connect_timeout_ms` 覆盖 SOCKS5 握手和经隧道完成的上游 TLS 握手；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
    - 流式：增量解析 SSE；在首个语义增量前不提交；错误事件触发重试；增量到达后提交并原样透传。
@@ -979,7 +979,7 @@ flowchart TD
 - `docker compose up` 不会为动态版本创建或修复容器；它们只由 Go 控制面创建。
 - `docker compose down --remove-orphans` 会删除项目内不在 Compose 文件中的容器，包括动态核心。
 - 不带 `--remove-orphans` 的 `docker compose down` 只处理声明服务，可能留下动态核心。
-- 默认部署自动销毁退役实例；`POST /api/cores/prune` 是异常处置和强制清理入口，执行前必须确认对应实例最后一次观测为 `spool.unacked_events == 0`，并记录审计。
+- 默认部署自动销毁退役实例；`POST /api/cores/prune` 是异常处置和强制清理入口，执行前必须确认对应实例最后一次在线 `status` 观测为 `spool.unacked_events == 0`，并记录审计；过期心跳不能作为清零依据。
 - 状态目录是宿主机 bind mount，不属于 Compose 命名 volume；`down -v` 不应删除它。默认部署由控制面在 spool 确认后自动删除退役实例的状态目录，异常场景保留给手工 prune。
 - Xray 是 Compose 声明的单例服务，不由此 Docker 编排器创建或删除；核心的创建流程只负责把核心接入 `egress` 网络。
 

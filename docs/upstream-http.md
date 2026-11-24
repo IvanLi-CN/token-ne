@@ -12,7 +12,7 @@
 - 保留下游查询字符串；不增加隐式 `api-version`。
 - 下游 `/v1/models` 和 `/v1/models/{model}` 由控制面发布的全局 Model 配置提供，不访问上游；第二期控制面可以在管理 API 触发对上游 `/v1/models` 的独立目录同步，不能把上游响应直接透传给下游。
 
-`base_url` 必须是 `https`，不能包含用户名/密码，不能指向 loopback、link-local、私网或云元数据地址。开发模式可显式放开；core 在每次请求前再次校验解析后的目标地址，防止 DNS rebinding。
+`base_url` 必须是 `https`，不能包含用户名/密码，不能指向 loopback、link-local、私网或云元数据地址。开发模式可显式放开。未绑定出站代理时，core 在每次请求前再次校验解析后的目标地址，防止 DNS rebinding；绑定 `socks5h` 出站代理时 core 不解析上游域名，公网性校验由控制面在保存和发布时对上游主机名执行，Xray 侧解析结果只受 `egress` 网络边界约束。
 
 ## 认证
 
@@ -76,7 +76,7 @@
 ## 超时
 
 - `connect_timeout_ms`：TCP/TLS 连接。
-- 绑定出站代理时，`connect_timeout_ms` 覆盖到 Xray SOCKS5 入站的连接与握手；上游首字节超时从请求经隧道写出后开始计。
+- 绑定出站代理时，`connect_timeout_ms` 覆盖到 Xray SOCKS5 入站的 TCP 连接与 SOCKS5 握手，以及经隧道完成的上游 TLS 握手；`first_byte_timeout_ms` 从请求经隧道写出后开始计。
 - `first_byte_timeout_ms`：发送请求到响应头/首字节。
 - `idle_timeout_ms`：两个响应 chunk 之间。
 - `request_max_duration_ms`：整个下游请求的硬上限，不是单次尝试超时；达到后不再重试。
