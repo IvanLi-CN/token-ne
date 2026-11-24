@@ -51,7 +51,9 @@ func TestRouteRulesIntegration(t *testing.T) {
 			t.Fatalf("insert upstream: %v", e)
 		}
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into models(model_id,enabled,default_upstream_model) values($1,true,null),($2,true,null),($3,true,null),($4,false,null)", modelA, modelB, modelC, modelD); e != nil {
+	if _, e = s.Pool.Exec(ctx, `with m(model_id,enabled) as (values($1,true),($2,true),($3,true),($4,false)),
+r as (insert into price_revisions(id,model_id,scope,source,locked) select gen_random_uuid(),model_id,'global','manual',false from m returning model_id,id)
+insert into models(model_id,enabled,default_upstream_model,billing_revision_id) select m.model_id,m.enabled,null,r.id from m join r using(model_id)`, modelA, modelB, modelC, modelD); e != nil {
 		t.Fatalf("insert models: %v", e)
 	}
 	if _, e = s.Pool.Exec(ctx, `insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values

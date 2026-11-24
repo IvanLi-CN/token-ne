@@ -49,7 +49,9 @@ func TestUpstreamPoliciesIntegration(t *testing.T) {
 	if _, e = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", upstreamID, "policy-upstream-"+suffix, []byte("cipher"), make([]byte, 12)); e != nil {
 		t.Fatalf("insert upstream: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into models(model_id,enabled) values($1,true),($2,true)", modelA, modelX); e != nil {
+	if _, e = s.Pool.Exec(ctx, `with m(model_id) as (values($1),($2)),
+r as (insert into price_revisions(id,model_id,scope,source,locked) select gen_random_uuid(),model_id,'global','manual',false from m returning model_id,id)
+insert into models(model_id,enabled,billing_revision_id) select m.model_id,true,r.id from m join r using(model_id)`, modelA, modelX); e != nil {
 		t.Fatalf("insert models: %v", e)
 	}
 	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,'vendor/a',true,10,100)", upstreamID, modelA); e != nil {

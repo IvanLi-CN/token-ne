@@ -288,7 +288,8 @@ func TestSnapshotRoutingIntegration(t *testing.T) {
 	if _, err = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", upstreamID, "snapshot-upstream-"+suffix, []byte("cipher"), make([]byte, 12)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Pool.Exec(ctx, "insert into models(model_id,enabled) values($1,false)", modelID); err != nil {
+	if _, err = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,scope,source,locked) values(gen_random_uuid(),$1,'global','manual',false) returning id)
+insert into models(model_id,enabled,billing_revision_id) select $1,false,id from r`, modelID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
