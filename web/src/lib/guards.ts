@@ -3,6 +3,7 @@ const routePaths: Record<string, true> = {
   "/requests": true,
   "/models": true,
   "/upstreams": true,
+  "/prices": true,
   "/keys": true,
   "/system": true,
   "/system/cores": true,

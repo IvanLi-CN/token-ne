@@ -16,18 +16,10 @@ import { Button, Spinner } from "../components/primitives";
 import { VersionBadge } from "../components/version-badge";
 import { type AdminUser, authApi } from "../lib/api";
 import { useAdaptiveState } from "./adaptive-state";
-import { systemSections } from "./system-nav";
+import { usePhaseFeatures } from "./phase";
+import { mainSections, systemSections } from "./system-nav";
 import { useTheme } from "./theme";
 
-const navigation = [
-  ["/", "总览"],
-  ["/requests", "请求"],
-  ["/models", "Models"],
-  ["/upstreams", "Upstreams"],
-  ["/keys", "Downstream Keys"],
-  ["/system", "系统"],
-] as const;
-const primaryNavigation = navigation.filter(([path]) => path !== "/system");
 const themeModes = [
   { value: "light", label: "浅色", Icon: Sun },
   { value: "dark", label: "深色", Icon: Moon },
@@ -42,6 +34,9 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationState = useNavigation();
+  const { secondPhase } = usePhaseFeatures();
+  const sections = mainSections.filter((section) => !section.phaseTwo || secondPhase);
+  const primarySections = sections.filter((section) => section.to !== "/system");
   const logout = useMutation({
     mutationFn: authApi.logout,
     onSuccess: () => {
@@ -54,7 +49,7 @@ export function AppShell() {
   }, [location.pathname, visit]);
   useEffect(() => {
     const title =
-      navigation.find(([path]) => path === location.pathname)?.[1] ??
+      mainSections.find((section) => section.to === location.pathname)?.label ??
       systemSections.find((section) => section.to === location.pathname)?.label ??
       "页面未找到";
     document.title = `${title} · token-ne`;
@@ -98,17 +93,17 @@ export function AppShell() {
                   选择控制面页面
                 </Dialog.Description>
                 <nav className="mobile-navigation" aria-label="移动主导航">
-                  {primaryNavigation.map(([path, label]) => (
+                  {primarySections.map((section) => (
                     <NavLink
-                      key={path}
-                      to={path}
-                      end={path === "/"}
+                      key={section.to}
+                      to={section.to}
+                      end={section.to === "/"}
                       onClick={() => setMobileOpen(false)}
                       className={({ isActive }) =>
                         isActive ? "mobile-link active" : "mobile-link"
                       }
                     >
-                      {label}
+                      {section.label}
                     </NavLink>
                   ))}
                   <div className="mobile-tree">
@@ -165,14 +160,14 @@ export function AppShell() {
             <span className="brand-name">token-ne</span>
           </NavLink>
           <nav className="command-nav" aria-label="主导航">
-            {navigation.map(([path, label]) => (
+            {sections.map((section) => (
               <NavLink
-                key={path}
-                to={path}
-                end={path === "/" || path === "/system"}
+                key={section.to}
+                to={section.to}
+                end={section.to === "/" || section.to === "/system"}
                 className={({ isActive }) => (isActive ? "command-link active" : "command-link")}
               >
-                <span>{label}</span>
+                <span>{section.label}</span>
               </NavLink>
             ))}
           </nav>

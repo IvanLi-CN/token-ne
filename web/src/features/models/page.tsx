@@ -1,31 +1,73 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { usePhaseFeatures } from "../../app/phase";
+import { ConfirmDialog } from "../../components/confirm-dialog";
+import type { Column } from "../../components/data-table";
 import { Button, PageTitle, StatusBadge } from "../../components/primitives";
+import type { PriceRevisionState } from "../../lib/api";
+import { formatPrice, formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
-import { type Billing, type Model, type ModelInput, modelsApi } from "./api";
+import { type Billing, type Model, type ModelInput, type ModelUpdateInput, modelsApi } from "./api";
 import { ActionGroup, DangerAction, Editor, errorMessage, Field, FormError } from "./management";
 import { ManagementTable } from "./management-table";
+import { ModelRoutesSection } from "./routes";
 
 const prices = [
   ["input_usd_per_mtok", "输入价格"],
   ["cached_input_usd_per_mtok", "缓存输入价格"],
   ["output_usd_per_mtok", "输出价格"],
 ] as const;
-const price = (value: number | null) =>
-  value === null ? "未配置" : value === 0 ? "免费" : `$${value}`;
+const sourceLabels = { manual: "手工", price_source: "报价源" } as const;
+
+function BillingState({ state }: { state: PriceRevisionState | undefined }) {
+  if (!state) return <span className="muted">未返回 billing_state</span>;
+  return (
+    <div className="grid gap-1">
+      <ActionGroup>
+        <StatusBadge tone={state.locked ? "warning" : "neutral"}>
+          {state.locked ? "已锁定" : "未锁定"}
+        </StatusBadge>
+        <span className="muted">
+          {sourceLabels[state.source]}
+          {state.source_id ? `（${state.source_id}）` : ""}
+        </span>
+      </ActionGroup>
+      <code className="text-xs break-all">{state.price_revision_id}</code>
+      <span className="muted text-xs">修订于 {formatTime(state.revision_created_at)}</span>
+    </div>
+  );
+}
 function ModelEditor({
   model,
+  secondPhase,
   onClose,
   onSaved,
 }: {
   model: Model | null;
+  secondPhase: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [lock, setLock] = useState(model?.billing_state?.locked ?? false);
+  const [confirmation, setConfirmation] = useState<ModelUpdateInput | null>(null);
+  async function send(modelId: string, update: ModelUpdateInput) {
+    setPending(true);
+    setError(undefined);
+    try {
+      await modelsApi.update(modelId, update);
+      setDirty(false);
+      await onSaved();
+      onClose();
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setPending(false);
+    }
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -40,26 +82,41 @@ function ModelEditor({
       shutdown_date: String(data.get("shutdown_date")) || null,
       billing,
     };
-    setPending(true);
-    setError(undefined);
-    try {
-      if (model) {
-        const { model_id: _id, ...update } = body;
-        await modelsApi.update(model.model_id, update);
-      } else await modelsApi.create(body);
-      setDirty(false);
-      await onSaved();
-      onClose();
-    } catch (failure) {
-      setError(failure);
-    } finally {
-      setPending(false);
+    if (!model) {
+      setPending(true);
+      setError(undefined);
+      try {
+        await modelsApi.create(body);
+        setDirty(false);
+        await onSaved();
+        onClose();
+      } catch (failure) {
+        setError(failure);
+      } finally {
+        setPending(false);
+      }
+      return;
     }
+    const update: ModelUpdateInput = {
+      enabled: body.enabled,
+      default_upstream_model: body.default_upstream_model,
+      shutdown_date: body.shutdown_date,
+      billing: body.billing,
+    };
+    const pricesChanged = prices.some(([key]) => model.billing[key] !== billing[key]);
+    const lockChanged =
+      secondPhase && model.billing_state != null && lock !== model.billing_state.locked;
+    if (secondPhase && model.billing_state) update.billing_locked = lock;
+    if (model.billing_state?.locked && (pricesChanged || lockChanged)) {
+      setConfirmation({ ...update, confirm_locked: true });
+      return;
+    }
+    await send(model.model_id, update);
   }
   return (
     <Editor
       title={model ? "编辑模型" : "创建模型"}
-      description="价格单位为 USD / 百万 tokens；留空表示未知，0 表示免费。停用日期仅作公告，不自动停止路由。"
+      description="价格单位为 USD / 百万 tokens；留空表示未知，0 表示免费。停用日期仅作公告，不自动停止路由。锁定价格后，修改或解锁需要二次确认。"
       onClose={onClose}
       dirty={dirty}
       pending={pending}
@@ -105,6 +162,24 @@ function ModelEditor({
               />
             </Field>
           ))}
+          {secondPhase && model?.billing_state && (
+            <div className="sm:col-span-2">
+              <BillingState state={model.billing_state} />
+            </div>
+          )}
+          {secondPhase && model?.billing_state && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={lock}
+                onChange={(event) => {
+                  setLock(event.target.checked);
+                  setDirty(true);
+                }}
+              />
+              锁定全局默认价格
+            </label>
+          )}
           <label className="flex items-center gap-2">
             <input type="checkbox" name="enabled" defaultChecked={model?.enabled ?? true} />
             启用模型
@@ -117,11 +192,34 @@ function ModelEditor({
           </Button>
         </div>
       </form>
+      {confirmation && model && (
+        <ConfirmDialog
+          trigger={
+            <button type="button" tabIndex={-1} className="visually-hidden">
+              继续
+            </button>
+          }
+          open
+          onOpenChange={(open) => {
+            if (!open && !pending) {
+              setConfirmation(null);
+              setError(undefined);
+            }
+          }}
+          title="修改已锁定的全局价格？"
+          description="该模型的全局默认价格已锁定。确认后会追加新的不可变价格修订并写入审计；后续用量按新价格计费，历史费用不重算。"
+          pending={pending}
+          error={errorMessage(error)}
+          confirmLabel="确认修改锁定价格"
+          onConfirm={() => void send(model.model_id, confirmation)}
+        />
+      )}
     </Editor>
   );
 }
 export default function ModelsPage() {
   const client = useQueryClient();
+  const { secondPhase } = usePhaseFeatures();
   const models = useQuery({
     queryKey: queryKeys.models,
     queryFn: ({ signal }) => modelsApi.list(signal),
@@ -139,6 +237,15 @@ export default function ModelsPage() {
     upstreams.data?.flatMap((upstream) =>
       upstream.models.filter((capability) => capability.model_id === id),
     ) ?? [];
+  const billingColumns: Column<Model>[] = secondPhase
+    ? [
+        {
+          key: "billing_state",
+          header: "价格修订 / 锁定",
+          cell: (model) => <BillingState state={model.billing_state} />,
+        },
+      ]
+    : [];
   return (
     <>
       <PageTitle title="Models" />
@@ -220,8 +327,9 @@ export default function ModelsPage() {
               ...prices.map(([key, label]) => ({
                 key,
                 header: label,
-                cell: (model: Model) => price(model.billing[key]),
+                cell: (model: Model) => formatPrice(model.billing[key]),
               })),
+              ...billingColumns,
               {
                 key: "mapping",
                 header: "全局映射",
@@ -298,8 +406,14 @@ export default function ModelsPage() {
           )}
         </div>
       </section>
+      {secondPhase && <ModelRoutesSection models={models.data} upstreams={upstreams.data} />}
       {editor !== undefined && (
-        <ModelEditor model={editor} onClose={() => setEditor(undefined)} onSaved={refresh} />
+        <ModelEditor
+          model={editor}
+          secondPhase={secondPhase}
+          onClose={() => setEditor(undefined)}
+          onSaved={refresh}
+        />
       )}
     </>
   );

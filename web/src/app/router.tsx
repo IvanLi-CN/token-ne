@@ -17,6 +17,7 @@ import KeysPage from "../pages/keys";
 import LoginPage from "../pages/login";
 import ModelsPage from "../pages/models";
 import OverviewPage from "../pages/overview";
+import PricesPage from "../pages/prices";
 import RequestsPage from "../pages/requests";
 import SettingsPage from "../pages/settings";
 import UpstreamsPage from "../pages/upstreams";
@@ -76,6 +77,7 @@ export const routes: RouteObject[] = [
       { path: "requests", Component: RequestsPage },
       { path: "models", Component: ModelsPage },
       { path: "upstreams", Component: UpstreamsPage },
+      { path: "prices", Component: PricesPage },
       { path: "keys", Component: KeysPage },
       {
         path: "system",
