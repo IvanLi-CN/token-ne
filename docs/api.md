@@ -105,7 +105,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 核心 spool
 
-控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 在 `unacked_events > 0` 时返回 `409 spool_not_drained`。恢复方式是重启兼容 core，不是控制面重放。详见 [`spool.md`](./spool.md)。
+控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：spool 非零、观测缺失或观测早于排水完成时返回 `409 spool_not_drained`；恢复方式是重启兼容 core，不是控制面重放。显式 `force=true` 只删除容器并保留状态目录，直到清零确认。详见 [`spool.md`](./spool.md)。
 
 ## 契约测试
 

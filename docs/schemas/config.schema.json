@@ -134,7 +134,6 @@
     "limits": { "$ref": "#/$defs/limits" }
   },
   "$defs": {
-    "nullableUuid": { "type": ["string", "null"], "format": "uuid" },
     "downstreamKey": {
       "type": "object",
       "required": ["id", "name", "sha256", "enabled", "allowed_models", "max_inflight"],

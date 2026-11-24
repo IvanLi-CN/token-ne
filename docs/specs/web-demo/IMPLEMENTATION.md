@@ -12,14 +12,14 @@
 - 已有同类先例：`web/src/features/overview/observability.visual-fixture.tsx` 等 5 个 `*.visual-fixture.tsx` + `*.visual.test.html`，用 `window.fetch` 伪造 `/api/*` 并 seed `QueryClient`。demo 应吸收这一模式，而不是引入 service worker。
 - `web/package.json` 有 `test:e2e: playwright test`，但仓库内**没有** `playwright.config.*` 与 `web/e2e/`，该脚本当前无法运行。
 - 无 `.github/workflows/pages.yml`、无 `docs-site/`；`/demo` 目前没有静态托管。
-- `server/internal/web/static.go` 把 `dist` 回退到 `index.html`，只为正式 SPA 服务；demo 不复用它。
+- `server/internal/web/static.go` 对未命中嵌入文件的路径（含 `/demo/**`）回退到生产 `index.html`；它不为 demo 服务，也不应为此增加分支，demo 由独立静态托管提供。
 
 ## 落地顺序
 
 1. `web/src/demo/mock/transport.ts`：`window.fetch` 拦截，`/api/*` fail-closed。
 2. `web/src/demo/scenes/`：覆盖总览、请求、Models、Upstreams、Downstream Keys 与系统子页（Cores、设置）所需数据，按 `web/src/features/*/api.ts` 的类型对齐。因为未映射接口 fail-closed（REQ-DEMO-002），缺任一页数据该页就无法渲染，所以场景覆盖必须与 FR-25 验收的页面清单一致。
 3. `web/src/demo/entry.tsx`：安装 mock → 从 `window.location` 读取 `demo`/`d_*` 初始化状态 → 构建 `QueryClient` → 以 `createBrowserRouter(routes, { basename: "/demo" })` 渲染。不要用 `createMemoryRouter`：它不读写地址栏，无法满足 REQ-DEMO-006 的刷新保持与 REQ-DEMO-008 的深链恢复。
-4. `web/demo.html` + `build:demo` + `base=/demo/`；构建产物是 `dist-demo/demo.html`，托管回退必须指向这个文件名（或显式改成 `index.html`）。
+4. `web/demo.html` + `build:demo` + `base=/demo/`；构建产物是 `dist-demo/demo.html`，托管回退必须指向这个文件名（或显式改成 `index.html`）。同时要把 `token-ne-version-artifact` 的输出路径改为从 `configResolved` 读取 `build.outDir`（demo 模式写 `dist-demo/version.json`）；否则 `build:demo` 在干净树上会因 `dist/` 不存在而失败，或把 `version.json` 写进生产 `web/dist`。
 5. Inspector：REQ-DEMO-004 的 `simulated` 标记与近期变更列表 + REQ-DEMO-007 的面板形态。
 6. 静态托管与深链恢复（REQ-DEMO-008）。
 7. Playwright demo 规格（依赖补 `playwright.config.ts`）。

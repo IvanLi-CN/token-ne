@@ -530,9 +530,9 @@ sequenceDiagram
 - 失败实例没有“从未接收流量”这类无法从协议观测的前置条件；它必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描），才进入删除候选。容器删除与状态目录删除共用同一次确认零观测；没有确认观测时两者都保留。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为确认；该观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成，或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致。观测非零或缺失时先重启兼容 core 重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，同时停止自动重启与自动重试，只保留观测。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选；未清除时只由手工 `POST /api/cores/prune` 处置。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在，且分别等于固定值 `core`、`core_versions.version`、`core_instances.id`、`core_instances.deployment_id`；`core_instances.deployment_id` 指向的 `core_deployments.state` 必须是 `completed`。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计。观测非零或缺失时先重启兼容 core 重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，同时停止自动重启与自动重试，只保留观测。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选；未清除时只由手工 `POST /api/cores/prune` 处置。
 - 状态目录由 `CORE_STATE_INIT_IMAGE` 的一次性 helper 以 root 删除：把宿主机 `CORE_STATE_HOST_DIR` 挂载到 helper 的 `/state`，执行 `rm -rf /state/<instance_id>`；`<instance_id>` 必须通过规范 UUID 校验后才拼接路径。API 容器始终不挂载状态根目录，也不读取 spool 文件。
-- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时先重启兼容 core 重放，强制清理只能删除容器并保留状态目录直到清零确认。
+- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时返回 409 `spool_not_drained` 并先重启兼容 core 重放；显式 `force=true` 的强制清理只删除容器、保留状态目录并写审计，清零确认后才允许删除状态目录。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
 
 ### 用量 spool 与离线重放
@@ -612,7 +612,7 @@ $CORE_STATE_DIR/
 - spool 是 core 私有文件；API 容器不挂载状态根目录，不读取、不解析、不搬运 spool 段。
 - 运行中的 core 自己按 `ack.json` 的 `processed_seq` 重放；控制面只接收 HTTP 批次并观察 heartbeat/status。
 - 实例停止但 spool 未清零时，保留状态目录，用兼容 core 镜像重启该实例；core 启动时自动重放。
-- 控制面 prune 只对已停止实例使用最后一次 heartbeat/status 观测值：`spool.unacked_events == 0` 时允许，并记录 `last_ack_seq` 到审计；观测非零或缺失时先用兼容 core 重启并等待清零，否则返回 `409 spool_not_drained`。
+- 控制面 prune 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时删除容器和状态目录，并记录 `last_ack_seq` 到审计；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时返回 `409 spool_not_drained` 并要求重启兼容 core 重放。显式 `force=true` 的强制清理只删除容器并保留状态目录与审计记录，清零确认后才允许删除状态目录（`PruneInput.force` 是新增可选字段，默认 `false`）。
 - 如果实例后来重启，已推进的处理位点会阻止重复发送；已丢弃事件不会再次阻塞后续事件。
 - 宿主机整体故障会同时丢失状态目录；第一期不覆盖这种场景。需要跨宿主机持久化时，改用 Redis Streams、NATS JetStream 或对象存储，并保留相同的 `event_id` 幂等合同。
 
@@ -850,7 +850,7 @@ server/
 | POST | `/api/cores/deployments/{id}/shift` | 设置阶段权重 |
 | POST | `/api/cores/deployments/{id}/rollback` | 回滚 |
 | POST | `/api/cores/instances/{id}/drain` | 排水单个实例 |
-| POST | `/api/cores/prune` | 清理已停止且 spool 已清零的实例 |
+| POST | `/api/cores/prune` | 清零证明满足时删除容器与状态目录；`force=true` 只删容器 |
 | GET | `/api/cores/spool` | 查看各实例 spool 摘要 |
 | GET | `/api/audit` | 审计查询 |
 | GET/PUT | `/api/data-plane-settings` | 读取/修改数据面开关（`stream_usage_injection`），写入 `system_state` 并入库审计 |
@@ -890,9 +890,9 @@ api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>
 - 每个档案分配稳定的内部 SOCKS5 入站端口（来自 `XRAY_PROXY_PORT_MIN`–`XRAY_PROXY_PORT_MAX`，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。
 - 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则。`StatsService` 只在 `stats` app 与 `policy.system.statsInboundUplink/statsOutboundUplink` 开启时才有可读计数；否则 `GetStats` 返回 `NotFound`，档案状态一律以对账结果为准，不使用统计推断可用性。
 - 控制面启动、Xray 重启和档案变更后读取 Xray 的 inbound/outbound 列表，补齐缺失项、移除不属于期望状态的 `egress:` 标签，验证路由后才把档案标记为 `ready`。`swapping` 期间被路由引用的 `:staged` 属于期望状态，不作为孤儿清理。数据库是期望状态，Xray 运行态可重建。
-- 对账或 API 应用失败时档案进入 `degraded` 并告警、递增 revision；绑定它的上游不进入候选，已存在请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有管理员启用状态变化、`ready` 与 `degraded` 之间切换、或端点变化才递增配置 revision，以便发布有效的 `enabled` 值。
-- Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更按固定顺序执行：新增 `egress:<id>:out:staged` → 把 `inboundTag -> outboundTag` 路由切到 `:staged` → 删除旧 `egress:<id>:out` → 以稳定 tag `egress:<id>:out` 新增新出站 → 路由切回 `egress:<id>:out` → 删除 `:staged`。交换进行中的档案在数据库中标记为 `swapping`；在 `:staged` 被删除前，对账把它视为期望状态的一部分，不作为孤儿清理，且只有 `egress:<id>:out` 已存在且路由已指向它时才允许删除 `:staged`。任何一步失败或崩溃后，被路由引用的出站都不被删除，档案标记 `degraded`，下次对账依据 `:staged` 是否存在继续推进；承载流量的 tag 从不先删后加，因此不存在无出站可用的空窗期。
+- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警、递增 revision；绑定它的上游不进入候选，已建立连接继续使用，新请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有当快照中该档案的有效 `enabled` 值或端点发生变化时才递增配置 revision，以便发布有效的 `enabled` 值：管理员启用或停用、运行态进入或离开 `ready`（含 `pending`/`disabled` → `ready`）、`ready` 与 `degraded` 之间切换、以及端点变化都触发发布；`ready` 与 `swapping` 之间 `enabled` 不变，因此不递增。
+- Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更按固定顺序执行：新增 `egress:<id>:out:staged` → 把 `inboundTag -> outboundTag` 路由切到 `:staged` → 删除旧 `egress:<id>:out` → 以稳定 tag `egress:<id>:out` 新增新出站 → 路由切回 `egress:<id>:out` → 删除 `:staged`。交换进行中的档案在数据库中标记为 `swapping` 并记录交换阶段 `swap_phase`（`staged_added` → `route_staged` → `old_removed` → `stable_added` → `route_stable`）。对账按 `swap_phase` 推进：`:staged` 存在且阶段早于 `route_stable` 时必须继续推进，不作为孤儿清理。只有 `swap_phase = route_stable`、`egress:<id>:out` 已存在且路由已指向它时才允许删除 `:staged` 并把档案标记为 `ready`。任何一步失败或崩溃后，被路由引用的出站都不被删除；档案保持 `swapping`，下次对账从已记录的 `swap_phase` 继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或发现路由指向不存在的出站时才标记 `degraded` 并递增 revision；承载流量的 tag 从不先删后加，因此不存在无出站可用的空窗期。
 - 档案被上游引用时删除返回 `409`；禁用后其 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。历史用量保留原 `egress_proxy_id`，删除档案不重写历史。
 - Xray API 不提供认证，安全依赖 `xray-control` 网络隔离和只绑定该网络地址；核心不加入该网络。
 
@@ -989,7 +989,7 @@ flowchart TD
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理的启用状态、运行态 `ready` 变化或端点变化都会递增 `config_revision`。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
+- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`：管理员启用或停用、运行态进入或离开 `ready`（含 `pending`/`disabled` → `ready`）、以及端点变化都触发发布。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1293,6 +1293,10 @@ create table core_deployments (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table core_instances
+  add column deployment_id uuid references core_deployments(id);
+create index core_instances_deployment_idx on core_instances(deployment_id);
 
 create table usage_events (
   event_id uuid primary key,
@@ -1793,7 +1797,7 @@ networks:
 - API 镜像不包含 Node/Bun；前端和后端作为同一镜像发布，避免版本错配。
 - 静态资源使用内容哈希；`index.html` 不缓存。
 - demo 是独立构建目标 `bun run build:demo`：`base=/demo/`，产物 `web/dist-demo`，入口 `web/demo.html`。它复用正式 `App` 与 `routes`，运行前安装 `/api/*` 的 mock 拦截。
-- `web/dist-demo` 不复制进 `server/internal/web/dist`，API 镜像不包含 demo；`server/internal/web/static.go` 的 SPA 回退只服务生产 `dist`，`/demo/**` 由独立静态托管提供深链恢复。
+- `web/dist-demo` 不复制进 `server/internal/web/dist`，API 镜像不包含 demo 资源；`server/internal/web/static.go` 对所有未命中嵌入文件的路径回退到生产 `index.html`（含 `/demo/**`），不为 demo 增加分支，`/demo/**` 由独立静态托管提供深链恢复。
 - 生产入口 `web/src/main.tsx` 不引用 `web/src/demo/`；生产 bundle 不得包含 demo 场景数据。
 
 ## 构建与发布
@@ -1825,7 +1829,7 @@ networks:
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 按状态目录是否存在分支，而不是按容器是否存在：原状态目录仍在时复用它，由兼容 core 重放其 spool，容器缺失时按登记的镜像 digest 重建实例（强制清理删除了容器、或删除 helper 失败，都可能出现“目录在、容器不在”）；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零，不需要重放。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
+3. 按状态目录是否存在分支，而不是按容器是否存在：原状态目录仍在时复用它，由兼容 core 重放其 spool，容器缺失时按登记的镜像 digest 重建实例（强制清理删除了容器、或删除 helper 失败，都可能出现“目录在、容器不在”）；状态目录不存在即视为已销毁：唯一被允许的删除路径必须已确认 spool 清零，因此按登记的镜像 digest 重建实例与新状态目录，不需要重放。若删除成功但审计或状态记录尚未落库，控制面必须先补齐该次删除的审计，再执行回滚。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
@@ -1872,7 +1876,7 @@ networks:
 - **Docker socket**：通过 socket proxy 收敛；仍然高权限，控制面被攻破等价于宿主机风险。后续拆独立 `core-controller`。
 - **密钥**：上游密钥、出站代理凭据与 OIDC client secret 使用 AES-256-GCM；下游 Key 只存 SHA-256；auth flow 的 PKCE verifier 加密、state 只存哈希；配置签名可选（默认只告警），用于发现损坏而非身份认证；日志脱敏；错误消息截断并清洗密钥模式。
 - **核心状态目录**：宿主机 `CORE_STATE_HOST_DIR` 权限 `0700`；只包含加密配置缓存和用量元数据 spool，不含原始请求/响应正文、请求头、上游密钥明文或代理凭据。
-- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；解析 DNS 后拒绝 loopback、link-local、私网和元数据地址；开发模式显式放开。出站代理不绕过该限制；代理服务器地址可以位于受控私网，但只能由管理员显式配置，不能来自下游请求。OIDC issuer 是管理员配置的控制面依赖，允许内网 HTTPS，`http` 仅允许 loopback，私有 CA 通过 `OIDC_CA_FILE` 注入。
+- **SSRF**：上游 URL 默认只允许 HTTPS 和公网地址；未绑定出站代理时，core 在每次请求解析 DNS 后拒绝 loopback、link-local、私网和元数据地址，开发模式显式放开。绑定出站代理时 core 不解析上游主机名（`socks5h` 交给 Xray，由第三方代理侧解析），因此控制面只在保存和发布时对上游主机名执行一次同样的拒绝，已发布的代理上游不做逐请求复核，这是显式接受的残余风险。出站代理不绕过该限制；代理服务器地址可以位于受控私网，但只能由管理员显式配置，不能来自下游请求。OIDC issuer 是管理员配置的控制面依赖，允许内网 HTTPS，`http` 仅允许 loopback，私有 CA 通过 `OIDC_CA_FILE` 注入。
 - **请求体**：默认不持久化；错误消息最多 1 KiB；不记录 Authorization。
 - **审计**：关键写操作记录 actor、动作、目标、变更摘要（脱敏）和来源 IP。
 
@@ -2215,6 +2219,7 @@ create table egress_proxies (
   enabled boolean not null default true,
   inbound_port int not null unique check (inbound_port between 1024 and 65535),
   runtime_state text not null default 'pending' check (runtime_state in ('pending', 'swapping', 'ready', 'degraded', 'disabled')),
+  swap_phase text check (swap_phase in ('staged_added', 'route_staged', 'old_removed', 'stable_added', 'route_stable')),
   last_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -2246,7 +2251,7 @@ create index usage_events_egress_proxy_time
 - 第二期迁移为每个既有 Model 回填一条 `scope=global`、`source=manual`、`locked=false` 的价格修订，并把 `billing_revision_id` 指向它；新建 Model、目录导入新建 Model 和首次改价都在同一事务内创建初始修订。因此二期模型响应总有非空 `billing_state.price_revision_id`。
 - 第二期迁移为 `usage_events` 增加可空的 `resolved_model`、`price_revision_id`、`egress_mode` 和 `egress_proxy_id`，并为 `resolved_model`、`egress_proxy_id` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名、上游 ID，以及 `egress_mode`（`proxy` 时还必须带 `egress_proxy_id`）；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 或 `egress_proxy_id` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
 - 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。
-- 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，只写不读；API、日志、审计和 core 快照不出现明文。`server`、`port`、`transport` 和 `tls` 只用于控制面生成 Xray outbound，不进入 core 快照；`transport` 和 `tls` 只保存非秘密选项，私钥、密码和 token 必须进入 `credentials_ciphertext`。
+- 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，创建和轮换时接收一次明文、之后只写不读；API 响应、日志、审计和 core 快照不出现代理凭据。`server`、`port`、`transport` 和 `tls` 只用于控制面生成 Xray outbound，不进入 core 快照；`transport` 和 `tls` 只保存非秘密选项，私钥、密码和 token 必须进入 `credentials_ciphertext`。
 - `egress_proxies.inbound_port` 由控制面在配置范围内分配并持久化；端口只在该档案的 Xray 运行态清理完成后回收。`runtime_state` 是对账观测，不是期望状态；管理员期望启用状态以数据库 `enabled` 为准，core 快照中的 `egress_proxies[].enabled` 是管理员状态与 `runtime_state` 计算后的有效资格：管理员启用且（`runtime_state = ready`，或 `runtime_state = swapping` 且路由指向已存在的出站）时为 `true`，其余状态为 `false`。`swapping` 期间有效资格保持为启用但不进入 `ready`，这类状态变化不发布新 revision。
 - `upstreams.egress_proxy_id` 使用 `on delete restrict`，删除仍被上游引用的档案由 API 返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。
 - `usage_events.egress_proxy_id` 是历史归因，不设外键；删除代理档案或改绑不重写历史。`egress_mode` 可空，表示一期或未记录事件；`proxy` 时 `egress_proxy_id` 必填，`direct` 时必须为空，两者由 `usage_events_egress_pair` 约束保证。

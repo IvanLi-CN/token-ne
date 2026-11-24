@@ -39,8 +39,8 @@
 ### REQ-DEMO-003
 
 - The demo MUST satisfy the production session boundary instead of bypassing it.
-- Inputs: production `sessionLoader` calling `authApi.me()`.
-- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. The `session-expired` scene MUST make that endpoint answer `401` so the production redirect path is exercised; no other scene returns `401`.
+- Inputs: production `sessionLoader` calling `authApi.me()`; the production login page calling `authApi.config()` and `authApi.login()`.
+- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. The `session-expired` scene MUST make that endpoint answer `401` so the production redirect path is exercised; no other scene returns `401`. Because the production login page renders its local form only when `GET /api/auth/config` reports `local_login_enabled: true`, and authenticates through `POST /api/auth/login`, both endpoints MUST be mocked (login returns the same demo `AdminUser` and never echoes the password). `oidc_login_available` MUST be `false` so the page never emits the `/api/auth/oidc/start` document navigation that `window.fetch` cannot intercept.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-004
@@ -62,6 +62,7 @@
 - Scene selection and shareable state MUST be URL-encoded and MUST survive reload.
 - Inputs: `?demo=<scene-id>` and `d_*` query keys.
 - Outputs: the demo starts in the named scene with the named persona/network/data toggles; changing scene or share state MUST use client-side navigation via the demo router's history API and MUST NOT trigger a full document reload. Reading `demo`/`d_*` at boot and writing them on change are both required: a memory-only router that never touches `window.location` does not satisfy this requirement.
+- Outputs: because production `Link`/`NavLink` carry only `to`, the demo runtime MUST re-apply the current `demo` value and every `d_*` key to the URL after each location change, so refresh and copied links keep the scene and share state on every page rather than only on the entry page.
 - Compatibility: demo query keys MUST NOT collide with production query keys; production code MUST NOT read `demo` or `d_*`.
 
 ### REQ-DEMO-007
@@ -73,9 +74,9 @@
 ### REQ-DEMO-008
 
 - Static hosting of `/demo/**` MUST provide deep-link recovery for unknown sub-paths.
-- Inputs: a request for `/demo/<any-known-route>` after reload.
-- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must fall back to `/demo/demo.html`; renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation: the API image does not serve `/demo`.
-- Compatibility: the production SPA fallback in `server/internal/web/static.go` MUST NOT be reused as demo hosting; it must stay scoped to `dist`.
+- Inputs: a request for `/demo/` (no sub-path) and for `/demo/<any-known-route>`, including after reload.
+- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must serve `/demo/demo.html` for both `/demo/` and unknown `/demo/*`; renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
+- Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file, including `/demo/**`. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
 
 ### REQ-DEMO-009
 
@@ -96,7 +97,7 @@
 | --- | --- |
 | REQ-DEMO-001 | `web/src/demo/entry.tsx`, `web/src/App.tsx`, `web/src/app/router.tsx` |
 | REQ-DEMO-002 | `web/src/demo/mock/transport.ts` |
-| REQ-DEMO-003 | `web/src/demo/mock/auth.ts`, `web/src/demo/scenes/`（`session-expired`）, `web/src/lib/api.ts`, `web/src/app/router.tsx` |
+| REQ-DEMO-003 | `web/src/demo/mock/auth.ts`, `web/src/demo/scenes/`（`session-expired`）, `web/src/lib/api.ts`, `web/src/pages/login/index.tsx`, `web/src/app/router.tsx` |
 | REQ-DEMO-004 | `web/src/demo/mock/state.ts`, `web/src/demo/inspector/` |
 | REQ-DEMO-005 | `web/package.json`, `web/vite.config.ts`, `web/demo.html` |
 | REQ-DEMO-006 | `web/src/demo/scenes/`, `web/src/demo/share-state.ts` |

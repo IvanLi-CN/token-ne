@@ -280,7 +280,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 控制面恢复后，运行中的核心自行重放；已停止实例由兼容 core 重启后自行重放。
 - 控制面在返回 `202` 前用单个 PostgreSQL 事务写入批次；数据库不可用返回 503，核心保留 spool 重试。
 - 核心不连接 PostgreSQL；数据库只由控制面访问。
-- prune 只在核心上报 `unacked_events=0` 后允许；否则返回 409。
+- prune 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成（`inflight == 0`）后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时，删除容器和状态目录并记录 `last_ack_seq` 到审计；不满足时返回 409 `spool_not_drained`。只有显式 `force=true` 的强制清理才允许删除容器，状态目录必须保留到清零确认。
 
 **验收**：重复投递同一批事件不会产生重复行；控制面停机 3 到 24 小时后恢复，用量能重放且不重复；spool 容量和最早未确认时间有指标；控制面无法读取 spool 文件；宿主机整体故障不在保证范围内。
 
@@ -306,12 +306,12 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 只有存在确认零观测时才删除容器，并用同一观测作为删除状态目录的前提；观测缺失或非零时容器与状态目录都保留。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。Docker 退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为零未确认确认。排水后的零观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成、或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致。观测非零或缺失时先用兼容 core 重启重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，并停止自动重启与自动重试。该标记不是终态：spool 事后清零则清除并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。
-- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时先重启兼容 core 重放，强制清理只能删除容器并保留状态目录直到清零确认。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致；标签不完整时不进入删除候选，也不进入 `cleanup_blocked`，只计数并写审计。观测非零或缺失时先用兼容 core 重启重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，并停止自动重启与自动重试。该标记不是终态：spool 事后清零则清除并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计，保留给手工处置。
+- 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时返回 409 `spool_not_drained`，先用兼容 core 重放；显式 `force=true` 的强制清理只删除容器、保留状态目录并写审计，清零确认后才允许删除状态目录。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`）并更新指标 `token_ne_core_auto_prune_total{result}`。
 - 默认部署不保留静态基线 core；动态 core 是唯一核心来源。没有 `com.token-ne.deployment` 标签的历史 Compose 核心不参与自动销毁，仍按冲突或手工处置。
 
-**验收**：v1 和 v2 同时在线；流量可以按 10/90 切换；旧版本在长 SSE 结束后才停止；回滚后流量回到 v1；控制面重启后状态不丢；未应用当前配置 revision 的实例不接流量；登记超出范围的 `config_schema_version` 时控制面拒绝加入流量；滚动升级后旧版本容器在排水和 spool 清零后自动消失，无需手工 prune；spool 非零时容器保留并重启重放，清零后自动消失；状态缺失或归属标签不完整的实例不自动删除并告警。
+**验收**：v1 和 v2 同时在线；流量可以按 10/90 切换；旧版本在长 SSE 结束后才停止；回滚后流量回到 v1；控制面重启后状态不丢；未应用当前配置 revision 的实例不接流量；登记超出范围的 `config_schema_version` 时控制面拒绝加入流量；滚动升级后旧版本容器在排水和 spool 清零后自动消失，无需手工 prune；spool 非零时容器保留并重启重放，清零后自动消失；状态缺失或归属标签不完整的实例不自动删除，并留下可告警的指标计数与审计。
 
 ### FR-12 管理 Web
 
@@ -366,7 +366,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - OIDC 登录/绑定使用短生命周期 `SameSite=Lax` flow cookie；应用会话 Cookie 仍为 `SameSite=Strict`。
 - 写接口校验 `Origin` 和 `Sec-Fetch-Site`；拒绝明显跨站请求。
 - 上游密钥使用 AES-256-GCM 加密；主密钥只从环境变量读取。
-- 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，只写不读；API、日志、审计和核心配置都不出现代理凭据（明文或密文），core 配置只包含 SOCKS5 端点、代理档案 ID 和有效启用状态。
+- 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，创建和轮换时接收一次明文、之后只写不读；API 响应、日志、审计和核心配置都不出现代理凭据（明文或密文），core 配置只包含 SOCKS5 端点、代理档案 ID 和有效启用状态。
 - 核心配置包含上游密钥时，只通过内网令牌保护的接口传输；签名可选，默认 `warn` 模式只告警；手动 override 可以启动，但必须输出警告并记录审计；本地缓存加密。
 - 日志不记录 Authorization、上游密钥、下游 Key 明文和请求/响应正文。
 - 上游 URL 默认只允许 `https` 和公网地址，防止 SSRF；不跟随重定向；开发模式显式放开。未绑定出站代理时 core 每次请求都校验解析后的地址；绑定出站代理时只由控制面在保存和发布时校验上游主机名，因为解析发生在第三方代理侧。代理服务器地址可以位于受控私网，但只能由管理员显式配置，不能来自下游请求。
@@ -497,15 +497,15 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - Xray 是 Compose 声明服务，生命周期由 Compose 管理；控制面不创建、删除或重启 Xray 容器，只通过 API 管理运行态。
 - 支持的上游代理协议：HTTP CONNECT、SOCKS5、Shadowsocks（AEAD）、VMess、VLESS、Trojan；到代理服务器的 TLS 由档案的 TLS 选项表达，不单独作为协议值。传输与 TLS 选项按协议枚举，组合至少覆盖 TCP、WebSocket、gRPC、HTTPUpgrade 和 TLS/REALITY；未知协议、未知传输或未知字段返回 422，不做降级猜测。
 - 项目内部统一使用无认证 SOCKS5 作为 core 到 Xray 的出站合同；core 以 `socks5h` 语义连接，只把主机名交给 Xray，Xray 不得本地解析该域名，最终解析发生在第三方代理侧。上游 TLS 仍由 core 端到端校验，Xray 不终止上游 TLS，也不解析或注入上游 API Key。
-- 管理员创建“出站代理档案”，字段包括名称、协议、服务器、端口、凭据、传输/TLS 选项和启用状态；凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，API、日志、审计和 core 配置都不出现代理凭据（明文或密文）。档案测试通过该代理访问受控探测目标，返回状态、耗时和错误分类，不返回凭据。
+- 管理员创建“出站代理档案”，字段包括名称、协议、服务器、端口、凭据、传输/TLS 选项和启用状态；凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，创建和轮换时接收一次明文、之后只写不读；API 响应、日志、审计和 core 配置都不出现代理凭据（明文或密文）。档案测试通过该代理访问受控探测目标，返回状态、耗时和错误分类，不返回凭据。
 - 管理 API 提供 `GET/POST /api/egress-proxies`、`GET/PUT/DELETE /api/egress-proxies/{id}` 和 `POST /api/egress-proxies/{id}/test`；上游写入接受可选 `egress_proxy_id`。
 - 上游可选绑定一个出站代理档案：`upstream.egress_proxy_id` 为空表示直连；非空表示该上游的所有请求、目录同步和测试都经该档案出站。禁止在代理不可用时回退直连。
 - 允许把上游保存到禁用或 `degraded` 的代理档案，但必须显示不可用并保持该上游无候选；不得自动清空绑定或改为直连。`swapping` 不使上游失去候选，因为路由始终指向已存在的出站。
 - 控制面是 Xray 的唯一写入者；管理员 API 和浏览器不直接连接 Xray。控制面通过 Xray gRPC API 的 HandlerService 和 RoutingService 增加/删除每个档案的 SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由规则。StatsService 需要 `stats` app 与 `policy.system` 统计开关才有可读计数，因此档案可用性一律以对账结果为准。
 - 每个档案分配稳定的内部入站端口（来自控制面配置的端口范围，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。端口范围耗尽时创建档案失败并返回明确错误；端口只在档案删除且其 Xray 运行态清理完成后回收，启用或停用不重新分配端口，因此启用不会耗尽范围，也不复用其他档案端口，不降级为直连。目标实例未加入 `egress` 网络时拒绝启用该档案。Xray 启动配置只包含 API、默认 blackhole、`stats` app、统计开关和必要的日志/路由骨架；不存在默认直连 outbound，避免未匹配流量泄漏。
 - 控制面启动、Xray 重启、档案变更后都执行对账：读取 Xray 的 inbound/outbound 列表，补齐或清理缺失项，移除不属于当前期望状态的 `egress:` 标签，验证路由规则后才把档案标记为 `ready`。数据库是期望状态，Xray 运行态可重建；不以 Xray 配置文件作为事实来源。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间路由始终指向已存在的出站，档案有效资格保持为启用，因此不发布 revision；只有管理员启用状态变化、`ready` 与 `degraded` 之间切换、或端点变化才发布新的配置 revision。Xray 不支持同 tag 原地更新出站，变更按固定顺序执行：新增 staged 出站 → 切换路由到 staged → 删除旧出站 → 以稳定 tag 新增新出站 → 路由切回稳定 tag → 删除 staged。中途失败时不得删除路由当前指向的出站；档案保持 `swapping` 由对账继续推进，确实无法推进时标记 `degraded`，不得把流量导向其他档案或直连。
-- 对账或 API 应用失败时，档案进入 `degraded` 并告警；绑定它的上游不进入候选，已存在请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得为此切换到直连或其他档案。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间路由始终指向已存在的出站，档案有效资格保持为启用，因此不发布 revision；只有快照中该档案的有效 `enabled` 值或端点发生变化时才发布新的配置 revision：管理员启用或停用、运行态进入或离开 `ready`（含 `pending`/`disabled` → `ready`）、`ready` 与 `degraded` 之间切换、以及端点变化都触发发布；`ready` 与 `swapping` 之间 `enabled` 不变，因此不发布。Xray 不支持同 tag 原地更新出站，变更按固定顺序执行：新增 staged 出站 → 切换路由到 staged → 删除旧出站 → 以稳定 tag 新增新出站 → 路由切回稳定 tag → 删除 staged。中途失败时不得删除路由当前指向的出站；交换序列内的单步失败保持 `swapping`，按已记录的交换阶段由对账继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或对账发现路由指向不存在的出站时才标记 `degraded`，此时才发布 revision 并让绑定上游失去候选；任何情况下都不得把流量导向其他档案或直连。
+- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警；绑定它的上游不进入候选，已建立连接继续使用，新请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得为此切换到直连或其他档案。
 - 档案被上游引用时删除返回 `409`；禁用档案前必须显示受影响上游并确认。禁用后该档案的 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。删除代理档案不重写历史用量中的 `egress_proxy_id` 或历史费用。
 - Xray 停止或重启时既有代理连接中断：提交前的连接或 SOCKS5 握手失败按可重试连接错误处理；提交后的中断按 `aborted` 或 `upstream_stream_error` 记为终态，不重试，也不回退直连；候选耗尽后返回 503。直连上游不受影响。控制面恢复后重新对账，代理上游恢复，不需要重启 core。
 - 控制面不可用时 Xray 运行态继续服务；若此时 Xray 重启，代理档案丢失，绑定上游请求失败，直连上游不受影响；控制面恢复后重新对账。
@@ -520,14 +520,14 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 - 提供纯前端 demo：不启动控制面、PostgreSQL、Docker、Caddy 或 Xray，也能在浏览器里走完整的正式管理流程。
 - demo 复用正式 `App` 树、正式 `routes`、正式组件与正式 `apiRequest` 调用面；不复制页面、不新增 demo 专用路由、不在正式路由里加 demo 分支。
-- mock 在首次渲染前安装，覆盖全部 `/api/*`；未覆盖的接口返回结构化错误，禁止回退到真实后端。演示身份通过 mock 的 `GET /api/auth/me` 满足正式会话引导。
+- mock 在首次渲染前安装，覆盖全部 `/api/*`；未覆盖的接口返回结构化错误，禁止回退到真实后端。正式会话引导由 mock 的 `GET /api/auth/me` 满足；正式登录页需要的 `GET /api/auth/config`（`local_login_enabled: true`，OIDC 不可用）与 `POST /api/auth/login`（返回同一演示身份）也必须 mock，否则 `session-expired` 场景无法从登录页回到管理面。OIDC 启动端点必须保持不可用，避免产生 `window.fetch` 无法拦截的文档跳转。
 - demo 写操作只修改内存模型并立即在正式 UI 回显；Inspector 标注 `simulated` 并保留近期变更记录；表单中输入的密钥不回显。
 - demo 是独立构建目标：`base=/demo/`，产物 `web/dist-demo`；不进入 API 镜像，不改变生产 `web/dist` 与 `server/Dockerfile` 的嵌入关系。
-- 场景与可分享状态写入 URL（`demo=<scene>` 与 `d_*`），切换场景走客户端导航，不整页刷新；Inspector 的面板布局只存本地，不进入分享链接。
-- `/demo/**` 由静态托管提供深链恢复；Go 的 SPA 回退仍只服务生产 `dist`。
+- 场景与可分享状态写入 URL（`demo=<scene>` 与 `d_*`），切换场景走客户端导航，不整页刷新。正式导航链接只携带路由，因此 demo runtime 必须在每次 location 变化后把 `demo` 与全部 `d_*` 重新写回 URL，保证在任何页面刷新或复制链接都保留场景与分享状态；Inspector 的面板布局只存本地，不进入分享链接。
+- `/demo/**` 由独立静态托管提供深链恢复；Go 的 SPA 回退不为 demo 增加分支，API 域名下 `/demo/**` 继续返回生产 SPA 文档，demo 资源不进入 API 镜像。
 - demo 数据全部为合成数据；不得出现真实凭据、真实上游或代理地址、真实管理员身份或生产用量。
 
-**验收**：不启动任何后端，打开 demo 即可看到总览、请求、Models、Upstreams、Downstream Keys 与系统页的真实布局；登录页可通过 mock 会话进入管理面；在 demo 中修改模型或上游会立即在 UI 回显并标记为模拟；`devtools` 网络面板里没有指向真实后端的 `/api/*` 请求；刷新带 `demo=` 与 `d_*` 的 URL 后场景与分享状态保持；`web/dist` 中不存在 `demo-scene-` 前缀的标识，且 `web/dist` 的入口不引用 demo 入口 chunk；`server/Dockerfile` 不复制 `web/dist-demo`，嵌入目录只有 `dist`，对 API 请求 `/demo/**` 返回 404。
+**验收**：不启动任何后端，打开 demo 即可看到总览、请求、Models、Upstreams、Downstream Keys 与系统页的真实布局；登录页可用演示身份完成本地登录并进入管理面；在 demo 中修改模型或上游会立即在 UI 回显并标记为模拟；`devtools` 网络面板里没有指向真实后端的 `/api/*` 请求；刷新带 `demo=` 与 `d_*` 的 URL 后场景与分享状态保持；`web/dist` 中不存在 `demo-scene-` 前缀的标识，且 `web/dist` 的入口不引用 demo 入口 chunk；`server/Dockerfile` 不复制 `web/dist-demo`，嵌入目录只有 `dist`，API 镜像中不存在 demo 入口文档或 demo 资源。
 
 ## 非功能需求
 
