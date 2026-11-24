@@ -2,14 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { FieldFailure } from "../../components/field-errors";
 import { formatMoney, Money } from "../../components/price";
-import {
-  Button,
-  EmptyState,
-  ErrorState,
-  Input,
-  Spinner,
-  StatusBadge,
-} from "../../components/primitives";
+import { Button, EmptyState, ErrorState, Input, Spinner } from "../../components/primitives";
 import { Select } from "../../components/select";
 import { type PriceSourceInstall, priceSourceCatalogApi, pricesApi } from "../../lib/api";
 import { formatTime } from "../../lib/format";
@@ -198,7 +191,8 @@ export function PriceSourceCatalogSection() {
                   <ul className="mt-2 list-disc pl-5">
                     {conflicts.map((row) => (
                       <li key={row.source_model_id}>
-                        <code>{row.source_model_id}</code>：{row.reason ?? "无法添加"}
+                        <code title={row.source_model_id}>{row.source_model_id}</code>：
+                        {row.reason ?? "无法添加"}
                       </li>
                     ))}
                   </ul>
@@ -227,42 +221,47 @@ export function PriceSourceCatalogSection() {
           <ul className="price-list" aria-label="价格源模型">
             {rows.map((row) => (
               <li className="price-row" key={row.source_model_id}>
-                <div className="price-row-head">
-                  <label className="price-row-select">
-                    <input
-                      type="checkbox"
-                      aria-label={`选择 ${row.source_model_id}`}
-                      checked={selected.has(row.source_model_id)}
-                      disabled={row.installed}
-                      onChange={() => {
-                        const next = new Set(selected);
-                        if (next.has(row.source_model_id)) next.delete(row.source_model_id);
-                        else next.add(row.source_model_id);
-                        setSelected(next);
-                      }}
-                    />
-                    <code>{row.source_model_id}</code>
-                  </label>
-                  <span
-                    className="price-row-meta"
-                    title={`${row.vendor || "未知供应商"} · ${
-                      row.released_at ? formatTime(row.released_at) : "发布日期未提供"
-                    }${row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}`}
-                  >
-                    {row.vendor || "未知供应商"} ·{" "}
-                    {row.released_at ? formatTime(row.released_at) : "发布日期未提供"}
-                    {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
-                  </span>
+                <div className="price-identity">
+                  <div className="price-row-head">
+                    <label className="price-row-select">
+                      <input
+                        type="checkbox"
+                        aria-label={`选择 ${row.source_model_id}`}
+                        checked={selected.has(row.source_model_id)}
+                        disabled={row.installed}
+                        onChange={() => {
+                          const next = new Set(selected);
+                          if (next.has(row.source_model_id)) next.delete(row.source_model_id);
+                          else next.add(row.source_model_id);
+                          setSelected(next);
+                        }}
+                      />
+                      <code>{row.source_model_id}</code>
+                    </label>
+                    <span
+                      className="price-row-meta"
+                      title={`${row.vendor || "未知供应商"} · ${
+                        row.released_at ? formatTime(row.released_at) : "发布日期未提供"
+                      }${row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}`}
+                    >
+                      {row.vendor || "未知供应商"} ·{" "}
+                      {row.released_at ? formatTime(row.released_at) : "发布日期未提供"}
+                      {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
+                    </span>
+                  </div>
                   <div className="price-row-badges">
                     <span className="mode-chip">按量</span>
-                    {row.web_search_usd_per_call != null && (
-                      <span className="mode-chip mode-chip-call">按次</span>
-                    )}
-                    {row.installed ? (
-                      <StatusBadge tone="success">已添加</StatusBadge>
-                    ) : (
-                      <StatusBadge tone="neutral">未添加</StatusBadge>
-                    )}
+                    {row.web_search_usd_per_call != null && <span className="mode-chip">按次</span>}
+                    <span
+                      className={row.installed ? "install-state is-installed" : "install-state"}
+                      title={
+                        row.installed
+                          ? "已在全局模型中，不能重复加入"
+                          : "未加入全局模型；勾选后点击“添加到全局模型”"
+                      }
+                    >
+                      {row.installed ? "已加入" : "未加入"}
+                    </span>
                   </div>
                 </div>
                 <div className="price-groups">
