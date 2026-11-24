@@ -205,8 +205,9 @@ export function PriceSourceCatalogSection() {
 
       <section className="surface-card">
         <p className="price-legend">
-          金额单位 USD / 100 万 tokens；“—”表示来源未提供该维度。阶梯价在 prompt
-          达到阈值时整份替换基础价。
+          {`金额单位 USD / 100 万 tokens；“`}
+          <span className="price-legend-mark">—</span>
+          {`”表示来源未提供该维度。阶梯价在 prompt 达到阈值时整份替换基础价。`}
         </p>
         {catalog.isPending ? (
           <Spinner label="正在加载价格源模型" />

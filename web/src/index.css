@@ -1346,6 +1346,11 @@ th {
   padding: 0.75rem 1.25rem 0;
   font-size: 0.75rem;
 }
+.price-legend-mark {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1;
+}
 .price-num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
