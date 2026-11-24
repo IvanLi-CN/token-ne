@@ -62,6 +62,7 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, 422, "validation_failed", "invalid upstream", d)
 		return
 	}
+	u.BaseURL = normalizeUpstreamBaseURL(u.BaseURL)
 	if !a.cfg.AllowPrivateUpstreams {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		err := validatePublicHost(ctx, u.BaseURL, net.DefaultResolver.LookupIPAddr)
@@ -177,7 +178,7 @@ func (a *API) testUpstream(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, 500, "internal_error", "key decryption failed", nil)
 		return
 	}
-	base, _ := url.Parse(u.BaseURL)
+	base, _ := url.Parse(normalizeUpstreamBaseURL(u.BaseURL))
 	base.Path = strings.TrimRight(base.Path, "/") + "/v1/models"
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(u.Connect+u.FirstByte)*time.Millisecond)
 	defer cancel()

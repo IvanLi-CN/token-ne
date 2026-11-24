@@ -14,7 +14,7 @@
 - [Golden fixtures](./fixtures/)：配置、usage、heartbeat、管理错误和 OpenAI 错误样例。
 - [Web 设计规格](../DESIGN.md)：页面、状态、交互和视觉边界。
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
-- [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道和恢复边界。
+- [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道、同版本 core 自动部署和恢复边界。
 - [管理员 OIDC 登录 Spec](./specs/oidc-admin-login/SPEC.md)：Authelia 管理登录、身份绑定、本地登录 break-glass、配置优先级和会话 TTL。
 - [产品版本发布 Runbook](./runbooks/release.md)：手动 target、精确镜像与 latest 验证、失败恢复和禁止事项。
 - [管理员 OIDC 登录 Runbook](./runbooks/admin-oidc.md)：Authelia client、首次绑定、私有 CA、强制下线和 break-glass。
@@ -24,7 +24,7 @@
 ## 架构决策记录
 
 - [ADR 0001：Caddy 作为多版本流量切换器](./adr/0001-caddy-weighted-core-cutover.md)
-- [ADR 0002：用 Docker Engine API 管理动态核心生命周期](./adr/0002-docker-api-core-lifecycle.md)
+- [ADR 0002：用 Docker Engine API 管理动态核心生命周期（已由 ADR 0013 取代）](./adr/0002-docker-api-core-lifecycle.md)
 - [ADR 0003：核心通过快照配置和批量事件与控制面解耦](./adr/0003-core-config-and-usage-boundary.md)
 - [ADR 0004：PostgreSQL 存事实，Prometheus 存指标](./adr/0004-postgres-facts-prometheus-metrics.md)
 - [ADR 0005：控制面不可用时用本地分段 usage spool 缓冲用量](./adr/0005-local-usage-wal.md)（控制面重放条款由 ADR 0008 取代）
@@ -35,3 +35,4 @@
 - [ADR 0010：产品版本采用 target-only 手动发布并统一 core、API、Web](./adr/0010-product-version-release.md)
 - [ADR 0011：发布同时提供不可变版本和可变部署通道](./adr/0011-mutable-deployment-channel.md)
 - [ADR 0012：管理员 OIDC 登录采用数据库优先配置与单管理员绑定](./adr/0012-oidc-admin-login.md)
+- [ADR 0013：运行时管理全部核心实例](./adr/0013-runtime-managed-core-lifecycle.md)

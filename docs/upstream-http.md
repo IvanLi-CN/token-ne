@@ -4,11 +4,11 @@
 
 ## URL
 
-`upstream.base_url` 是 `scheme://host[:port][/path-prefix]`，**不含隐式版本段**。
+`upstream.base_url` 是 `scheme://host[:port][/path-prefix]`，规范格式**不含隐式 `/v1` 版本段**。保存上游时，控制面会把路径末尾的 `/v1` 或 `/v1/` 规范化移除；迁移期的历史配置即使仍带这个后缀，core 也只在末尾识别并移除这一段，随后原样追加下游路径。
 
 - `https://api.openai.com` + `/v1/chat/completions` → `https://api.openai.com/v1/chat/completions`
 - `https://gateway.example.com/openai` + `/v1/embeddings` → `https://gateway.example.com/openai/v1/embeddings`
-- 只做尾部斜杠归一化；不自动插入 `/v1`，也不自动剥离 `/v1`。
+- 只自动剥离末尾完整 `/v1` 段和尾部斜杠；中间路径中的 `v1` 不改写，也不自动插入版本段。
 - 保留下游查询字符串；不增加隐式 `api-version`。
 - `/v1/models` 和 `/v1/models/{model}` 由控制面 catalog 提供，不访问上游。
 

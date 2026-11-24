@@ -67,7 +67,6 @@ fn invalid_fixtures() {
             "/upstreams/0/base_url",
             json!("https://secret@api.openai.com"),
         ),
-        ("/upstreams/0/base_url", json!("https://api.openai.com/v1")),
         (
             "/upstreams/0/base_url",
             json!("https://api.openai.com?key=secret"),
@@ -564,6 +563,29 @@ fn body_rewrite_and_header_safety() {
         .as_str(),
         "https://gateway.example.com/openai/v1/embeddings?a=1"
     );
+    for (base, expected) in [
+        (
+            "https://gateway.example.com/v1",
+            "https://gateway.example.com/v1/chat/completions",
+        ),
+        (
+            "https://gateway.example.com/step_plan/v1/",
+            "https://gateway.example.com/step_plan/v1/chat/completions",
+        ),
+    ] {
+        u.base_url = base.into();
+        assert_eq!(
+            upstream::target_url(
+                &u,
+                "/v1/chat/completions",
+                None,
+                &ValidationOptions::default()
+            )
+            .unwrap()
+            .as_str(),
+            expected
+        );
+    }
 }
 #[tokio::test]
 async fn bounded_body() {

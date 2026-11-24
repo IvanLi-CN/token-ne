@@ -41,6 +41,15 @@ type Container struct {
 	} `json:"NetworkSettings"`
 }
 
+// containerName prefers Docker's list payload names; inspect payloads may only
+// populate Name.
+func containerName(c Container) string {
+	if len(c.Names) > 0 {
+		return strings.TrimPrefix(c.Names[0], "/")
+	}
+	return strings.TrimPrefix(c.Name, "/")
+}
+
 // Image is the Docker Engine image inspect subset the control plane needs. The
 // registry digest is not part of a local image identity: it is recorded per
 // repository when the image was pulled.

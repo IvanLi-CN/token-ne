@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0013](./0013-runtime-managed-core-lifecycle.md).
 
 ## Context
 
@@ -16,11 +16,11 @@ Go 控制面需要按版本启动、停止和替换 Rust 核心容器。部署�
 
 ## Decision
 
-Compose 负责声明控制面、数据库、Caddy、网络和基线核心；Go 通过 Docker Engine API 管理后续核心实例。
+Compose 负责声明控制面、数据库、Caddy、网络和持久卷；Go 通过 Docker Engine API 管理全部核心实例。
 
 约束：
 
-- 核心容器至少带 `com.token-ne.role=core`、`version`、`instance`；仅部署流程创建的实例带 `deployment`，Compose 基线实例没有该标签，接管以 role 和 instance 为准。
+- 核心容器至少带 `com.token-ne.role=core`、`version`、`instance` 和 `deployment`；接管以 role、instance 和 deployment 为准。历史无 deployment 的 Compose 核心只允许进入一次性退休路径，不得重新接管。
 - 同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 和 `com.docker.compose.config-hash` 标签，使动态容器能被 Compose 项目级查询发现；缺少 config-hash 时 `docker compose ps` 和 `down --remove-orphans` 看不到容器。它们仍然不是 Compose 文件声明的 service。
 - 容器加入 `CORE_NETWORKS` 指定的 `edge` 与 `core-control` 网络，不发布端口；Caddy 通过容器 DNS 名访问，核心不加入 `admin` 或 `data`。
 - Go 启动时按标签接管现有容器；数据库和 Docker 状态双向对账。

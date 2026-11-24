@@ -547,8 +547,7 @@ pub fn validate_upstream_url(raw: &str, options: &ValidationOptions) -> Result<U
             && u.username().is_empty()
             && u.password().is_none()
             && u.query().is_none()
-            && u.fragment().is_none()
-            && !u.path().trim_end_matches('/').split('/').any(|s| s == "v1"),
+            && u.fragment().is_none(),
         "upstreams.base_url",
     )?;
     if !options.allow_private_upstreams {

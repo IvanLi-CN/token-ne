@@ -21,6 +21,7 @@ import (
 	"github.com/IvanLi-CN/token-ne/server/internal/httpapi"
 	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/IvanLi-CN/token-ne/server/internal/version"
 )
 
 func main() {
@@ -113,7 +114,7 @@ func main() {
 		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
 		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", CoreImage: coreImage, Token: controlToken,
 		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
-		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS")}
+		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS"), CurrentVersion: version.Version, CurrentCommit: version.Commit}
 	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}
 	serviceCtx, stopService := context.WithCancel(context.Background())
 	defer stopService()

@@ -11,11 +11,11 @@
 | PostgreSQL、socket-proxy | `data` | 无 |
 | API | `edge`、`core-control`、`data` | 仅 `127.0.0.1:${METRICS_PORT:-9090}` 的指标端口 |
 | Caddy | `edge` | 仅 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 的 HTTP 端口 |
-| 基线 core | `edge`、`core-control` | 无；9091 仅供内部排障 |
+| 动态 core | `edge`、`core-control` | 无；9091 仅供内部排障 |
 
 网络名固定为 `token_ne_edge`、`token_ne_core_control`、`token_ne_data`，动态核心使用相同网络。不要在同一 Docker daemon 上并行部署使用相同网络名的独立项目。核心不能加入 `data`，不能挂载数据库、Docker socket 或 Caddy 管理目录；API 不挂载核心状态目录。socket-proxy 即使只读挂载 Docker socket，允许的 Docker API 写操作仍有宿主级权限，不能发布其端口。
 
-Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。API 与 Caddy 都固定为 UID/GID `65532:65532`；`caddy-init` 在启动前把三个 Caddy 卷 chown 给该 UID，避免 Caddy 重建 socket 后权限回退。Caddy 先丢弃全部 capabilities，仅加回 `NET_BIND_SERVICE` 以绑定容器内 80。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后将 `/v1/*` 转发到基线核心、`/api/*` 与健康路径转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
+Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不监听网络管理端口。API 与 Caddy 都固定为 UID/GID `65532:65532`；`caddy-init` 在启动前把三个 Caddy 卷 chown 给该 UID，避免 Caddy 重建 socket 后权限回退。Caddy 先丢弃全部 capabilities，仅加回 `NET_BIND_SERVICE` 以绑定容器内 80。bootstrap 首先终止 `/internal` 与 `/internal/*` 并返回 404，然后在没有受控 core 时让 `/v1/*` 返回 503；控制面完成首个 core 的配置确认后，才把 `/v1/*` 切到动态核心池，`/api/*` 与健康路径始终转发到 API，其余路径交给 API 的静态站点。`token-ne-deny-internal`、`token-ne-v1`、`token-ne-v1-proxy`、`token-ne-api`、`token-ne-spa` 是稳定 ID。后续完整配置由控制面协调器替换；有 autosave 时 Caddy 使用 `--resume`，所以修改 bootstrap 不会覆盖已有部署配置，运行时还必须核对生效配置与受控实例状态。
 
 ## 环境变量
 
@@ -43,13 +43,12 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `CORE_STATE_HOST_DIR` | 必需，宿主绝对目录，权限 `0700`；每个 core 仅挂载自己的实例子目录 |
 | `CORE_STATE_INIT_IMAGE` | 可选，默认 `busybox:1.37`；为动态实例创建状态子目录的一次性容器镜像。控制面不拉取该镜像，必须已在部署宿主预拉取；默认的 busybox 由 `caddy-init` 服务预先拉取，换用其他镜像前先 `docker pull` |
 | `CORE_IMAGE_REPOSITORY` | 可选，默认 `ghcr.io/ivanli-cn/token-ne-core`；核心镜像仓库，动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>`。新版本部署由控制面自动拉取该镜像 |
-| `CORE_IMAGE`、`CORE_VERSION` | 默认 `token-ne-core:0.1.0` / `0.1.0`；只描述 Compose 声明的基线 core，本地 build 保留为开发入口；动态实例的镜像由 `CORE_IMAGE_REPOSITORY` 与版本决定 |
 | `COMPOSE_PROJECT_NAME` | 示例为 `token-ne`；动态容器的项目标签必须与之相符，固定网络名不会随项目名变化 |
 | `CADDY_HTTP_PORT`、`METRICS_PORT` | 默认 `8080` / `9090`，均仅绑定 loopback |
 | `CADDY_TLS_MODE` | 默认 `off`，生产基线依赖外部 TLS 反向代理 |
 | `STREAM_USAGE_INJECTION` | 数据面开关的默认值，默认 `true`；Cores 页保存的选择写入 `system_state` 并优先于此变量 |
 
-Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS`、`STATUS_REWRITE_CONFIG` 与核心内部监听地址，不需要在 `.env` 再配置。基线实例 ID 为 `0193f0c2-7b1a-7c3e-9f00-0000000000b1`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
+Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS` 与 `STATUS_REWRITE_CONFIG`，不声明 core service。动态 core 由控制面按发布版本创建，每个实例独占 `CORE_STATE_HOST_DIR/<instance_id>`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
 
 ## API 镜像与 Web 构建
 
@@ -60,6 +59,7 @@ API 镜像不负责下载前端依赖。发布前先在 `web/` 执行 `bun insta
 核心只有一个镜像仓库，由 `CORE_IMAGE_REPOSITORY` 指定；每个版本的镜像就是该仓库加版本标签，或直接引用 digest（`<repo>:<version>` / `<repo>@<digest>`）。控制面不构建镜像，只在部署时通过 Docker Engine 拉取。当前仓库公开，控制面匿名拉取，不需要凭据；私有仓库认证属于部署宿主的后续配置，本期未实现，不要指望控制面持有 registry 凭据。
 
 - 新版本部署：创建实例前自动拉取目标镜像；这是正常发布路径，发布默认自动推进（`auto_advance` 默认 `true`），新实例 ready 后自动进入 10%，再按 0/10/50/100 推进。
+- 控制面启动：API 使用自身运行时版本登记同版本 core；如果该版本没有运行中或预热中的实例，就自动创建一个精确版本的动态 core。API 重启或 Dockrev 更新到新 release 后，会重复这一检查并自动触发新版本部署，不能把 `latest` 用作 core 镜像。
 - 旧版本或手动刷新：显式调用 `POST /api/cores/versions/{version_id}/pull`。
 - 回滚：不自动拉取镜像；宿主机上缺少该镜像时回滚失败，必须先恢复镜像或先显式拉取。
 
@@ -90,7 +90,7 @@ docker compose --env-file ops/.env -f ops/compose.yaml config --quiet
 - [ ] release identity 已锁定到精确版本或 digest；控制面部署可以使用 `latest` 通道自动更新，动态 core 仍使用精确版本；数据库备份可恢复，`MASTER_KEY`、缓存/签名密钥与策略文件已独立备份；确认迁移兼容性。
 - [ ] 宿主已预拉取 `CORE_STATE_INIT_IMAGE`（非默认值时）与回滚可能用到的旧版本核心镜像；`CORE_IMAGE_REPOSITORY` 指向实际仓库，且控制面能在部署时拉取新版本镜像。
 - [ ] 配置真实 HTTPS origin 与域名；外部 TLS 反向代理已运行并保留 Host、关闭响应缓冲；宿主防火墙未暴露 API、PostgreSQL、核心、socket-proxy、Caddy 管理面和指标端口。
-- [ ] 用宿主绝对路径预建核心状态根目录与基线实例子目录，权限 `0700`，并确认目标容器用户可写；env 与 Prometheus credentials 文件权限 `0600` 且不入库。
+- [ ] 用宿主绝对路径预建核心状态根目录，权限 `0700`，并确认控制面创建的动态实例目录可写；env 与 Prometheus credentials 文件权限 `0600` 且不入库。
 - [ ] 在允许 Docker 的目标主机执行 `docker info` 与 Compose config 检查；随后按 PostgreSQL 健康 → API 迁移/管理员引导与健康 → Caddy 配置加载 → 核心配置拉取/受控确认的顺序启动；socket-proxy 先于 API 启动。
 - [ ] 核对运行时 Caddy 配置和 autosave：无 TCP admin；`/internal/*` 返回 404；无已控制核心时 `/v1/*` 应为 503，只有完成控制记录的 ready 核心才能接流量。
 - [ ] 从公网入口验证 `/api/*`、静态站点和 `/v1/*`；验证 SSE 逐块到达、长流在配置重载时不中断；验证核心不能连接数据库或 socket-proxy。这些均为运行验证，离线脚本没有执行。

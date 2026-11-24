@@ -14,7 +14,7 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 
 确认：
 
-- PostgreSQL、API、Caddy、基线核心均健康。
+- PostgreSQL、API、Caddy 均健康；核心池可以在控制面启动同版本部署完成前暂时为空。
 - 外部 TLS 反向代理到 Caddy 的链路正常；Caddy 默认只监听 HTTP。
 - 当前没有进行中的部署。
 - 已记录当前核心版本、镜像 digest、权重、配置 revision、Caddy 配置哈希和 spool 未确认量。
@@ -22,6 +22,7 @@ curl -fsS http://127.0.0.1:9090/metrics -H "Authorization: Bearer $METRICS_TOKEN
 - `CORE_STATE_HOST_DIR` 可写且权限为 `0700`。
 - `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）已在部署宿主预拉取；控制面不会拉取该镜像。
 - `CORE_IMAGE_REPOSITORY` 是裸仓库地址（不含 tag 或 digest），与要部署的版本组合后可拉取；回滚会用到的旧版本镜像仍在本地，或准备好显式拉取。
+- 控制面 release 与核心 release 使用同一产品版本；API 启动时会登记自身版本并自动部署对应的动态 core，不再依赖 Compose 基线核心。
 
 如果启用 OIDC，额外确认：
 
@@ -36,7 +37,24 @@ curl -fsS https://$PUBLIC_DOMAIN/api/cores \
   -H "Cookie: $ADMIN_COOKIE"
 ```
 
-## 登记新版本
+## 控制面版本跟随部署
+
+生产 Compose 不再声明 core service。每次 API 启动时，控制面从自身 `GET /api/version` 使用的构建版本登记同版本 core；该版本没有运行中/预热实例且没有进行中 rollout 时，自动以精确 `<CORE_IMAGE_REPOSITORY>:<version>` 或已登记 digest 创建一份动态 core。新实例仍按现有 `0 → 10 → 50 → 100` 阶段预热和切流，配置确认前 Caddy 的空池固定返回 503。
+
+首次迁移有旧 Compose 基线容器时，执行前先备份数据库，并确认旧基线的实例权重为 0，且核心 `/internal/v1/status` 报告 `inflight=0`、`spool.unacked_events=0`。权重非零、状态接口不可达或 spool 未确认时，控制面拒绝自动停基线容器；先用控制面排水并保留状态目录，不得直接 `docker rm` 或使用 `docker compose down --remove-orphans`。
+
+迁移步骤：
+
+1. 使用包含本 ADR 所述行为的 API release；更新部署主机的 Compose 文件，删除 `core` service 以及仅供该 service 使用的 `CORE_IMAGE`、`CORE_VERSION` 配置，并先运行 `docker compose config --quiet`。
+2. 在现有栈目录执行 `docker compose up -d api caddy`，不要运行 `down`、`down --remove-orphans` 或 `update-containers.sh`。Compose 不会自动删除已移除 service 的旧容器；API 启动时通过 Docker 标签识别没有 `com.token-ne.deployment` 标签的旧基线，并在确认权重、inflight 和 spool 安全后停止它，保留状态目录与历史实例记录。
+3. 观察 `GET /api/cores`：应自动出现与 `GET /api/version` 完全一致的 core 版本及一条 warming/ready rollout；旧动态活动版本继续按 deployment 状态机保留流量。确认新 core ready 且权重达到 100 后，旧动态实例会在排水和 spool 清零后停止。
+4. 通过管理 UI 或 `POST /api/cores/prune` 逐个清理已停止且 spool 已确认清零的旧动态实例。基线记录可以在确认 `stopped`、`weight=0`、`spool=0` 后清理；不要删除仍有未确认 spool 的任何状态目录。
+
+镜像拉取或容器创建的短暂错误会以受限频率重试；已记录为 `failed`/`rolled_back` 的同版本 deployment 不会自动反复重建。检查 `/api/cores` 的错误和 API 日志，修复原因后由管理员显式重新提交该版本部署。API 可以使用 `latest` 作为控制面更新通道，core 实例必须使用精确版本或 digest。
+
+## 手动登记其他版本
+
+通常的 release 升级不需要手动执行本节：控制面启动时会自动登记自身 `/api/version` 返回的精确版本并启动同版本 core。只有需要预部署不同于当前 API release 的版本，或需要显式登记候选/回滚版本时，才手动调用以下接口。
 
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
@@ -56,7 +74,7 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
 
 `version` 不能是 `latest`；生产环境优先登记 digest，只给 tag 时每次部署都会重新拉取该标签，避免用旧镜像启动。
 
-## 预热新版本
+## 预热其他版本
 
 ```bash
 curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/deploy \

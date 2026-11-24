@@ -57,7 +57,7 @@ func drainDecision(i instanceRow, now time.Time, timeout time.Duration) string {
 	return "stop"
 }
 func canPrune(i instanceRow) bool {
-	return i.State == "stopped" && i.Weight == 0 && i.Heartbeat != nil && i.Spool != nil && *i.Spool == 0 && i.Observed != nil
+	return i.State == "stopped" && i.Weight == 0 && i.Spool != nil && *i.Spool == 0 && i.Observed != nil
 }
 
 func (r *Runtime) observeDrains(ctx context.Context) error {

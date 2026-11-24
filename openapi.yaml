@@ -2130,6 +2130,7 @@ components:
         base_url:
           type: string
           format: uri
+          description: 上游 scheme/host/port 与可选路径前缀；不含隐式 /v1。保存时会规范化尾部 /v1 或 /v1/。
         auth_style:
           type: string
           enum: [bearer, api_key]
@@ -2173,6 +2174,7 @@ components:
         base_url:
           type: string
           format: uri
+          description: 上游 scheme/host/port 与可选路径前缀；不含隐式 /v1。创建或更新时会规范化尾部 /v1 或 /v1/。
         auth_style:
           type: string
           enum: [bearer, api_key]
