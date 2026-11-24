@@ -36,26 +36,28 @@ type UsageGroup struct {
 
 type RequestFilter struct {
 	UsageRange
-	Model, Upstream *string
-	Status          *int
-	Cursor          *Cursor
-	Limit           int
+	Model, ResolvedModel, Upstream *string
+	Status                         *int
+	Cursor                         *Cursor
+	Limit                          int
 }
 
 type RequestSummary struct {
-	EventID        string    `json:"event_id"`
-	RequestID      string    `json:"request_id"`
-	OccurredAt     time.Time `json:"occurred_at"`
-	Endpoint       string    `json:"endpoint"`
-	RequestedModel *string   `json:"requested_model"`
-	UpstreamModel  *string   `json:"upstream_model"`
-	UpstreamID     *string   `json:"upstream_id"`
-	Stream         bool      `json:"stream"`
-	HTTPStatus     *int      `json:"http_status"`
-	Outcome        string    `json:"outcome"`
-	AttemptCount   int       `json:"attempt_count"`
-	TTFT           *int      `json:"ttft_ms"`
-	Duration       *int      `json:"duration_ms,omitempty"`
+	EventID         string    `json:"event_id"`
+	RequestID       string    `json:"request_id"`
+	OccurredAt      time.Time `json:"occurred_at"`
+	Endpoint        string    `json:"endpoint"`
+	RequestedModel  *string   `json:"requested_model"`
+	ResolvedModel   *string   `json:"resolved_model"`
+	PriceRevisionID *string   `json:"price_revision_id"`
+	UpstreamModel   *string   `json:"upstream_model"`
+	UpstreamID      *string   `json:"upstream_id"`
+	Stream          bool      `json:"stream"`
+	HTTPStatus      *int      `json:"http_status"`
+	Outcome         string    `json:"outcome"`
+	AttemptCount    int       `json:"attempt_count"`
+	TTFT            *int      `json:"ttft_ms"`
+	Duration        *int      `json:"duration_ms,omitempty"`
 }
 
 type RequestDetail struct {
@@ -74,6 +76,8 @@ type RequestDetail struct {
 	RequestBytes        *int64   `json:"request_bytes"`
 	ResponseBytes       *int64   `json:"response_bytes"`
 	StatusRewrittenFrom *int     `json:"status_rewritten_from"`
+	PriceSource         *string  `json:"price_source"`
+	PriceSourceID       *string  `json:"price_source_id"`
 }
 
 const usageTotals = `count(*), coalesce(sum(total_tokens),0)::text, sum(cost_usd)::float8`
@@ -139,12 +143,12 @@ func (s *Store) UsageBreakdown(ctx context.Context, r UsageRange, group string) 
 	})
 }
 
-const requestColumns = `event_id::text,request_id,occurred_at,endpoint,requested_model,upstream_model,upstream_id::text,
- stream,http_status,outcome,attempt_count,ttft_ms,duration_ms`
+const requestColumns = `u.event_id::text,u.request_id,u.occurred_at,u.endpoint,u.requested_model,u.resolved_model,
+ u.price_revision_id,u.upstream_model,u.upstream_id::text,u.stream,u.http_status,u.outcome,u.attempt_count,u.ttft_ms,u.duration_ms`
 
 func (v *RequestSummary) fields() []any {
-	return []any{&v.EventID, &v.RequestID, &v.OccurredAt, &v.Endpoint, &v.RequestedModel, &v.UpstreamModel, &v.UpstreamID,
-		&v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
+	return []any{&v.EventID, &v.RequestID, &v.OccurredAt, &v.Endpoint, &v.RequestedModel, &v.ResolvedModel,
+		&v.PriceRevisionID, &v.UpstreamModel, &v.UpstreamID, &v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
 }
 
 func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSummary, error) {
@@ -153,12 +157,13 @@ func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSu
 	if f.Cursor != nil {
 		before, id = &f.Cursor.Time, &f.Cursor.ID
 	}
-	rows, err := s.Pool.Query(ctx, `select `+requestColumns+` from usage_events where `+usageWindow+`
+	rows, err := s.Pool.Query(ctx, `select `+requestColumns+` from usage_events u where `+usageWindow+`
  and ($3::text is null or requested_model=$3)
+	 and ($9::text is null or resolved_model=$9)
  and ($4::uuid is null or upstream_id=$4)
  and ($5::int is null or http_status=$5)
  and ($6::timestamptz is null or (occurred_at,event_id)<($6,$7::uuid))
- order by occurred_at desc,event_id desc limit $8`, f.From, f.To, f.Model, f.Upstream, f.Status, before, id, f.Limit)
+	 order by occurred_at desc,event_id desc limit $8`, f.From, f.To, f.Model, f.Upstream, f.Status, before, id, f.Limit, f.ResolvedModel)
 	if err != nil {
 		return nil, err
 	}
@@ -172,10 +177,10 @@ func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSu
 
 func (s *Store) UsageRequest(ctx context.Context, id string) (RequestDetail, error) {
 	var v RequestDetail
-	err := s.Pool.QueryRow(ctx, `select `+requestColumns+`,error_class,error_code,error_message,input_tokens,cached_input_tokens,
+	err := s.Pool.QueryRow(ctx, `select `+requestColumns+`,pr.source,pr.source_id,error_class,error_code,error_message,input_tokens,cached_input_tokens,
  output_tokens,reasoning_tokens,total_tokens,cost_usd::float8,upstream_ttfb_ms,upstream_duration_ms,
- request_bytes,response_bytes,status_rewritten_from from usage_events where request_id=$1
- order by occurred_at desc,event_id desc limit 1`, id).Scan(append(v.fields(), &v.ErrorClass, &v.ErrorCode, &v.ErrorMessage, &v.InputTokens, &v.CachedInputTokens,
+ request_bytes,response_bytes,status_rewritten_from from usage_events u left join price_revisions pr on pr.id=u.price_revision_id where request_id=$1
+ order by occurred_at desc,event_id desc limit 1`, id).Scan(append(v.fields(), &v.PriceSource, &v.PriceSourceID, &v.ErrorClass, &v.ErrorCode, &v.ErrorMessage, &v.InputTokens, &v.CachedInputTokens,
 		&v.OutputTokens, &v.ReasoningTokens, &v.TotalTokens, &v.CostUSD, &v.UpstreamTTFB, &v.UpstreamDuration,
 		&v.RequestBytes, &v.ResponseBytes, &v.StatusRewrittenFrom)...)
 	v.OccurredAt = v.OccurredAt.UTC()

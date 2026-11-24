@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
@@ -13,6 +14,9 @@ func (a *API) listModels(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "")
 		return
 	}
+	for i := range v {
+		v[i] = a.modelView(v[i])
+	}
 	writeJSON(w, 200, map[string]any{"data": v})
 }
 func (a *API) getModel(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +25,18 @@ func (a *API) getModel(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "")
 		return
 	}
-	writeJSON(w, 200, v)
+	writeJSON(w, 200, a.modelView(v))
+}
+
+// modelView keeps phase-one responses byte-compatible: billing_state only
+// exists when the deployment switch is on, and request-only confirmation
+// fields never leak into responses.
+func (a *API) modelView(m store.Model) store.Model {
+	if !a.cfg.SecondPhaseModelManagement {
+		m.BillingState = nil
+	}
+	m.BillingLocked, m.ConfirmLocked = nil, nil
+	return m
 }
 func (a *API) saveModel(w http.ResponseWriter, r *http.Request) {
 	create := r.Method == "POST"
@@ -84,10 +99,14 @@ func (a *API) saveModel(w http.ResponseWriter, r *http.Request) {
 	audi.Payload, _ = json.Marshal(m)
 	v, e := a.repo.SaveModel(r.Context(), m, create, audi)
 	if e != nil {
+		if errors.Is(e, store.ErrPriceProfileLocked) {
+			fail(w, r, 409, "price_profile_locked", "price profile is locked", detail("confirm_locked", "explicit confirmation required"))
+			return
+		}
 		storageError(w, r, e, "")
 		return
 	}
-	writeJSON(w, status, v)
+	writeJSON(w, status, a.modelView(v))
 }
 func (a *API) deleteModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("model_id")
