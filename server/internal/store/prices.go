@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -70,6 +71,19 @@ func boolean(p *bool) bool { return p != nil && *p }
 // unchanged; any price or lock transition appends a new immutable revision.
 func saveModel(ctx context.Context, tx pgx.Tx, m Model, create bool) (Model, error) {
 	if create {
+		// Model creation reserves its name in the same namespace as route
+		// patterns. The advisory lock keeps a concurrent rule save from
+		// occupying the name between this check and the insert.
+		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(m.ID)); err != nil {
+			return Model{}, err
+		}
+		var nameTaken bool
+		if err := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", m.ID).Scan(&nameTaken); err != nil {
+			return Model{}, err
+		}
+		if nameTaken {
+			return Model{}, ErrModelNameTaken
+		}
 		revision, err := AppendGlobalRevision(ctx, tx, m.ID, m.Billing, "manual", nil, boolean(m.BillingLocked))
 		if err != nil {
 			return Model{}, err

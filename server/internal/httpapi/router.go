@@ -187,9 +187,17 @@ func fail(w http.ResponseWriter, r *http.Request, status int, code, message stri
 	writeJSON(w, status, map[string]any{"error": adminError{code, message, id, d}})
 }
 func storageError(w http.ResponseWriter, r *http.Request, e error, field string) {
+	var conflict *store.ReferenceConflict
 	switch {
 	case errors.Is(e, store.ErrNotFound):
 		fail(w, r, 404, "not_found", "resource not found", nil)
+	case errors.As(e, &conflict):
+		fail(w, r, 409, "conflict", "resource is still referenced", referenceDetails(conflict.Refs))
+	case errors.Is(e, store.ErrModelNameTaken):
+		if field == "" {
+			field = "model_id"
+		}
+		fail(w, r, 409, "conflict", "model name is already used by a route rule", detail(field, "a route rule already uses this pattern"))
 	case errors.Is(e, store.ErrConflict):
 		fail(w, r, 409, "conflict", "resource conflicts with an existing resource or reference", nil)
 	case errors.Is(e, store.ErrReference):
@@ -200,6 +208,26 @@ func storageError(w http.ResponseWriter, r *http.Request, e error, field string)
 	default:
 		fail(w, r, 503, "storage_unavailable", "storage operation unavailable", nil)
 	}
+}
+
+// referenceDetails names each blocking collection so a client can point at the
+// exact rule or override instead of a bare conflict.
+func referenceDetails(refs []store.Reference) []Detail {
+	collections := map[string]string{"capability": "capabilities", "route_rule": "route_rules", "price_override": "price_overrides"}
+	out := make([]Detail, 0, len(refs))
+	seen := make(map[string]int, len(refs))
+	for _, ref := range refs {
+		collection := collections[ref.Kind]
+		if collection == "" {
+			collection = "references"
+		}
+		out = append(out, Detail{
+			Path:   fmt.Sprintf("%s[%d]", collection, seen[collection]),
+			Reason: fmt.Sprintf("%s %s still references this resource", strings.ReplaceAll(ref.Kind, "_", " "), ref.ID),
+		})
+		seen[collection]++
+	}
+	return out
 }
 func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string) bool {
 	return decodeWithNullable(w, r, dst, required, nil)

@@ -38,6 +38,7 @@ type fakeRepo struct {
 	audits            []store.Audit
 	pingErr           error
 	deleteErr         error
+	saveModelErr      error
 	ingestFn          func(context.Context, usage.Batch) (usage.Result, error)
 	requests          []store.RequestSummary
 	queryErr          error
@@ -127,6 +128,9 @@ func (f *fakeRepo) Model(_ context.Context, id string) (store.Model, error) {
 	return m, nil
 }
 func (f *fakeRepo) SaveModel(_ context.Context, m store.Model, create bool, a store.Audit) (store.Model, error) {
+	if f.saveModelErr != nil {
+		return m, f.saveModelErr
+	}
 	if _, ok := f.models[m.ID]; ok && create {
 		return m, store.ErrConflict
 	}
