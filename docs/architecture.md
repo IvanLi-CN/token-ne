@@ -744,12 +744,10 @@ server/
     store/           pgx、查询、迁移、审计
     usage/           摄入校验、事务写入、费用计算、指标
     cost/            价格匹配与费用计算
-    catalog/         上游模型目录同步、stale 标记和导入建议
-    routing/         控制面路由规则、Glob 冲突校验和预览
-    pricing/         价格源适配、报价差异、锁定和价格修订
+    modelglob/       受限 Glob 匹配、重叠判定与名称 advisory 键
+    pricesource/     受控报价源适配、名称归一化与内嵌版本化数据集
     caddy/           管理 API 客户端、配置生成、对账
-    orchestrator/    Docker 客户端、实例生命周期、部署状态机
-    cores/         核心注册、配置快照、健康与心跳
+    cores/           核心注册、配置快照与语义校验、Docker 部署、健康与心跳
     metrics/         Prometheus registry 与指标定义
     web/             go:embed 静态产物、SPA fallback
   migrations/
@@ -1535,6 +1533,7 @@ services:
       CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
       ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       STREAM_USAGE_INJECTION: ${STREAM_USAGE_INJECTION:-true}
+      SECOND_PHASE_MODEL_MANAGEMENT: ${SECOND_PHASE_MODEL_MANAGEMENT:-false}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
@@ -1663,6 +1662,7 @@ networks:
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
 | `STREAM_USAGE_INJECTION` | 数据面开关的部署默认值，默认 `true`；Cores 页或 `PUT /api/data-plane-settings` 保存的选择优先于它。关闭后核心不再注入 `stream_options.include_usage`，流式用量依赖上游返回 | 否 |
+| `SECOND_PHASE_MODEL_MANAGEMENT` | 第二期管理契约的唯一部署开关，默认 `false`，由 `GET /api/version` 的 `features.second_phase_model_management` 公开。开启后上游更新强制 `capabilities_revision`、上游与模型响应分别带 `capabilities_revision` 和 `billing_state`，Web 渲染二期区域；关闭时保持一期载荷与响应形状 | 否 |
 | `METRICS_PORT` | 宿主机 loopback 上的 Prometheus 抓取端口，默认 9090 | 否 |
 | `METRICS_TOKEN` | Prometheus 抓取 Token | 是 |
 | `COMPOSE_PROJECT_NAME` | Compose 项目名，用于网络名 | 是 |
@@ -1913,7 +1913,7 @@ token-ne/
 
 ## 阶段边界
 
-第一期只实现本文描述的能力。以下能力在 schema 和接口上预留扩展点，但不实现：
+第一期能力与第二期模型管理能力都已实现，由 `SECOND_PHASE_MODEL_MANAGEMENT` 控制第二期是否对外暴露。以下能力在 schema 和接口上预留扩展点，但不实现：
 
 - 上游 `kind` 从 `api_key` 扩展到 `oauth_account`；上游能力关系仍指向 `model_id`。
 - 核心能力协商和配置 schema 版本已经存在，可支持不同版本并行。
@@ -1924,8 +1924,8 @@ token-ne/
 ### 第二期模型路由
 
 请求管线在权限检查前解析模型名。先查全局 Model 精确 ID，再查启用的 exact 规则，最后按 `priority` 升序查启用的 Glob 规则。命中后固定目标和上游限制，目标未启用或未匹配时返回 `404`。Key 权限和承接策略针对解析后的全局 ID。候选通过能力、权重、上游限制和承接策略校验后进入现有调度顺序。用量记录请求名、解析后的模型和实际发送的上游模型名。
-路由规则与全局 Model ID 共享命名空间：`pattern` 等于已有 Model ID 的规则不能保存；新建或导入 Model 时，若已有规则使用同一 `pattern`，同样拒绝并返回字段路径。`glob` 规则使用与承接策略相同的受限 Glob 语言，同优先级重叠按该语言判定。
-路由规则写入、Model 创建和目录导入在事务内先取同一把事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。任何绕过管理 API 的写入必须复用同一校验函数，重叠判定与预览共用实现，避免预览与保存分歧。
+路由规则与全局 Model ID 共享命名空间：`pattern` 等于已有 Model ID 的规则不能保存；目录导入新建 Model 时，若已有规则使用同一 `pattern`，同样拒绝并返回字段路径。直接通过 `POST /api/models` 新建模型目前只校验模型 ID 唯一性，不校验同名路由规则占用。`glob` 规则使用与承接策略相同的受限 Glob 语言，同优先级重叠按该语言判定。
+路由规则写入和目录导入在事务内先取同一把事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。重叠判定与预览共用同一实现，避免预览与保存分歧。
 
 ### 第二期模型与价格数据扩展
 

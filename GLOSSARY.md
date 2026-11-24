@@ -104,6 +104,18 @@ _Avoid_: Effective price, price profile
 一次原子应用的价格变更身份；用量事件引用它以保留费用计算上下文，改价不重算历史费用。
 _Avoid_: Product version, price source
 
+**Price sync run**:
+一次受控价格源获取及其规范化报价的审核批次；状态为 `running`、`ready`、`applied` 或 `failed`，首次成功应用后为 `applied` 且仍可继续应用剩余报价。批次记录本批全部修订 ID，不从报价直接改写价格。
+_Avoid_: Price import, price update, quote cache
+
+**Price revision baseline**:
+报价生成时记下的目标价格修订；应用前必须与目标当前修订一致（生成时目标不存在则为 `null` 且应用前仍不存在），否则整批以 `stale_price_quote` 拒绝。
+_Avoid_: Current price, expected price, version
+
+**Capabilities revision**:
+每个上游能力集合的单调递增版本；目录导入、绑定和全量能力替换都递增它，更新请求必须携带读到的版本，过期返回 `409`。
+_Avoid_: ETag, config revision, capability version
+
 **Applied weights**:
 已经应用并正在决定流量分配的实例权重集合。
 _Avoid_: Current weights, live weights
