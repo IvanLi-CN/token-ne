@@ -57,8 +57,8 @@ _Avoid_: Control-plane replay, file replay
 _Avoid_: API root with /v1, endpoint template
 
 **Model**:
-全局模型条目，包含公开模型名、启用状态和计费信息；不按上游拆分。
-_Avoid_: Upstream model, catalog entry, route
+全局模型条目，包含公开模型名、接受状态（`enabled`）和计费信息；不按上游拆分。界面上的「全局模型预设」即指这份列表。
+_Avoid_: Upstream model, catalog entry, route, model preset
 
 **Model mapping**:
 把公开模型名改写为上游实际模型名的配置；存在全局和上游两个作用域，上游作用域覆盖全局，但映射本身不声明上游是否支持该模型。
@@ -73,12 +73,16 @@ _Avoid_: Model route, supported model list, catalog entry
 _Avoid_: Default target, resolved route
 
 **Upstream model catalog**:
-某个上游最近一次成功同步得到的模型发现结果；目录项不自动创建全局模型或上游模型能力。
+某个上游最近一次成功同步得到的模型发现结果；同步和刷新目录不会创建全局模型或上游模型能力，只有显式开关才会。
 _Avoid_: Upstream model capability, model route, public model list
 
 **Catalog binding**:
 某个目录项与其上游模型能力之间的显式关联；决定目录项的 `bound_model_id`，与上游模型名称改写字段互相独立。
 _Avoid_: Upstream model name override, capability flag
+
+**Catalog sync mark**:
+所有者对某个目录项的意图：该源模型应保持为全局模型；它独立于目录存在性、全局模型是否存在以及模型是否被接受。
+_Avoid_: Binding, installed flag, enabled state
 
 **Resolved model**:
 请求模型名经过精确模型 ID 或启用的名称路由规则解析后的全局模型 ID；下游 Key 权限和候选选择使用该名称。

@@ -17,6 +17,8 @@
 - `Upstream model policy`: an upstream-level allow/deny filter over global model IDs; deny matches take precedence over allow matches.
 - `Price profile`: a global default or upstream-scoped set of input, cached-input, and output prices in USD per million tokens.
 - `Price quote`: a normalized, source-attributed price candidate that must be reviewed before application unless an explicit safe-match policy permits batch application.
+- `Catalog sync mark`: the owner's recorded intent that one price-source catalog row keeps a global model present. It is independent of catalog discovery, global model existence, and model acceptance.
+- `Model acceptance`: `Model.enabled`; whether the system serves the model to downstream `/v1` traffic. It is never inferred from a catalog sync mark.
 - Interfaces: management API under `/api`, core configuration snapshots under `/internal/v1`, OpenAI-compatible downstream requests under `/v1`, and the Models, Upstreams, and Prices Web surfaces.
 
 ## Requirements
@@ -107,15 +109,22 @@
 
 - The system MUST expose the second-phase management surfaces with observable state, not only write endpoints.
 - Inputs: catalog sync results, catalog bindings, upstream policies, route rules and previews, price profiles and quote runs.
-- Outputs: Models shows route conflicts with the field path and preview results; Upstreams shows the latest sync state, stale items, bindings and the effective policy; Prices shows current value, proposed value, base revision, scope and lock state, and distinguishes `stale_price_quote`, `quote_review_required`, `price_profile_locked`, and `quote_not_applicable` with distinct next actions.
+- Outputs: Models shows route conflicts with the field path and preview results, renders acceptance as a switch, and offers deletion gated by capability references; Upstreams shows the latest sync state, stale items, bindings and the effective policy; Prices shows current value, proposed value, base revision, scope and lock state, and distinguishes `stale_price_quote`, `quote_review_required`, `price_profile_locked`, and `quote_not_applicable` with distinct next actions.
 - covers: `../../prd.md#fr-22-模型管理与用量归因`
 
 ### REQ-MUM-013
 
-- The system MUST expose the controlled price-source catalog as its own surface and install selected rows as global models in one batch.
-- Inputs: a controlled source ID, an optional name query, a vendor filter, a sort field (`name`, `released`, `deprecated`), an order, and a selection of source model IDs.
-- Outputs: rows carrying the source model ID, vendor, release and deprecation dates, the three prices, the target global model ID, and whether that model already exists; rows without a date sort last. Installing creates disabled global models with their initial `source=price_source` revision in one transaction and reports `created`, `exists` or `conflict` per row; an existing model or a name reserved by a route rule is never overwritten.
+- The system MUST expose the controlled price-source catalog as its own surface whose per-row sync switch installs rows as global models without making turning it off destructive.
+- Inputs: a controlled source ID, an optional name query, a vendor filter, a sort field (`name`, `released`, `deprecated`), an order, and per-row switch actions, including a dragged run of them.
+- Outputs: rows carrying the source model ID, vendor, release and deprecation dates, the three prices, the target global model ID, whether that model exists, and whether the row is marked synced; rows without a date sort last. Turning a switch on persists the sync mark and ensures the global model exists: it creates a disabled model with its initial `source=price_source` revision in one transaction, or reports `exists` or `conflict`; an existing model or a name reserved by a route rule is never overwritten. Turning it off clears only the mark: nothing is deleted, repriced, or disabled. A displayed switch is on exactly when the mark is set and the target global model exists. One dragged run submits one batch request and reports one outcome per row. Catalog refresh, filtering, and sorting never create global models.
 - covers: `../../prd.md#fr-24-价格源模型目录`
+
+### REQ-MUM-014
+
+- The system MUST keep model acceptance and global model deletion independent from catalog sync marks.
+- Inputs: an acceptance change, a deletion request, and catalog rows whose target global model ID matches.
+- Outputs: acceptance is the model's own `enabled` value, changed on the Models surface and never written by the catalog; deleting an unreferenced model removes it and leaves every sync mark stored as-is, so the matching catalog row renders off because the model is absent. A later catalog refresh does not recreate a model from a mark; turning the switch on again is the only path that restores it. Deleting a model that upstream capabilities still reference fails without changing the model or any catalog row.
+- covers: `../../prd.md#fr-17-模型导入与能力管理`
 
 ## Verification
 
@@ -157,13 +166,20 @@
 
 ### VER-MUM-007
 
-- Method: store integration tests over the embedded snapshot, HTTP contract tests for the two catalog endpoints, and Web component tests for filtering, ordering and batch installation.
+- Method: store integration tests over the embedded snapshot, HTTP contract tests for the two catalog endpoints, and Web component tests for filtering, ordering, single and dragged switch runs.
 - covers: `REQ-MUM-013`
-- Pass condition: the catalog reports vendors and dates; a name query and a vendor filter narrow the rows; release and deprecation ordering are deterministic with missing dates last; installing two rows creates two disabled models each with an initial revision; a second install reports `exists`; a name reserved by a route rule reports `conflict` and creates nothing.
+- Pass condition: the catalog reports vendors and dates; a name query and a vendor filter narrow the rows; release and deprecation ordering are deterministic with missing dates last; switching two rows on creates two disabled models each with an initial revision and one response; switching an existing row on reports `exists` without touching its price or acceptance; switching a row off keeps the model, its price revision and `enabled` unchanged and only clears the mark; a displayed switch is off when the mark is set but the model is absent; a name reserved by a route rule reports `conflict` and creates nothing.
+
+### VER-MUM-008
+
+- Method: store and HTTP tests over acceptance and deletion, plus Web tests for both switches.
+- covers: `REQ-MUM-014`
+- Pass condition: toggling acceptance changes only `Model.enabled` and leaves catalog marks and displayed switches unchanged; deleting an unreferenced model makes the matching catalog row render off without writing the mark; a catalog refresh does not recreate the deleted model; deleting a model that upstream capabilities reference returns the conflict and changes neither the model nor the catalog row.
 
 ## Related ADRs
 
 - [ADR 0014：目录、路由、策略与价格作用域分离](../../adr/0014-model-upstream-management-boundaries.md)
+- [ADR 0015：目录同步标记与模型接受、删除分离](../../adr/0015-catalog-sync-mark-vs-model-acceptance.md)
 
 ## Visual Evidence
 

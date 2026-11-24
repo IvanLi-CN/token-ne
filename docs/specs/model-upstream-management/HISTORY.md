@@ -21,6 +21,7 @@
 
 ## Related Changes
 
+- The price-source catalog switch is a non-destructive sync mark: turning it on only ensures the global model exists, turning it off deletes nothing, and acceptance plus deletion belong to the Models surface. A deleted model makes the catalog row render off through absence, never through a mark write (ADR 0015, `REQ-MUM-013`/`REQ-MUM-014`).
 - [PR #28](https://github.com/IvanLi-CN/token-ne/pull/28) settles the second-phase management contract, including stateless policy publication, producer-side `resolved_model` validation, price-revision backfill, and the shared restricted Glob language.
 - [PR #33](https://github.com/IvanLi-CN/token-ne/pull/33) 把二期 schema 迁移 `00006` 合入 `main`。
 - 其余实现 PR 编号由 Git 提交记录补全；`docs/adr/` 未新增第二期专用 ADR，本主题的取舍仍记录在 ADR 0009 与 ADR 0014。
@@ -31,3 +32,4 @@
 - `./IMPLEMENTATION.md`
 - `../../adr/0009-global-models-with-upstream-capabilities.md`
 - `../../adr/0014-model-upstream-management-boundaries.md`
+- `../../adr/0015-catalog-sync-mark-vs-model-acceptance.md`

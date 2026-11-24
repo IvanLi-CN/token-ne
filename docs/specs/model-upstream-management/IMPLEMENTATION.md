@@ -44,6 +44,7 @@
 
 ## Remaining Gaps
 
+- 价格源目录开关目前仍是「关闭即删除全局模型」（`web/src/features/price-sync/catalog.tsx`）；按 `REQ-MUM-013`/`REQ-MUM-014` 需要改为同步标记 + 非破坏关闭，并把全局模型的接受状态渲染成开关。
 - 没有活体加权切流断言：本机无 Docker/Caddy，`tests/e2e/closure.sh` 用 SQL 预置 core 实例记录（控制面目前只有 Docker 部署路径），因此“旧 core 权重保持 0、兼容 core 应用同一 revision 后接流量”由单元测试与快照准入测试覆盖，未由真实 Caddy 权重观测证明。
 - 真库测试与 closure 在本轮只在本地 PostgreSQL 18 上执行；CI 的 `postgres:16` job 运行同一套测试，仍需该分支的 CI 运行确认。
 - 视觉证据由 `tests/e2e/visual-evidence.sh` 生成到外部目录，未提交到 `docs/assets`；仓库内的可重复证据是 Web 组件测试。

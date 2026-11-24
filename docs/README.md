@@ -38,3 +38,4 @@
 - [ADR 0012：管理员 OIDC 登录采用数据库优先配置与单管理员绑定](./adr/0012-oidc-admin-login.md)
 - [ADR 0013：运行时管理全部核心实例](./adr/0013-runtime-managed-core-lifecycle.md)
 - [ADR 0014：目录、路由、策略与价格作用域分离](./adr/0014-model-upstream-management-boundaries.md)
+- [ADR 0015：目录同步标记与模型接受、删除分离](./adr/0015-catalog-sync-mark-vs-model-acceptance.md)
