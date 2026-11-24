@@ -16,6 +16,7 @@ import (
 type priceCatalogRepository interface {
 	PriceSourceCatalog(context.Context, string) (store.PriceSourceCatalog, error)
 	InstallPriceSourceModels(context.Context, string, []string, store.Audit) (store.PriceSourceInstall, error)
+	ClearPriceSourceSyncMarks(context.Context, string, []string, store.Audit) (int, error)
 }
 
 type priceCatalogAPI struct {
@@ -30,6 +31,7 @@ func registerPriceCatalog(m *http.ServeMux, a *API) {
 	p := priceCatalogAPI{repo: repo}
 	m.HandleFunc("GET /api/price-sources/{source_id}/models", a.protect(p.list))
 	m.HandleFunc("POST /api/price-sources/{source_id}/models/install", a.protect(p.install))
+	m.HandleFunc("POST /api/price-sources/{source_id}/models/unsync", a.protect(p.unsync))
 }
 
 // list serves the source catalog with the filtering and ordering the owner page
@@ -143,4 +145,44 @@ func (p priceCatalogAPI) install(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, result)
+}
+
+// unsync clears marks for a batch of rows and leaves their global models in
+// place, including prices and acceptance.
+func (p priceCatalogAPI) unsync(w http.ResponseWriter, r *http.Request) {
+	sourceID := r.PathValue("source_id")
+	if !validName(sourceID, 128) {
+		fail(w, r, 422, "validation_failed", "invalid price source", detail("source_id", "must contain 1 to 128 characters"))
+		return
+	}
+	var body struct {
+		SourceModelIDs []string `json:"source_model_ids"`
+	}
+	if !decode(w, r, &body, "source_model_ids") {
+		return
+	}
+	if len(body.SourceModelIDs) == 0 || len(body.SourceModelIDs) > 200 {
+		fail(w, r, 422, "validation_failed", "invalid selection", detail("source_model_ids", "select between 1 and 200 source models"))
+		return
+	}
+	unique := make([]string, 0, len(body.SourceModelIDs))
+	seen := make(map[string]bool, len(body.SourceModelIDs))
+	for i, id := range body.SourceModelIDs {
+		if strings.TrimSpace(id) == "" || len(id) > 256 {
+			fail(w, r, 422, "validation_failed", "invalid source model", detail(fmt.Sprintf("source_model_ids[%d]", i), "must contain 1 to 256 characters"))
+			return
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	cleared, e := p.repo.ClearPriceSourceSyncMarks(r.Context(), sourceID, unique,
+		auditFor(r, "price.source.unsync", "price_source", sourceID))
+	if e != nil {
+		storageError(w, r, e, "source_model_ids")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"source_id": sourceID, "cleared": cleared})
 }

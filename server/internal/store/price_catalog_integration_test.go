@@ -134,4 +134,73 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 	if _, e = s.InstallPriceSourceModels(ctx, "unknown-source", []string{"gpt-4o-mini"}, audit); !errors.Is(e, ErrNotFound) {
 		t.Fatalf("unknown source install = %v, want ErrNotFound", e)
 	}
+
+	// Installing writes the sync mark; a conflicted row stays unmarked.
+	bySource := func(c PriceSourceCatalog) map[string]SourceModel {
+		out := map[string]SourceModel{}
+		for _, row := range c.Data {
+			out[row.SourceModelID] = row
+		}
+		return out
+	}
+	marked, e := s.PriceSourceCatalog(ctx, "builtin")
+	if e != nil {
+		t.Fatal(e)
+	}
+	markedRows := bySource(marked)
+	for _, id := range picked {
+		if row := markedRows[id]; !row.Synced || !row.Installed {
+			t.Fatalf("row %s synced=%v installed=%v after install, want both true", id, row.Synced, row.Installed)
+		}
+	}
+	if row := markedRows[free]; row.Synced || row.Installed {
+		t.Fatalf("conflicted row %s synced=%v installed=%v, want both false", free, row.Synced, row.Installed)
+	}
+
+	// Turning the switch off clears the mark and leaves every model untouched.
+	cleared, e := s.ClearPriceSourceSyncMarks(ctx, "builtin", picked, Audit{Actor: "tester", Action: "price.source.unsync", Payload: []byte(`{}`)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if cleared != len(picked) {
+		t.Fatalf("cleared %d marks, want %d", cleared, len(picked))
+	}
+	clearedCatalog, e := s.PriceSourceCatalog(ctx, "builtin")
+	if e != nil {
+		t.Fatal(e)
+	}
+	clearedRows := bySource(clearedCatalog)
+	for _, id := range picked {
+		if row := clearedRows[id]; row.Synced || !row.Installed {
+			t.Fatalf("row %s synced=%v installed=%v after clear, want synced=false installed=true", id, row.Synced, row.Installed)
+		}
+	}
+
+	// Re-marking then deleting the model keeps the mark: the row renders off
+	// because the model is absent, and a later catalog read never recreates it.
+	if _, e = s.InstallPriceSourceModels(ctx, "builtin", picked[1:2], audit); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Delete(ctx, "model", result.Data[1].ModelID, Audit{Actor: "tester", Action: "model.delete", Payload: []byte(`{}`)}); e != nil {
+		t.Fatalf("delete marked model: %v", e)
+	}
+	afterDelete, e := s.PriceSourceCatalog(ctx, "builtin")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if row := bySource(afterDelete)[picked[1]]; !row.Synced || row.Installed {
+		t.Fatalf("row %s synced=%v installed=%v after delete, want synced=true installed=false", picked[1], row.Synced, row.Installed)
+	}
+	var recreated int
+	if e = s.Pool.QueryRow(ctx, "select count(*) from models where model_id=$1", result.Data[1].ModelID).Scan(&recreated); e != nil {
+		t.Fatal(e)
+	}
+	if recreated != 0 {
+		t.Fatalf("catalog read recreated deleted model %s", result.Data[1].ModelID)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		_, _ = s.Pool.Exec(cleanupCtx, "delete from price_source_sync_marks where source_id='builtin' and source_model_id = any($1)", picked)
+	})
 }

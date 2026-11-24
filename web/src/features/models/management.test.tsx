@@ -187,14 +187,22 @@ describe("models management", () => {
       },
     });
   });
-  it("describes enabling a model instead of always warning about disabling", async () => {
-    mock((url) =>
-      url === "/api/models" ? response({ data: [{ ...model, enabled: false }] }) : undefined,
+  it("toggles model acceptance in place without a confirmation dialog", async () => {
+    const fetch = mock((url, init) =>
+      url === "/api/models"
+        ? response({ data: [{ ...model, enabled: false }] })
+        : init?.method === "PUT"
+          ? response({ ...model, enabled: true })
+          : undefined,
     );
     mount(ModelsPage);
-    fireEvent.click(within(await screen.findByRole("table")).getByRole("button", { name: "启用" }));
-    const dialog = await screen.findByRole("dialog", { name: "启用 example？" });
-    expect(within(dialog).getByText(/启用后该模型重新对外提供/)).toBeTruthy();
+    fireEvent.click(
+      within(await screen.findByRole("table")).getByRole("switch", { name: /启用 example/ }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      JSON.parse(String(fetch.mock.calls.find(([, init]) => init?.method === "PUT")?.[1]?.body)),
+    ).toEqual({ enabled: true });
   });
   it("returns focus to the form after cancelling the discard prompt", async () => {
     mock();

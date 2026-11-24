@@ -1218,6 +1218,41 @@ paths:
           $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models/unsync:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [prices]
+      summary: 批量停止价格源模型的同步
+      operationId: unsyncPriceSourceModels
+      description: 只清除同步标记，不删除全局模型，也不修改价格修订或接受状态。
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceSourceInstallInput"
+      responses:
+        "200":
+          description: 已清除的标记数
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceUnsync"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminBadRequest"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sources/{source_id}/models/install:
     parameters:
       - $ref: "#/components/parameters/SourceId"
@@ -3267,7 +3302,7 @@ components:
             $ref: "#/components/schemas/SourceModel"
     SourceModel:
       type: object
-      required: [source_model_id, vendor, released_at, deprecated_at, billing, model_id, installed]
+      required: [source_model_id, vendor, released_at, deprecated_at, billing, model_id, installed, synced]
       properties:
         source_model_id:
           type: string
@@ -3288,6 +3323,18 @@ components:
         installed:
           type: boolean
           description: 目标 ID 是否已存在于全局模型。
+        synced:
+          type: boolean
+          description: 该来源行是否记录了“保持为全局模型”的同步标记；目录开关显示为开还要求目标模型存在。
+    PriceSourceUnsync:
+      type: object
+      required: [source_id, cleared]
+      properties:
+        source_id:
+          type: string
+        cleared:
+          type: integer
+          minimum: 0
     PriceSourceInstallInput:
       type: object
       required: [source_model_ids]

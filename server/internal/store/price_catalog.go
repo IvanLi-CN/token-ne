@@ -22,6 +22,7 @@ type SourceModel struct {
 	Billing       Billing    `json:"billing"`
 	ModelID       string     `json:"model_id"`
 	Installed     bool       `json:"installed"`
+	Synced        bool       `json:"synced"`
 	WebSearch     *float64   `json:"web_search_usd_per_call"`
 	CacheWrite1h  *float64   `json:"cache_write_1h_usd_per_mtok"`
 }
@@ -79,6 +80,23 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 	if err = rows.Err(); err != nil {
 		return PriceSourceCatalog{}, err
 	}
+	rows.Close()
+	synced := make(map[string]bool, len(dataset.Models))
+	markRows, err := s.Pool.Query(ctx, "select source_model_id from price_source_sync_marks where source_id=$1", sourceID)
+	if err != nil {
+		return PriceSourceCatalog{}, err
+	}
+	defer markRows.Close()
+	for markRows.Next() {
+		var id string
+		if err = markRows.Scan(&id); err != nil {
+			return PriceSourceCatalog{}, err
+		}
+		synced[id] = true
+	}
+	if err = markRows.Err(); err != nil {
+		return PriceSourceCatalog{}, err
+	}
 	out := PriceSourceCatalog{SourceID: dataset.SourceID, FetchedAt: dataset.FetchedAt, Vendors: []string{}, Data: []SourceModel{}}
 	seen := map[string]bool{}
 	for _, entry := range dataset.Models {
@@ -96,6 +114,7 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 			},
 			ModelID:      target,
 			Installed:    installed[target],
+			Synced:       synced[entry.SourceModelID],
 			WebSearch:    entry.WebSearch,
 			CacheWrite1h: entry.CacheWrite1h,
 		})
@@ -136,47 +155,95 @@ func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, i
 				out.Data = append(out.Data, SourceModelInstall{SourceModelID: id, Outcome: "conflict", Reason: "source model not found"})
 				continue
 			}
-			target := entry.TargetModelID()
-			// Same name-reservation rule as model creation and catalog import.
-			if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(target)); err != nil {
-				return err
-			}
-			var exists bool
-			if err := tx.QueryRow(ctx, "select exists(select 1 from models where model_id=$1)", target).Scan(&exists); err != nil {
-				return err
-			}
-			if exists {
-				out.Data = append(out.Data, SourceModelInstall{SourceModelID: id, ModelID: target, Outcome: "exists"})
-				continue
-			}
-			var reserved bool
-			if err := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", target).Scan(&reserved); err != nil {
-				return err
-			}
-			if reserved {
-				out.Data = append(out.Data, SourceModelInstall{SourceModelID: id, ModelID: target, Outcome: "conflict", Reason: "a route rule already uses this pattern"})
-				continue
-			}
-			billing := Billing{
-				Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
-				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut,
-				Reasoning: entry.Reasoning, Output: entry.Output,
-				Tiers: catalogTiers(entry.Tiers),
-			}
-			revision, err := AppendGlobalRevision(ctx, tx, target, billing, "price_source", &sourceID, false)
+			row, err := ensureSourceModel(ctx, tx, sourceID, entry)
 			if err != nil {
 				return err
 			}
-			if _, err = tx.Exec(ctx, `
-insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
-values($1,false,null,null,$2,$3,$4,$5,'global')`, target, billing.Input, billing.Cached, billing.Output, revision); err != nil {
-				return normalize(err)
+			if row.Outcome != "conflict" {
+				if err = markSourceModel(ctx, tx, sourceID, entry.SourceModelID, row.ModelID); err != nil {
+					return err
+				}
 			}
-			out.Data = append(out.Data, SourceModelInstall{SourceModelID: id, ModelID: target, Outcome: "created"})
+			out.Data = append(out.Data, row)
 		}
 		return nil
 	})
 	return out, err
+}
+
+// ensureSourceModel creates the global model for one source entry without
+// touching an existing model or a name reserved by a route rule.
+func ensureSourceModel(ctx context.Context, tx pgx.Tx, sourceID string, entry pricesource.Entry) (SourceModelInstall, error) {
+	target := entry.TargetModelID()
+	out := SourceModelInstall{SourceModelID: entry.SourceModelID, ModelID: target}
+	// Same name-reservation rule as model creation and catalog import.
+	if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(target)); err != nil {
+		return out, err
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, "select exists(select 1 from models where model_id=$1)", target).Scan(&exists); err != nil {
+		return out, err
+	}
+	if exists {
+		out.Outcome = "exists"
+		return out, nil
+	}
+	var reserved bool
+	if err := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", target).Scan(&reserved); err != nil {
+		return out, err
+	}
+	if reserved {
+		out.Outcome = "conflict"
+		out.Reason = "a route rule already uses this pattern"
+		return out, nil
+	}
+	billing := Billing{
+		Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
+		AudioIn: entry.AudioIn, AudioOut: entry.AudioOut,
+		Reasoning: entry.Reasoning, Output: entry.Output,
+		Tiers: catalogTiers(entry.Tiers),
+	}
+	revision, err := AppendGlobalRevision(ctx, tx, target, billing, "price_source", &sourceID, false)
+	if err != nil {
+		return out, err
+	}
+	if _, err = tx.Exec(ctx, `
+insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
+values($1,false,null,null,$2,$3,$4,$5,'global')`, target, billing.Input, billing.Cached, billing.Output, revision); err != nil {
+		return out, normalize(err)
+	}
+	out.Outcome = "created"
+	return out, nil
+}
+
+func markSourceModel(ctx context.Context, tx pgx.Tx, sourceID, sourceModelID, modelID string) error {
+	_, err := tx.Exec(ctx, `
+insert into price_source_sync_marks(source_id, source_model_id, model_id, marked_at)
+values($1,$2,$3,now())
+on conflict (source_id, source_model_id) do update set model_id = excluded.model_id, marked_at = now()`,
+		sourceID, sourceModelID, modelID)
+	return err
+}
+
+// ClearPriceSourceSyncMarks drops marks for the selected rows and never touches
+// the global models they point at.
+func (s *Store) ClearPriceSourceSyncMarks(ctx context.Context, sourceID string, ids []string, a Audit) (int, error) {
+	if _, err := (pricesource.Builtin{}).Fetch(sourceID); err != nil {
+		if errors.Is(err, pricesource.ErrSourceNotFound) {
+			return 0, ErrNotFound
+		}
+		return 0, normalize(err)
+	}
+	cleared := 0
+	err := s.mutate(ctx, a, func(tx pgx.Tx) error {
+		tag, e := tx.Exec(ctx, "delete from price_source_sync_marks where source_id=$1 and source_model_id = any($2)", sourceID, ids)
+		if e != nil {
+			return e
+		}
+		cleared = int(tag.RowsAffected())
+		return nil
+	})
+	return cleared, err
 }
 
 // catalogTiers copies the source tiers into the store shape.

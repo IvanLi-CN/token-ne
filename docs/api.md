@@ -83,8 +83,10 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 价格源模型目录
 
-- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单与 `installed` 状态。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；缺失日期固定排在最后。
-- `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），在同一事务内为每行创建 `enabled=false` 的全局模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created`、`exists` 或 `conflict`。已存在的模型、被路由规则占用的名称和未知的来源行都不会被覆盖。
+- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单、`installed` 状态和 `synced` 同步标记。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；缺失日期固定排在最后。目录开关显示为开当且仅当 `synced` 为真且 `installed` 为真。
+- `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），写入同步标记并在同一事务内为缺失的行创建 `enabled=false` 的全局模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created`、`exists` 或 `conflict`。已存在的模型、被路由规则占用的名称和未知的来源行都不会被覆盖；冲突行不写标记。
+- `POST /api/price-sources/{source_id}/models/unsync` 接收 `source_model_ids`（1–200 个，去重），只清除同步标记并返回 `cleared` 数量：不删除全局模型，不修改价格修订，不改变 `enabled`。
+- 全局模型的接受状态由 `PUT /api/models/{model_id}` 的 `enabled` 控制，与目录同步标记互相独立；`DELETE /api/models/{model_id}` 删除模型后，对应目录行因为模型缺失而显示为关闭，目录刷新不会按标记重建。
 - 该接口只创建全局模型，不创建上游能力、路由规则或承接策略；新建模型沿用名称保留规则，未知来源返回 `404`。
 
 ## 模型与用量归因

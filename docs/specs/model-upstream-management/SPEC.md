@@ -166,7 +166,7 @@
 
 ### VER-MUM-007
 
-- Method: store integration tests over the embedded snapshot, HTTP contract tests for the two catalog endpoints, and Web component tests for filtering, ordering, single and dragged switch runs.
+- Method: store integration tests over the embedded snapshot, HTTP contract tests for the catalog list, install and unsync endpoints, and Web component tests for filtering, ordering, single and dragged switch runs.
 - covers: `REQ-MUM-013`
 - Pass condition: the catalog reports vendors and dates; a name query and a vendor filter narrow the rows; release and deprecation ordering are deterministic with missing dates last; switching two rows on creates two disabled models each with an initial revision and one response; switching an existing row on reports `exists` without touching its price or acceptance; switching a row off keeps the model, its price revision and `enabled` unchanged and only clears the mark; a displayed switch is off when the mark is set but the model is absent; a name reserved by a route rule reports `conflict` and creates nothing.
 

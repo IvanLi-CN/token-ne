@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ConfirmDialog } from "../../components/confirm-dialog";
 import { FieldFailure } from "../../components/field-errors";
 import { formatMoney, Money } from "../../components/price";
 import { Button, EmptyState, ErrorState, Input, Spinner } from "../../components/primitives";
@@ -13,7 +12,6 @@ import {
 } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
-import { modelsApi } from "../models/api";
 import { errorMessage } from "../models/management";
 
 type SortField = "name" | "released" | "deprecated";
@@ -37,8 +35,6 @@ export function PriceSourceCatalogSection() {
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Record<string, boolean>>({});
-  const [confirmation, setConfirmation] = useState<{ ids: string[] }>();
-  const [removalFailures, setRemovalFailures] = useState<{ id: string; reason: string }[]>([]);
   const drag = useRef<{ next: boolean; ids: string[] } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [installError, setInstallError] = useState<unknown>();
@@ -58,13 +54,11 @@ export function PriceSourceCatalogSection() {
   });
 
   const rows = catalog.data?.data ?? [];
-  const installable = useMemo(() => rows.filter((row) => !row.installed), [rows]);
-  const installed = useMemo(() => rows.filter((row) => row.installed), [rows]);
   const bySourceID = useMemo(() => new Map(rows.map((row) => [row.source_model_id, row])), [rows]);
-
-  function switchState(row: SourceModel) {
-    return preview[row.source_model_id] ?? row.installed;
-  }
+  const isOn = (row: SourceModel) => row.synced && row.installed;
+  const switchState = (row: SourceModel) => preview[row.source_model_id] ?? isOn(row);
+  const switchable = useMemo(() => rows.filter((row) => !(row.synced && row.installed)), [rows]);
+  const syncedRows = useMemo(() => rows.filter((row) => row.synced && row.installed), [rows]);
 
   async function apply(next: boolean, ids: string[]) {
     const targets = ids
@@ -73,7 +67,6 @@ export function PriceSourceCatalogSection() {
     if (!targets.length || busy) return;
     setBusy(true);
     setInstallError(undefined);
-    setRemovalFailures([]);
     if (next) setResult(undefined);
     try {
       if (next) {
@@ -83,20 +76,10 @@ export function PriceSourceCatalogSection() {
         );
         setResult(response);
       } else {
-        const settled = await Promise.allSettled(
-          targets.map((row) => modelsApi.remove(row.model_id)),
+        await priceSourceCatalogApi.clearSync(
+          sourceId,
+          targets.map((row) => row.source_model_id),
         );
-        const failures = settled.flatMap((outcome, index) =>
-          outcome.status === "rejected"
-            ? [
-                {
-                  id: targets[index].source_model_id,
-                  reason: errorMessage(outcome.reason) ?? "移除失败",
-                },
-              ]
-            : [],
-        );
-        setRemovalFailures(failures);
       }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["price-source-catalog"] }),
@@ -113,11 +96,7 @@ export function PriceSourceCatalogSection() {
 
   function request(next: boolean, ids: string[]) {
     if (!ids.length || busy) return;
-    if (!next) {
-      setConfirmation({ ids });
-      return;
-    }
-    void apply(true, ids);
+    void apply(next, ids);
   }
 
   function finishDrag() {
@@ -178,10 +157,7 @@ export function PriceSourceCatalogSection() {
                 <Select
                   label="价格源"
                   value={sourceId}
-                  onValueChange={(next) => {
-                    setSourceId(next);
-                    setConfirmation(undefined);
-                  }}
+                  onValueChange={setSourceId}
                   options={(sources.data ?? []).map((source) => ({
                     value: source.id,
                     label: source.name,
@@ -232,45 +208,33 @@ export function PriceSourceCatalogSection() {
 
             <div className="price-actions">
               <Button
-                disabled={!installable.length || busy}
+                disabled={!switchable.length || busy}
                 onClick={() =>
                   request(
                     true,
-                    installable.map((row) => row.source_model_id),
+                    switchable.map((row) => row.source_model_id),
                   )
                 }
               >
-                {busy ? "处理中…" : `开启可加入（${installable.length}）`}
+                {busy ? "处理中…" : `开启同步（${switchable.length}）`}
               </Button>
               <Button
                 variant="secondary"
-                disabled={!installed.length || busy}
+                disabled={!syncedRows.length || busy}
                 onClick={() =>
                   request(
                     false,
-                    installed.map((row) => row.source_model_id),
+                    syncedRows.map((row) => row.source_model_id),
                   )
                 }
               >
-                {`关闭已加入（${installed.length}）`}
+                {`停止同步（${syncedRows.length}）`}
               </Button>
               <span className="muted text-sm">
-                拖动开关可连续切换多行；关闭即从全局模型移除，需要确认。
+                拖动开关可连续切换多行；停止同步只清除标记，不删除全局模型、不改价格与接受状态。
               </span>
             </div>
             <FieldFailure error={installError} />
-            {removalFailures.length > 0 && (
-              <div role="alert" className="rounded-xl border border-[var(--border)] p-3 text-sm">
-                移除失败 {removalFailures.length} 个：
-                <ul className="mt-2 list-disc pl-5">
-                  {removalFailures.map((row) => (
-                    <li key={row.id}>
-                      <code title={row.id}>{row.id}</code>：{row.reason}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             {result && (
               <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
                 已创建 {created} 个，已存在 {existed} 个
@@ -412,7 +376,7 @@ export function PriceSourceCatalogSection() {
                   type="button"
                   role="switch"
                   aria-checked={switchState(row)}
-                  aria-label={`${row.installed ? "从全局模型移除" : "加入全局模型"} ${row.source_model_id}`}
+                  aria-label={`${switchState(row) ? "停止同步" : "开始同步"} ${row.source_model_id}`}
                   className={`switch${switchState(row) ? " is-on" : ""}`}
                   disabled={busy}
                   onPointerDown={(event) => {
@@ -431,34 +395,6 @@ export function PriceSourceCatalogSection() {
           </ul>
         )}
       </section>
-
-      <ConfirmDialog
-        trigger={<span hidden />}
-        open={confirmation !== undefined}
-        onOpenChange={(open) => {
-          if (!open) setConfirmation(undefined);
-        }}
-        title={`从全局模型移除 ${confirmation?.ids.length ?? 0} 个模型？`}
-        description="移除会同时删除该模型的价格与上游绑定；仍被路由规则或上游能力引用的模型会被拒绝并保留。"
-        confirmLabel="移除"
-        pending={busy}
-        onConfirm={() => {
-          const ids = confirmation?.ids ?? [];
-          setConfirmation(undefined);
-          void apply(false, ids);
-        }}
-      >
-        {confirmation && (
-          <ul className="mt-2 list-disc pl-5 text-sm">
-            {confirmation.ids.slice(0, 5).map((id) => (
-              <li key={id}>
-                <code>{bySourceID.get(id)?.model_id ?? id}</code>
-              </li>
-            ))}
-            {confirmation.ids.length > 5 && <li>…共 {confirmation.ids.length} 个</li>}
-          </ul>
-        )}
-      </ConfirmDialog>
     </>
   );
 }

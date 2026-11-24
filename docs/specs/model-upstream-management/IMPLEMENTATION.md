@@ -24,6 +24,8 @@
 | `REQ-MUM-009` | `server/internal/store/usage_ingest.go`、`server/internal/usage/event.go`、`server/internal/store/usage_query.go`、`core/src/proxy/usage.rs`、`core/src/proxy/commit.rs` | `TestUsageIngestContract`、`TestUpstreamPricesAndUsageAttributionIntegration`、core `tests/usage.rs` 的 `preserves_event_fidelity_and_bounds_safe_error_fields`、`tests/e2e/closure.sh` 的归因断言 |
 | `REQ-MUM-010` | `server/internal/cores/protocol.go`（能力常量与 `SnapshotFeatures`）、`server/internal/cores/snapshot.go`（`admitSnapshot`）、`server/internal/cores/snapshot_validation.go`、`core/src/config.rs`、`core/src/server.rs`（`PUT /internal/v1/config`） | `TestSnapshotFeatureRequirements`、`TestNonPhaseTwoCoreStaysOutOfTraffic`、`TestPhaseTwoSnapshotContractFixture`、`TestPhaseTwoNegativeFixturesRejected`、`TestPhaseTwoNegativeFixturesReturn422`、`TestConfigSchemaRestrictsGlobRoutes`、core `tests/contract_snapshot.rs` 的两个用例 |
 | `REQ-MUM-011` | `server/internal/store/postgres.go`（`mutate`/`writeAudit`）、`server/internal/httpapi/{catalog,routes,policies,prices,price_sync,models,upstreams}.go`（`auditFor`）、`server/internal/store/price_quotes.go`（应用事务内审计） | `TestMutationAuditAtomic`、`TestRouteRulesIntegration`、`TestUpstreamPoliciesIntegration`、`TestPriceQuoteWorkflowIntegration`、`TestPriceSyncEndpoints`、`tests/e2e/closure.sh` 的审计断言 |
+| `REQ-MUM-013` | `server/internal/store/price_catalog.go`（`PriceSourceCatalog`、`InstallPriceSourceModels`、`ClearPriceSourceSyncMarks`）、`server/migrations/00010_price_source_sync_marks.sql`、`server/internal/httpapi/price_catalog.go`（`list`、`install`、`unsync`）、`web/src/features/price-sync/catalog.tsx` | `TestPriceSourceCatalogAndInstallIntegration`、`TestPriceSyncEndpoints` |
+| `REQ-MUM-014` | `server/internal/store/price_catalog.go`（同步标记与模型存在性分离）、`web/src/features/models/page.tsx`（接受开关）、`web/src/features/price-sync/catalog.tsx`（显示 = `synced && installed`） | `TestPriceSourceCatalogAndInstallIntegration`、`web/src/features/models/management.test.tsx` |
 | `REQ-MUM-012` | `web/src/features/models/{page,management,routes}.tsx`、`web/src/features/upstreams/{page,catalog,policy}.tsx`、`web/src/features/prices/*`、`web/src/app/phase.tsx` | `web/src/features/models/management.test.tsx`、`web/src/features/models/routes.test.tsx`、`web/src/features/upstreams/catalog.test.tsx`、`web/src/features/prices/prices.test.tsx`、`web/src/app/prices-nav.test.tsx`、`tests/e2e/visual-evidence.sh` |
 
 - Verification commands:
@@ -44,7 +46,6 @@
 
 ## Remaining Gaps
 
-- 价格源目录开关目前仍是「关闭即删除全局模型」（`web/src/features/price-sync/catalog.tsx`）；按 `REQ-MUM-013`/`REQ-MUM-014` 需要改为同步标记 + 非破坏关闭，并把全局模型的接受状态渲染成开关。
 - 没有活体加权切流断言：本机无 Docker/Caddy，`tests/e2e/closure.sh` 用 SQL 预置 core 实例记录（控制面目前只有 Docker 部署路径），因此“旧 core 权重保持 0、兼容 core 应用同一 revision 后接流量”由单元测试与快照准入测试覆盖，未由真实 Caddy 权重观测证明。
 - 真库测试与 closure 在本轮只在本地 PostgreSQL 18 上执行；CI 的 `postgres:16` job 运行同一套测试，仍需该分支的 CI 运行确认。
 - 视觉证据由 `tests/e2e/visual-evidence.sh` 生成到外部目录，未提交到 `docs/assets`；仓库内的可重复证据是 Web 组件测试。

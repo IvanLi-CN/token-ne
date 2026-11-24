@@ -453,6 +453,7 @@ export interface SourceModel {
   billing: Billing;
   model_id: string;
   installed: boolean;
+  synced: boolean;
   web_search_usd_per_call?: number | null;
   cache_write_1h_usd_per_mtok?: number | null;
 }
@@ -499,6 +500,11 @@ export const priceSourceCatalogApi = {
   install: (sourceId: string, sourceModelIDs: string[]) =>
     apiRequest<PriceSourceInstall>(
       `/price-sources/${encodeURIComponent(sourceId)}/models/install`,
+      { method: "POST", body: { source_model_ids: sourceModelIDs } },
+    ),
+  clearSync: (sourceId: string, sourceModelIDs: string[]) =>
+    apiRequest<{ source_id: string; cleared: number }>(
+      `/price-sources/${encodeURIComponent(sourceId)}/models/unsync`,
       { method: "POST", body: { source_model_ids: sourceModelIDs } },
     ),
 };

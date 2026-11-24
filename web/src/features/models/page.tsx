@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { usePhaseFeatures } from "../../app/phase";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
+import { FieldFailure } from "../../components/field-errors";
 import { Button, PageTitle, StatusBadge } from "../../components/primitives";
 import type { PriceRevisionState } from "../../lib/api";
 import { formatPrice, formatTime } from "../../lib/format";
@@ -237,8 +238,23 @@ export default function ModelsPage() {
   });
   const [editor, setEditor] = useState<Model | null | undefined>();
   const [filter, setFilter] = useState("all");
+  const [toggling, setToggling] = useState<string>();
+  const [toggleError, setToggleError] = useState<unknown>();
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: queryKeys.models });
+  };
+  const toggleEnabled = async (model: Model) => {
+    if (toggling) return;
+    setToggling(model.model_id);
+    setToggleError(undefined);
+    try {
+      await modelsApi.update(model.model_id, { enabled: !model.enabled });
+      await refresh();
+    } catch (failure) {
+      setToggleError(failure);
+    } finally {
+      setToggling(undefined);
+    }
   };
   const references = (id: string) =>
     upstreams.data?.flatMap((upstream) =>
@@ -286,6 +302,7 @@ export default function ModelsPage() {
           </div>
         </div>
         <div className="px-5 pb-5">
+          <FieldFailure error={toggleError} />
           <ManagementTable
             caption="全局模型"
             rows={(models.data ?? []).filter(
@@ -305,9 +322,17 @@ export default function ModelsPage() {
                 header: "启用 / 路由",
                 cell: (model) => (
                   <ActionGroup>
-                    <StatusBadge tone={model.enabled ? "neutral" : "warning"}>
-                      {model.enabled ? "启用" : "禁用"}
-                    </StatusBadge>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={model.enabled}
+                      aria-label={`${model.enabled ? "停用" : "启用"} ${model.model_id}`}
+                      className={`switch${model.enabled ? " is-on" : ""}`}
+                      disabled={toggling === model.model_id}
+                      onClick={() => void toggleEnabled(model)}
+                    >
+                      <span className="switch-thumb" aria-hidden="true" />
+                    </button>
                     <StatusBadge tone={upstreams.isError ? "error" : "neutral"}>
                       {upstreams.isPending
                         ? "路由加载中"
@@ -360,19 +385,6 @@ export default function ModelsPage() {
                     <Button variant="secondary" onClick={() => setEditor(model)}>
                       编辑
                     </Button>
-                    <DangerAction
-                      label={model.enabled ? "禁用" : "启用"}
-                      title={`${model.enabled ? "禁用" : "启用"} ${model.model_id}？`}
-                      description={
-                        model.enabled
-                          ? "禁用后该模型隐藏，推理请求返回 404。"
-                          : "启用后该模型重新对外提供，推理请求按已配置的上游能力路由。"
-                      }
-                      action={async () => {
-                        await modelsApi.update(model.model_id, { enabled: !model.enabled });
-                        await refresh();
-                      }}
-                    />
                     <span
                       title={
                         !upstreams.isSuccess
