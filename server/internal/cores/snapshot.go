@@ -25,11 +25,22 @@ type Snapshots struct {
 	DB                                                    Database
 	Master                                                []byte
 	Token, SigningKey, SignatureMode, BaseURL, PolicyPath string
+	// SpoolDir is where a core writes its usage spool. The compose default is
+	// the container path; a bare-metal or e2e core points it at its own state
+	// directory.
+	SpoolDir string
 	// StreamUsageInjection mirrors the deployment switch for
 	// stream_options.include_usage injection; nil means enabled.
 	StreamUsageInjection *bool
 	warnMu               sync.Mutex
 	warnHash             string
+}
+
+func (s *Snapshots) spoolDir() string {
+	if s.SpoolDir != "" {
+		return s.SpoolDir
+	}
+	return "/var/lib/token-ne/state/spool"
 }
 
 // warnPolicyOnce deduplicates policy rejection warnings across the 5-second
@@ -263,7 +274,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
 		Usage: map[string]any{"endpoint": strings.TrimRight(s.BaseURL, "/") + "/internal/v1/usage/batch", "token": s.Token, "batch_max_events": 500, "queue_max_events": 10000,
-			"spool": map[string]any{"dir": "/var/lib/token-ne/state/spool", "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
+			"spool": map[string]any{"dir": s.spoolDir(), "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
 	}
 	for _, f := range features {
 		c.Features[f] = featuresEnabled(f, injection, *p.Enabled)
@@ -346,6 +357,12 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, last.Revision, last.IssuedAt, override
 	raw, e = json.Marshal(c)
 	if e != nil {
+		return Snapshot{}, e
+	}
+	// The publisher applies the same second-phase semantics the core enforces;
+	// a builder regression must fail here instead of being sent to a core that
+	// refuses it.
+	if e = ValidateSnapshot(raw); e != nil {
 		return Snapshot{}, e
 	}
 	if len(raw) > MaxSnapshot {

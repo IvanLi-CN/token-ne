@@ -121,6 +121,15 @@ func (h *HTTP) push(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "malformed_request", "configuration must be a JSON object")
 		return
 	}
+	if e := ValidateSnapshot(body); e != nil {
+		var details *SnapshotValidationError
+		if errors.As(e, &details) {
+			writeSnapshotError(w, 422, "validation_failed", "configuration snapshot is invalid", details.Details)
+			return
+		}
+		writeError(w, 400, "malformed_request", "configuration must be a JSON object")
+		return
+	}
 	var instance string
 	var revision int64
 	var protocol, schema int
@@ -503,6 +512,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 func writeCoreError(w http.ResponseWriter, status int, code, message, id string) {
 	writeCoreJSON(w, status, map[string]any{"protocol_version": Protocol, "error": map[string]any{"code": code, "message": message, "request_id": id, "retryable": false, "details": []any{}}})
+}
+
+// writeSnapshotError keeps the protocol error shape while carrying the field
+// paths a rejected snapshot failed on.
+func writeSnapshotError(w http.ResponseWriter, status int, code, message string, details []SnapshotDetail) {
+	if details == nil {
+		details = []SnapshotDetail{}
+	}
+	writeCoreJSON(w, status, map[string]any{"protocol_version": Protocol, "error": map[string]any{"code": code, "message": message, "retryable": false, "details": details}})
 }
 func writeAdminJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

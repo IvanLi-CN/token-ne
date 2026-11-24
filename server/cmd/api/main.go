@@ -107,12 +107,20 @@ func main() {
 		policyPath = "/etc/token-ne/status-rewrite.yaml"
 	}
 	proxy := caddy.New(caddySettings)
+	// The control-plane URL a core uses for config pull and usage ingestion is
+	// the compose service name by default; a bare-metal core needs the address
+	// it can actually reach.
+	controlURL := strings.TrimSpace(os.Getenv("CONTROL_PLANE_URL"))
+	if controlURL == "" {
+		controlURL = "http://api:8080"
+	}
+	spoolDir := strings.TrimSpace(os.Getenv("CORE_SPOOL_DIR"))
 	snapshots := &cores.Snapshots{DB: repo.Pool, Master: cfg.MasterKey, Token: controlToken,
 		SigningKey: os.Getenv("CORE_CONFIG_SIGNING_KEY"), SignatureMode: os.Getenv("CORE_CONFIG_SIGNATURE_MODE"),
-		BaseURL: "http://api:8080", PolicyPath: policyPath, StreamUsageInjection: &cfg.StreamUsageInjection}
+		BaseURL: controlURL, PolicyPath: policyPath, SpoolDir: spoolDir, StreamUsageInjection: &cfg.StreamUsageInjection}
 	runtime := &cores.Runtime{DB: repo, Config: snapshots, Peer: peer, Docker: docker, Caddy: proxy, Metrics: registry,
 		Project: os.Getenv("COMPOSE_PROJECT_NAME"), Networks: splitNetworks(os.Getenv("CORE_NETWORKS")),
-		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: "http://api:8080", CoreImage: coreImage, Token: controlToken,
+		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: controlURL, CoreImage: coreImage, Token: controlToken,
 		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
 		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS"), CurrentVersion: version.Version, CurrentCommit: version.Commit}
 	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}

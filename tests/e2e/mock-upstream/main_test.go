@@ -107,3 +107,29 @@ func TestRequestCapture(t *testing.T) {
 		t.Fatalf("unexpected request: %+v", payload.Requests[0])
 	}
 }
+
+func TestCatalogOverrideAndReset(t *testing.T) {
+	m, server := newTestServer(t)
+	response, body := postJSON(t, server.URL+"/__mock/models", `{"models":["mock-model","mock-retired"]}`)
+	if response.StatusCode != 200 {
+		t.Fatalf("set catalog: %d %s", response.StatusCode, body)
+	}
+	if ids := m.catalogIDs(); len(ids) != 2 || ids[1] != "mock-retired" {
+		t.Fatalf("catalog = %v", ids)
+	}
+	res, err := http.Get(server.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !strings.Contains(string(raw), "mock-retired") || !strings.Contains(string(raw), "mock-model") {
+		t.Fatalf("models = %s", raw)
+	}
+	if _, body = postJSON(t, server.URL+"/__mock/reset", `{}`); !strings.Contains(string(body), "ok") {
+		t.Fatalf("reset = %s", body)
+	}
+	if ids := m.catalogIDs(); len(ids) != 1 || ids[0] != "mock-model" {
+		t.Fatalf("reset catalog = %v", ids)
+	}
+}
