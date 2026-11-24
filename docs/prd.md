@@ -305,7 +305,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 容器删除后，仅当最后一次在线 `status` 观测为 `spool.unacked_events == 0` 时才删除状态目录；观测缺失时保留。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。Docker 退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役可以使用停止前的最后一次在线 `status` 作为零未确认确认；崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳，必须先重启兼容 core 扫描 spool 并确认零后再销毁。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先用兼容 core 重启重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、回滚窗口未结束、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。观测非零或缺失时先用兼容 core 重启重放；超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录。
 - 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；手工 `POST /api/cores/prune` 保留用于异常处置和强制清理。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`）并更新指标 `token_ne_core_auto_prune_total{result}`。
 - 默认部署不保留静态基线 core；动态 core 是唯一核心来源。没有 `com.token-ne.deployment` 标签的历史 Compose 核心不参与自动销毁，仍按冲突或手工处置。
