@@ -37,6 +37,7 @@ export function PriceSourceCatalogSection() {
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [installing, setInstalling] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [installError, setInstallError] = useState<unknown>();
   const [result, setResult] = useState<PriceSourceInstall>();
 
@@ -97,103 +98,114 @@ export function PriceSourceCatalogSection() {
             </p>
           </div>
         </div>
-        <div className="grid gap-3 px-5 pb-5">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="grid gap-1 text-sm">
-              <span className="muted">来源</span>
-              <Select
-                label="价格源"
-                value={sourceId}
-                onValueChange={(next) => {
-                  setSourceId(next);
-                  setSelected(new Set());
-                }}
-                options={(sources.data ?? []).map((source) => ({
-                  value: source.id,
-                  label: source.name,
-                }))}
-              />
+        <div className="price-filter-panel">
+          <Button
+            variant="secondary"
+            className="price-filter-toggle"
+            aria-expanded={filtersOpen}
+            aria-controls="price-filters"
+            onClick={() => setFiltersOpen((value) => !value)}
+          >
+            {filtersOpen ? "收起筛选" : "筛选与批量操作"}
+          </Button>
+          <div id="price-filters" className={`price-filter-body${filtersOpen ? " is-open" : ""}`}>
+            <div className="price-controls">
+              <div className="grid gap-1 text-sm">
+                <span className="muted">来源</span>
+                <Select
+                  label="价格源"
+                  value={sourceId}
+                  onValueChange={(next) => {
+                    setSourceId(next);
+                    setSelected(new Set());
+                  }}
+                  options={(sources.data ?? []).map((source) => ({
+                    value: source.id,
+                    label: source.name,
+                  }))}
+                />
+              </div>
+              <div className="grid min-w-64 gap-1 text-sm">
+                <span className="muted">搜索模型名 / ID</span>
+                <Input
+                  aria-label="搜索模型"
+                  placeholder="例如 gpt-4o 或 openai/"
+                  value={q}
+                  onChange={(event) => setQ(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-1 text-sm">
+                <span className="muted">供应商</span>
+                <Select
+                  label="供应商"
+                  value={vendor}
+                  onValueChange={setVendor}
+                  options={[
+                    { value: "", label: "全部供应商" },
+                    ...(catalog.data?.vendors ?? []).map((name) => ({ value: name, label: name })),
+                  ]}
+                />
+              </div>
+              <div className="grid gap-1 text-sm">
+                <span className="muted">排序</span>
+                <Select
+                  label="排序字段"
+                  value={sort}
+                  onValueChange={(next) => setSort(next as SortField)}
+                  options={(Object.keys(sortLabels) as SortField[]).map((field) => ({
+                    value: field,
+                    label: sortLabels[field],
+                  }))}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                aria-label="切换排序方向"
+                onClick={() => setOrder(order === "asc" ? "desc" : "asc")}
+              >
+                {order === "asc" ? "升序 ↑" : "降序 ↓"}
+              </Button>
             </div>
-            <div className="grid min-w-64 gap-1 text-sm">
-              <span className="muted">搜索模型名 / ID</span>
-              <Input
-                aria-label="搜索模型"
-                placeholder="例如 gpt-4o 或 openai/"
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-              />
-            </div>
-            <div className="grid gap-1 text-sm">
-              <span className="muted">供应商</span>
-              <Select
-                label="供应商"
-                value={vendor}
-                onValueChange={setVendor}
-                options={[
-                  { value: "", label: "全部供应商" },
-                  ...(catalog.data?.vendors ?? []).map((name) => ({ value: name, label: name })),
-                ]}
-              />
-            </div>
-            <div className="grid gap-1 text-sm">
-              <span className="muted">排序</span>
-              <Select
-                label="排序字段"
-                value={sort}
-                onValueChange={(next) => setSort(next as SortField)}
-                options={(Object.keys(sortLabels) as SortField[]).map((field) => ({
-                  value: field,
-                  label: sortLabels[field],
-                }))}
-              />
-            </div>
-            <Button
-              variant="secondary"
-              aria-label="切换排序方向"
-              onClick={() => setOrder(order === "asc" ? "desc" : "asc")}
-            >
-              {order === "asc" ? "升序 ↑" : "降序 ↓"}
-            </Button>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              disabled={!installable.length || installing}
-              onClick={() => setSelected(new Set(installable.map((row) => row.source_model_id)))}
-            >
-              选择全部可添加（{installable.length}）
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!selected.size}
-              onClick={() => setSelected(new Set())}
-            >
-              清除选择
-            </Button>
-            <Button disabled={!selectedRows.length || installing} onClick={() => void install()}>
-              {installing ? "正在添加…" : `添加到全局模型（${selectedRows.length}）`}
-            </Button>
-            <span className="muted text-sm">
-              已选 {selectedRows.length} 个；已存在于全局模型的行不能重复添加。
-            </span>
-          </div>
-          <FieldFailure error={installError} />
-          {result && (
-            <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
-              已创建 {created} 个，已存在 {existed} 个
-              {conflicts.length ? `，冲突 ${conflicts.length} 个` : ""}
-              。新建的模型默认不启用，价格取快照值。
-              {conflicts.length > 0 && (
-                <ul className="mt-2 list-disc pl-5">
-                  {conflicts.map((row) => (
-                    <li key={row.source_model_id}>
-                      <code>{row.source_model_id}</code>：{row.reason ?? "无法添加"}
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <div className="price-actions">
+              <Button
+                disabled={!installable.length || installing}
+                onClick={() => setSelected(new Set(installable.map((row) => row.source_model_id)))}
+              >
+                选择全部可添加（{installable.length}）
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={!selected.size}
+                onClick={() => setSelected(new Set())}
+              >
+                清除选择
+              </Button>
+              <Button disabled={!selectedRows.length || installing} onClick={() => void install()}>
+                {installing ? "正在添加…" : `添加到全局模型（${selectedRows.length}）`}
+              </Button>
+              <span className="muted text-sm">
+                已选 {selectedRows.length} 个；已存在于全局模型的行不能重复添加。
+              </span>
             </div>
-          )}
+            <FieldFailure error={installError} />
+            {result && (
+              <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
+                已创建 {created} 个，已存在 {existed} 个
+                {conflicts.length ? `，冲突 ${conflicts.length} 个` : ""}
+                。新建的模型默认不启用，价格取快照值。
+                {conflicts.length > 0 && (
+                  <ul className="mt-2 list-disc pl-5">
+                    {conflicts.map((row) => (
+                      <li key={row.source_model_id}>
+                        <code>{row.source_model_id}</code>：{row.reason ?? "无法添加"}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -231,8 +243,14 @@ export function PriceSourceCatalogSection() {
                     />
                     <code>{row.source_model_id}</code>
                   </label>
+                  <span className="price-row-meta">
+                    {row.vendor || "未知供应商"} ·{" "}
+                    {row.released_at ? formatTime(row.released_at) : "发布日期未提供"}
+                    {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
+                    {row.model_id !== row.source_model_id ? ` · 将添加为 ${row.model_id}` : ""}
+                  </span>
                   <div className="price-row-badges">
-                    <span className="mode-chip">按量 · USD / 1M tokens</span>
+                    <span className="mode-chip">按量 · USD / 1M</span>
                     {row.installed ? (
                       <StatusBadge tone="success">已添加</StatusBadge>
                     ) : (
@@ -240,12 +258,6 @@ export function PriceSourceCatalogSection() {
                     )}
                   </div>
                 </div>
-                <p className="price-row-meta">
-                  {row.vendor || "未知供应商"} ·{" "}
-                  {row.released_at ? `发布于 ${formatTime(row.released_at)}` : "发布日期未提供"}
-                  {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
-                  {row.model_id !== row.source_model_id ? ` · 将添加为 ${row.model_id}` : ""}
-                </p>
                 <div className="price-groups">
                   <dl className="price-group">
                     <dt>输入</dt>
