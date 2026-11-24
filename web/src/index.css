@@ -570,6 +570,17 @@ kbd {
 .field-error {
   color: var(--error);
 }
+.field-error ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+.field-error li {
+  margin-top: 2px;
+}
+.field-error code {
+  font-family: var(--mono);
+}
 .logout-error {
   padding: 12px 24px;
 }

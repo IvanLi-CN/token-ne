@@ -1,13 +1,15 @@
-import { Button } from "../../components/primitives";
+import { Button, StatusBadge } from "../../components/primitives";
 import type { Model } from "../models/api";
 import type { Capability } from "./api";
 
 export function CapabilityEditor({
   models,
+  revision,
   value,
   onChange,
 }: {
   models: Model[];
+  revision?: number;
   value: Capability[];
   onChange: (next: Capability[]) => void;
 }) {
@@ -20,29 +22,36 @@ export function CapabilityEditor({
         <div>
           <h3>模型能力</h3>
           <p className="muted">保存时整体替换；weight = 0 不接新流量。</p>
+          <p className="muted">
+            能力版本：
+            {revision == null ? "未返回（一期契约）" : revision}；保存时作为冲突检测依据。
+          </p>
         </div>
-        <Button
-          variant="secondary"
-          disabled={value.length >= models.length}
-          onClick={() => {
-            const model = models.find(
-              (item) => !value.some((row) => row.model_id === item.model_id),
-            );
-            if (model)
-              onChange([
-                ...value,
-                {
-                  model_id: model.model_id,
-                  upstream_model_name: null,
-                  enabled: true,
-                  priority: 0,
-                  weight: 1,
-                },
-              ]);
-          }}
-        >
-          添加能力
-        </Button>
+        <div className="flex items-center gap-2">
+          {revision != null && <StatusBadge>版本 {revision}</StatusBadge>}
+          <Button
+            variant="secondary"
+            disabled={value.length >= models.length}
+            onClick={() => {
+              const model = models.find(
+                (item) => !value.some((row) => row.model_id === item.model_id),
+              );
+              if (model)
+                onChange([
+                  ...value,
+                  {
+                    model_id: model.model_id,
+                    upstream_model_name: null,
+                    enabled: true,
+                    priority: 0,
+                    weight: 1,
+                  },
+                ]);
+            }}
+          >
+            添加能力
+          </Button>
+        </div>
       </div>
       {value.length === 0 ? (
         <p className="muted">尚未配置能力，此上游不会成为任何模型的候选。</p>

@@ -8,11 +8,19 @@ import {
   useState,
 } from "react";
 
-export const destinations = [
+export interface NavigationDestination {
+  path: string;
+  label: string;
+  /** 仅由部署阶段开关控制；未启用时不暴露入口。 */
+  phaseTwo?: boolean;
+}
+
+export const destinations: readonly NavigationDestination[] = [
   { path: "/", label: "总览" },
   { path: "/requests", label: "请求" },
   { path: "/models", label: "Models" },
   { path: "/upstreams", label: "Upstreams" },
+  { path: "/prices", label: "Prices", phaseTwo: true },
   { path: "/keys", label: "Downstream Keys" },
   { path: "/system", label: "系统" },
   { path: "/system/cores", label: "系统 / Cores" },

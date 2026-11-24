@@ -21,8 +21,14 @@ export interface UpstreamInput {
 export interface Upstream extends UpstreamInput {
   id: string;
   api_key_hint?: string | null;
+  /** 第二期响应返回；一期响应省略。 */
+  capabilities_revision?: number;
   created_at: string;
   updated_at: string;
+}
+export interface UpstreamUpdate extends UpstreamInput {
+  api_key?: string | null;
+  capabilities_revision?: number;
 }
 export interface TestResult {
   ok: boolean;
@@ -35,7 +41,7 @@ export const upstreamsApi = {
   get: (id: string) => apiRequest<Upstream>(`/upstreams/${encodeURIComponent(id)}`),
   create: (body: UpstreamInput & { api_key: string }) =>
     apiRequest<Upstream>("/upstreams", { method: "POST", body }),
-  update: (id: string, body: UpstreamInput & { api_key?: string | null }) =>
+  update: (id: string, body: UpstreamUpdate) =>
     apiRequest<Upstream>(`/upstreams/${encodeURIComponent(id)}`, { method: "PUT", body }),
   remove: (id: string) =>
     apiRequest<void>(`/upstreams/${encodeURIComponent(id)}`, { method: "DELETE" }),

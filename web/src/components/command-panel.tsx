@@ -1,7 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
-import { destinations, useAdaptiveState } from "../app/adaptive-state";
+import { destinations, type NavigationDestination, useAdaptiveState } from "../app/adaptive-state";
+import { usePhaseFeatures } from "../app/phase";
 import { Button, Input } from "./primitives";
 
 export function CommandPanel() {
@@ -11,6 +12,11 @@ export function CommandPanel() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const { pinned, recent, togglePin, reset, visit } = useAdaptiveState();
+  const { secondPhase } = usePhaseFeatures();
+  const available = useMemo(
+    () => destinations.filter((destination) => !destination.phaseTwo || secondPhase),
+    [secondPhase],
+  );
   useEffect(() => {
     if (open) searchRef.current?.focus();
     else setSearch("");
@@ -31,21 +37,20 @@ export function CommandPanel() {
   }, [open]);
   const filtered = useMemo(
     () =>
-      destinations.filter((destination) =>
+      available.filter((destination) =>
         destination.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
       ),
-    [search],
+    [available, search],
   );
-  const byPath = (path: string) => destinations.find((destination) => destination.path === path);
+  const byPath = (path: string) => available.find((destination) => destination.path === path);
   const current = byPath(location.pathname);
   const pinnedRoutes = pinned
     .map(byPath)
-    .filter((item): item is (typeof destinations)[number] => item !== undefined);
+    .filter((item): item is NavigationDestination => item !== undefined);
   const recentRoutes = recent
     .map(byPath)
     .filter(
-      (item): item is (typeof destinations)[number] =>
-        item !== undefined && !pinned.includes(item.path),
+      (item): item is NavigationDestination => item !== undefined && !pinned.includes(item.path),
     );
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
