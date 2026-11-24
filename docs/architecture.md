@@ -1962,7 +1962,7 @@ networks:
 - 单元测试：Caddy 配置生成、权重计算、部署状态机、费用计算、Key 哈希、上游 URL 校验。
 - 集成测试：PostgreSQL 容器中跑迁移和用量幂等；mock Caddy 管理 API 验证完整 `POST /load`、`/readyz` 健康检查和权重/upstream 原子更新；mock Docker API 验证创建/接管/排水/标签清理。
 - 出站代理：mock Xray gRPC API 验证入站/出站/路由创建与删除、启动对账、孤儿清理、端口分配和 `degraded` 状态；验证代理凭据不出现在日志、API 响应和配置快照。
-- 自动销毁：正常退役、spool 非零、崩溃/状态缺失、回滚窗口、强制排水和删除失败。
+- 自动销毁：正常退役、spool 非零、崩溃/状态缺失、回滚窗口内保留、强制排水、未达 `completed` 的部署、状态目录 helper 删除失败和删除重试。
 - 契约测试：OpenAPI 管理/下游接口、核心配置 schema、用量事件 schema、heartbeat/status schema、错误码和 golden fixtures。
 - 前端：Vitest + Testing Library；关键页面 Playwright 冒烟。
 
