@@ -311,24 +311,6 @@ export function PriceSourceCatalogSection() {
           <ul className="price-list" aria-label="价格源模型">
             {rows.map((row) => (
               <li className="price-row" key={row.source_model_id}>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={switchState(row)}
-                  aria-label={`${row.installed ? "从全局模型移除" : "加入全局模型"} ${row.source_model_id}`}
-                  className={`switch${switchState(row) ? " is-on" : ""}`}
-                  disabled={busy}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    startDrag(row);
-                  }}
-                  onPointerEnter={() => extendDrag(row)}
-                  onClick={(event) => {
-                    if (event.detail === 0) request(!switchState(row), [row.source_model_id]);
-                  }}
-                >
-                  <span className="switch-thumb" aria-hidden="true" />
-                </button>
                 <div className="price-identity">
                   <div className="price-row-head">
                     <code className="price-row-id" title={row.source_model_id}>
@@ -426,6 +408,24 @@ export function PriceSourceCatalogSection() {
                     )}
                   </dl>
                 </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={switchState(row)}
+                  aria-label={`${row.installed ? "从全局模型移除" : "加入全局模型"} ${row.source_model_id}`}
+                  className={`switch${switchState(row) ? " is-on" : ""}`}
+                  disabled={busy}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    startDrag(row);
+                  }}
+                  onPointerEnter={() => extendDrag(row)}
+                  onClick={(event) => {
+                    if (event.detail === 0) request(!switchState(row), [row.source_model_id]);
+                  }}
+                >
+                  <span className="switch-thumb" aria-hidden="true" />
+                </button>
               </li>
             ))}
           </ul>
