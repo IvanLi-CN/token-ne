@@ -8,19 +8,17 @@
 // no regular expression, character class, brace expansion, escape sequence or
 // similarity matching.
 //
-// Validate restricts patterns to printable ASCII literals: brackets, braces,
-// backslash, control characters and non-ASCII bytes are rejected so that one
-// pattern means the same thing in the control plane, in the core runtime and in
-// config snapshots. This is stricter than the globPattern regexp in
-// docs/schemas/config.schema.json, which only excludes brackets, braces,
-// backslash and control characters.
+// Validate accepts exactly the patterns of the frozen config schema
+// (docs/schemas/config.schema.json#/$defs/globPattern): any valid UTF-8 text
+// without '[' ']' '{' '}' '\' or the control characters U+0000-U+001F and
+// U+007F, at most 256 code points. Every other character, including non-ASCII
+// and non-Latin ones, is a literal, so one pattern means the same thing in the
+// control plane, in the core runtime and in config snapshots.
 //
 // Matching is rune based, not byte based. Names are arbitrary UTF-8 and every
 // non-wildcard rune in a name is a literal; '?' consumes exactly one rune and
-// '*' consumes any run of runes. A caller that bypasses Validate can therefore
-// still pass a pattern containing non-ASCII printable runes: Match treats them
-// as literals that only match the same rune. Overlaps refuses such patterns
-// because it validates both inputs.
+// '*' consumes any run of runes. A pattern literal therefore matches only the
+// same rune.
 package modelglob
 
 import (
@@ -29,32 +27,30 @@ import (
 	"unicode/utf8"
 )
 
-// MaxPatternBytes is the maximum accepted pattern length in bytes, mirroring the
-// 256 character limit of model IDs and route patterns.
-const MaxPatternBytes = 256
+// MaxPatternLength is the maximum accepted pattern length in Unicode code
+// points, mirroring the 256 character limit of model IDs and route patterns.
+const MaxPatternLength = 256
 
 // Validate reports whether pattern is a legal pattern of the restricted Glob
-// language. A pattern must be 1 to MaxPatternBytes bytes long, and every rune
-// must be either a printable ASCII character (0x20-0x7e) or, for the two
-// wildcards, '*' or '?'. Brackets, braces and backslash are rejected even
-// though they are printable ASCII, as are control characters (including DEL)
-// and any non-ASCII byte.
+// language. A pattern must be valid UTF-8, 1 to MaxPatternLength code points
+// long, and free of '[' ']' '{' '}' '\' and the control characters U+0000-U+001F
+// and U+007F. Every other character is a literal, including non-ASCII ones.
 func Validate(pattern string) error {
 	if pattern == "" {
 		return errors.New("glob pattern must not be empty")
 	}
-	if len(pattern) > MaxPatternBytes {
-		return fmt.Errorf("glob pattern must be at most %d bytes, got %d", MaxPatternBytes, len(pattern))
+	if !utf8.ValidString(pattern) {
+		return errors.New("glob pattern must be valid UTF-8")
+	}
+	if n := utf8.RuneCountInString(pattern); n > MaxPatternLength {
+		return fmt.Errorf("glob pattern must be at most %d characters, got %d", MaxPatternLength, n)
 	}
 	for offset, r := range pattern {
 		switch {
-		case r == '*' || r == '?':
 		case r == '[' || r == ']' || r == '{' || r == '}' || r == '\\':
 			return fmt.Errorf("glob pattern must not contain %q at byte %d: only * and ? are wildcards, character classes and escapes are not supported", r, offset)
 		case r < 0x20 || r == 0x7f:
 			return fmt.Errorf("glob pattern must not contain control character %#02x at byte %d", r, offset)
-		case r > 0x7e:
-			return fmt.Errorf("glob pattern must not contain non-ASCII character %q at byte %d: literals must be printable ASCII", r, offset)
 		}
 	}
 	return nil
@@ -127,7 +123,7 @@ func Match(pattern, name string) bool {
 //
 // The work is O(len(a) * len(b)) time and memory: at most (len(a)+1)*(len(b)+1)
 // product states, each with at most three outgoing edges. Patterns are capped at
-// MaxPatternBytes by Validate, so the state space is bounded by 257*257.
+// MaxPatternLength by Validate, so the state space is bounded by 257*257.
 func Overlaps(a, b string) (bool, error) {
 	if err := Validate(a); err != nil {
 		return false, fmt.Errorf("first glob pattern: %w", err)

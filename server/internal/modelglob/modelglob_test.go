@@ -19,7 +19,11 @@ func TestValidate(t *testing.T) {
 		"a b",
 		"model.name_v1:beta/2",
 		`"'(),;!~@#%^&|+=<>`,
-		strings.Repeat("x", MaxPatternBytes),
+		"模型-*",
+		"café",
+		"🤖-?",
+		strings.Repeat("x", MaxPatternLength),
+		strings.Repeat("模", MaxPatternLength),
 	} {
 		if err := Validate(pattern); err != nil {
 			t.Errorf("Validate(%q) = %v, want nil", pattern, err)
@@ -30,8 +34,8 @@ func TestValidate(t *testing.T) {
 		want    string
 	}{
 		{"", "must not be empty"},
-		{strings.Repeat("x", MaxPatternBytes+1), "at most 256 bytes"},
-		{strings.Repeat("é", 129), "at most 256 bytes"},
+		{strings.Repeat("x", MaxPatternLength+1), "at most 256 characters"},
+		{strings.Repeat("模", MaxPatternLength+1), "at most 256 characters"},
 		{"gpt-[45]", "character classes"},
 		{"a]", "character classes"},
 		{"{a,b}", "character classes"},
@@ -39,9 +43,7 @@ func TestValidate(t *testing.T) {
 		{"a\nb", "control character"},
 		{"a\x00b", "control character"},
 		{"a\x7fb", "control character"},
-		{"模型*", "non-ASCII"},
-		{"café", "non-ASCII"},
-		{"a\xffb", "non-ASCII"},
+		{"a\xffb", "valid UTF-8"},
 	} {
 		err := Validate(tc.pattern)
 		if err == nil {
@@ -107,26 +109,37 @@ func TestMatchDoubleStarEquivalent(t *testing.T) {
 	}
 }
 
-// TestMatchUnicodeLiteral pins the rune semantics: names may contain any UTF-8,
-// '?' consumes exactly one rune rather than one byte, and a non-ASCII rune in
-// the pattern is an ordinary literal when it bypasses Validate (Validate rejects
-// non-ASCII patterns; see TestValidate).
-func TestMatchUnicodeLiteral(t *testing.T) {
+// TestUnicodeLiterals pins the frozen-schema rule end to end: Chinese and emoji
+// literals are legal pattern characters, matching is rune exact, and '?' consumes
+// exactly one rune rather than one byte.
+func TestUnicodeLiterals(t *testing.T) {
 	for _, tc := range []struct {
 		pattern, name string
 		want          bool
 	}{
 		{"model-*", "model-模型", true},
+		{"模型-*", "模型-gpt-4o", true},
+		{"模型-?", "模型-g", true},
+		{"模型-?", "模型-gpt", false},
 		{"?", "模", true},
 		{"??", "模型", true},
 		{"?*", "模型", true},
+		{"🤖-*", "🤖-chat", true},
+		{"?", "🤖", true},
+		{"??", "🤖模", true},
+		{"🤖", "🤖🤖", false},
 		{"a?c", "aéc", true},
 		{"caf*", "café", true},
+		{"café", "café", true},
+		{"café", "cafe", false},
 		{"é*", "éclair", true},
 		{"é", "e", false},
 		{"e", "é", false},
 		{"모델*", "모델-1", true},
 	} {
+		if err := Validate(tc.pattern); err != nil {
+			t.Fatalf("Validate(%q) = %v, want nil", tc.pattern, err)
+		}
 		if got := Match(tc.pattern, tc.name); got != tc.want {
 			t.Errorf("Match(%q, %q) = %v, want %v", tc.pattern, tc.name, got, tc.want)
 		}
@@ -159,6 +172,9 @@ func TestOverlaps(t *testing.T) {
 		{"??", "a", false},
 		{"a*", "a", true},
 		{"a", "*", true},
+		{"模型-*", "模型-?", true},
+		{"模型*", "*模型*", true},
+		{"🤖*", "gpt*", false},
 	} {
 		got, err := Overlaps(tc.first, tc.second)
 		if err != nil {
@@ -179,8 +195,8 @@ func TestOverlaps(t *testing.T) {
 		{"", "*", "first glob pattern"},
 		{"*", "a[", "second glob pattern"},
 		{"a{", "b}", "first glob pattern"},
-		{"*", "模型", "second glob pattern"},
-		{strings.Repeat("x", MaxPatternBytes+1), "*", "first glob pattern"},
+		{"*", "a\tb", "second glob pattern"},
+		{strings.Repeat("x", MaxPatternLength+1), "*", "first glob pattern"},
 	} {
 		overlaps, err := Overlaps(tc.first, tc.second)
 		if err == nil {
