@@ -362,7 +362,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 ### FR-16 上游模型目录同步
 
 - 控制面从启用上游的 `<base_url>/v1/models` 同步模型目录，不经过 core，也不进入下游请求热路径。
-- 支持单个上游立即同步和批量同步；每次同步保存批次 ID、开始/结束时间、耗时、结果和错误摘要。批量同步为每个启用上游返回 `started` 或 `skipped`；已有运行中同步的上游以 `skipped` 跳过且不新建 run，个别上游忙碌不会让整批失败。
+- 支持单个上游立即同步和批量同步；每次同步保存批次 ID、开始/结束时间、发现数量、结果和错误摘要，耗时由两个时间字段计算。批量同步为每个启用上游返回 `started` 或 `skipped`；已有运行中同步的上游以 `skipped` 跳过且不新建 run，个别上游忙碌不会让整批失败。
 - 成功同步对目录项执行 upsert，保存 `upstream_model_id`、`object`、`owned_by`、`provider_created`、`first_seen_at`、`last_seen_at` 和 `current_in_latest_sync`。
 - 上游返回错误、超时、非法 JSON 或重复模型 ID 时，本次同步失败并保留上一份成功目录。
 - 成功同步未再次返回的目录项标记 `stale`，不立即删除目录项、禁用能力或改变路由。

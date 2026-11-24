@@ -2066,6 +2066,8 @@ alter table models add constraint models_billing_revision_scope
   references price_revisions(id, model_id, scope)
   deferrable initially deferred;
 
+-- 回填完成后收紧：alter table models alter column billing_revision_id set not null;
+
 create table model_prices (
   id uuid primary key,
   model_id text not null references models(model_id) on delete restrict,

@@ -57,7 +57,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 - `POST /api/upstreams/{upstream_id}/models/sync` 同步单个上游。`POST /api/upstreams/models/sync` 批量同步启用的上游，为每个启用上游返回 `started` 或 `skipped`；已有运行中同步的上游以 `skipped`、`reason=catalog_sync_running` 返回且不新建 run，个别上游忙碌不会让整批失败。各 run ID 可通过 `GET /api/upstreams/{upstream_id}/model-sync-runs/{run_id}` 查询。目录 GET 的 `latest_run` 是最近一次尝试，`data` 来自最近一次成功同步及其 stale 项。
 - `POST /api/upstreams/{upstream_id}/models/import` 必须带目录项和目标 `model_id`。`create_model` 要求目标 ID 尚不存在，`bind_existing` 要求目标 Model 已存在。导入返回 `model_id`、是否新建能力和更新后的 `capabilities_revision`。
-- 共用 OpenAPI 的 `UpstreamUpdateInput` 是两期载荷的联合契约；`UpstreamUpdateInputPhaseOne` 用于一期，`UpstreamUpdateInputPhaseTwo` 强制要求 `capabilities_revision`。二期服务和客户端在启用目录导入前必须选择严格契约，缺失版本返回 `422`、过期返回 `409`，不能通过一期分支绕过版本检查。阶段由部署能力决定，不由请求内容决定：`GET /api/version` 的 `features.upstream_capabilities_revision` 是唯一开关，缺省为 `false`。全量替换保留留存能力的目录绑定，客户端重取后显示差异供管理员合并。
+- 共用 OpenAPI 的 `UpstreamUpdateInput` 是两期载荷的联合契约；`UpstreamUpdateInputPhaseOne` 用于一期，`UpstreamUpdateInputPhaseTwo` 强制要求 `capabilities_revision`。二期服务和客户端在启用目录导入前必须选择严格契约，缺失版本返回 `422`、过期返回 `409`，不能通过一期分支绕过版本检查。阶段由部署能力决定，不由请求内容决定：`GET /api/version` 的 `features.second_phase_model_management` 是唯一开关，缺省为 `false`，同时控制严格 `capabilities_revision` 校验与 `billing_state` 返回。全量替换保留留存能力的目录绑定，客户端重取后显示差异供管理员合并。
 - `GET/PUT /api/upstreams/{upstream_id}/model-policy` 读取或原子替换 `default_action`、`allow_patterns` 和 `deny_patterns`。保存前校验 Glob、重复规则和影响范围。没有策略行的上游返回 `default_action=allow` 和两个空列表，不是 `404`；该响应同时作为编辑表单的初始值。
 - 目录的 `bound_model_id` 为单个全局 ID 或 `null`。绑定身份独立于上游名称改写字段。目录项或能力已绑定其他目标时返回 `409`。
 - 能力、路由规则或当前上游价格覆盖阻塞删除 Model。路由限制或当前价格覆盖阻塞删除 Upstream。阻塞时返回 `409` 并在 `details` 列出引用。删除 Upstream 时级联清理其能力、目录、策略和同步记录。历史价格修订及用量继续可查。

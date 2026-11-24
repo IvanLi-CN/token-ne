@@ -1167,6 +1167,8 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sync-runs/{run_id}:
@@ -2647,9 +2649,9 @@ components:
         features:
           type: object
           properties:
-            upstream_capabilities_revision:
+            second_phase_model_management:
               type: boolean
-              description: 为 true 表示管理 API 处于第二期严格模式：PUT /api/upstreams/{upstream_id} 必须按 UpstreamUpdateInputPhaseTwo 提交（缺失返回 422、过期返回 409），模型响应返回 billing_state。为 false 表示接受第一期载荷并省略 billing_state。默认 false，只在 Web 客户端已发布严格载荷后才允许启用。
+              description: 唯一部署阶段开关。为 true 时管理 API 进入第二期严格模式：PUT /api/upstreams/{upstream_id} 必须按 UpstreamUpdateInputPhaseTwo 提交（缺失返回 422、过期返回 409），模型响应返回 billing_state。为 false 或缺失时接受第一期载荷并省略 billing_state。默认 false，只在 Web 客户端已发布严格载荷后才允许启用。
     Billing:
       type: object
       required: [input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok]

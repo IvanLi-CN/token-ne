@@ -342,7 +342,7 @@ Idempotency-Key: <batch_id>
 - `instance_id` 必须与路径、`X-Token-Ne-Instance-Id` 和请求体中的值逐字节一致。
 - `revision` 必须大于已应用 revision；相同且请求体字节与已应用版本完全一致返回 `200`（幂等重放），相同但内容不同返回 `409 stale_revision`，更低返回 `409 stale_revision`。比较不依赖可选签名；核心保留已应用 revision 的原始字节或 SHA-256。
 - `config_schema_version` 必须在核心声明的范围内。
-- 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记自身权威。控制面不得向未声明能力的核心发送依赖该能力的配置。
+- 只有 `features.status_rewrite` 与 `status_rewrite.enabled` 存在对应关系，冲突时返回 `422`；其余能力标记不与其它配置字段绑定对应关系。第二期的能力标记与各自数组的一致性见下一条。控制面不得向未声明能力的核心发送依赖该能力的配置。
 - 第二期配置用 `features.model_name_routing` 标记 `model_routes`，用 `features.upstream_model_policy` 标记 `upstream_policies`。对应数组非空时 feature 必须为 `true`；feature 缺失或为 `false` 时数组必须缺失或为空。标记和配置不符返回 `422`。JSON Schema 之后的语义校验还必须检查 policy 的 `upstream_id` 唯一性、全部引用存在性，以及路由 `glob` 模式和 policy 两个列表的受限 Glob 语法；Glob 仅允许 `*` 与 `?` 作为通配符，区分大小写，拒绝方括号、花括号、反斜线和控制字符。路由与策略对象拒绝未知字段。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。

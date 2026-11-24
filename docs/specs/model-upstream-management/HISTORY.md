@@ -6,6 +6,7 @@
 
 - 主题由第一期的全局模型、名称映射和上游能力边界扩展而来，当前生命周期为 `active`。
 - 第二期保持 `/internal/v1` 线协议路径；路由、上游策略和价格归因通过能力协商与配置 schema 兼容门禁发布。
+- 管理 API 的第二期部署开关是 `features.second_phase_model_management`，同时门禁严格 `capabilities_revision` 校验与 `billing_state` 返回；不按单个字段命名，避免后续新增第二期字段时再引入第二个开关。
 
 ## Replacements / Background
 
