@@ -173,13 +173,13 @@ fn model_mapping_and_candidates() {
     model.default_upstream_model = None;
     assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5");
     let mut rng = StdRng::seed_from_u64(3);
-    assert_eq!(routing::candidates(&c, "gpt-5", &mut rng).len(), 1);
+    assert_eq!(routing::candidates(&c, "gpt-5", None, &mut rng).len(), 1);
     c.upstream_models[0].weight = 0;
-    assert!(routing::candidates(&c, "gpt-5", &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
     assert_eq!(routing::visible_models(&c, &c.downstream_keys[0]).len(), 1);
     c.upstream_models[0].weight = 100;
     c.upstreams[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
     c.upstreams[0].enabled = true;
     let mut upstream = c.upstreams[0].clone();
     upstream.id = "0193f0c2-7b1a-7c3e-9f00-000000000005".into();
@@ -191,7 +191,7 @@ fn model_mapping_and_candidates() {
     c.upstream_models.push(relation);
     for _ in 0..50 {
         assert_eq!(
-            routing::candidates(&c, "gpt-5", &mut rng)[0]
+            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
                 .capability
                 .priority,
             0
@@ -200,11 +200,16 @@ fn model_mapping_and_candidates() {
     c.upstream_models[0].priority = 0;
     c.upstream_models[0].weight = 9;
     let selected = (0..1000)
-        .filter(|_| routing::candidates(&c, "gpt-5", &mut rng)[0].upstream.id == c.upstreams[0].id)
+        .filter(|_| {
+            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
+                .upstream
+                .id
+                == c.upstreams[0].id
+        })
         .count();
     assert!((840..960).contains(&selected), "weighted draw {selected}");
     c.models[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
 }
 #[test]
 fn atomic_revision_and_inflight() {

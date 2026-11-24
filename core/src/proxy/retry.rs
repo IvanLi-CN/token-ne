@@ -56,6 +56,7 @@ pub(crate) async fn forward(request: ForwardRequest<'_>) -> Response {
             downstream_key_id: key_id.to_owned(),
             endpoint: path.to_owned(),
             requested_model: body.model.clone(),
+            resolved_model: Some(model.model_id.clone()),
             upstream_id: None,
             upstream_model: None,
             stream: body.stream,

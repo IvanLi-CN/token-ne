@@ -1,4 +1,5 @@
 //! 配置只在完整校验后发布；错误只包含字段位置，避免回显密钥。
+use crate::glob;
 use aes_gcm::{
     Aes256Gcm, KeyInit,
     aead::{Aead, AeadCore, OsRng},
@@ -46,6 +47,75 @@ fn canonical_uuid(id: &str, path: &str) -> Result<()> {
 }
 const DAY_MS: u64 = 86_400_000;
 
+const MODEL_ROUTE_FIELDS: [&str; 8] = [
+    "id",
+    "pattern",
+    "match_type",
+    "target_model_id",
+    "upstream_id",
+    "priority",
+    "enabled",
+    "description",
+];
+const UPSTREAM_POLICY_FIELDS: [&str; 4] = [
+    "upstream_id",
+    "default_action",
+    "allow_patterns",
+    "deny_patterns",
+];
+
+/// 路由与策略对象拒绝未知字段；serde 只能报告“json”，这里补上字段路径。
+fn reject_unknown_fields(value: &serde_json::Value) -> Result<()> {
+    for (array, known) in [
+        ("model_routes", &MODEL_ROUTE_FIELDS[..]),
+        ("upstream_policies", &UPSTREAM_POLICY_FIELDS[..]),
+    ] {
+        let Some(items) = value.get(array).and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        for (index, item) in items.iter().enumerate() {
+            let Some(object) = item.as_object() else {
+                continue;
+            };
+            if let Some(field) = object.keys().find(|key| !known.contains(&key.as_str())) {
+                return Err(ConfigError(format!("{array}[{index}].{field}")));
+            }
+        }
+    }
+    // 未知的路由匹配类型和策略动作是安全语义，必须拒绝并定位到字段。
+    for (index, route) in value
+        .get("model_routes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if let Some(match_type) = route.get("match_type").and_then(serde_json::Value::as_str)
+            && !matches!(match_type, "exact" | "glob")
+        {
+            return Err(ConfigError(format!("model_routes[{index}].match_type")));
+        }
+    }
+    for (index, policy) in value
+        .get("upstream_policies")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if let Some(action) = policy
+            .get("default_action")
+            .and_then(serde_json::Value::as_str)
+            && !matches!(action, "allow" | "deny")
+        {
+            return Err(ConfigError(format!(
+                "upstream_policies[{index}].default_action"
+            )));
+        }
+    }
+    Ok(())
+}
+
 // 不派生 Debug，防止配置内的上游和控制面凭据进入日志。
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -59,6 +129,10 @@ pub struct Config {
     pub models: Vec<Model>,
     pub upstreams: Vec<Upstream>,
     pub upstream_models: Vec<UpstreamModel>,
+    #[serde(default)]
+    pub model_routes: Vec<ModelRoute>,
+    #[serde(default)]
+    pub upstream_policies: Vec<UpstreamPolicy>,
     pub retry: Retry,
     pub status_rewrite: StatusRewrite,
     pub usage: Usage,
@@ -71,6 +145,10 @@ pub struct Features {
     pub embeddings: bool,
     pub stream_usage_injection: bool,
     pub status_rewrite: bool,
+    #[serde(default)]
+    pub model_name_routing: bool,
+    #[serde(default)]
+    pub upstream_model_policy: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DownstreamKey {
@@ -132,6 +210,40 @@ pub struct UpstreamModel {
     pub enabled: bool,
     pub priority: u32,
     pub weight: u32,
+}
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchType {
+    Exact,
+    Glob,
+}
+/// 名称路由规则。未知字段必须拒绝：拼错的路由字段不能静默失效。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelRoute {
+    pub id: String,
+    pub pattern: String,
+    pub match_type: MatchType,
+    pub target_model_id: String,
+    pub upstream_id: Option<String>,
+    pub priority: u32,
+    pub enabled: bool,
+    pub description: Option<String>,
+}
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyAction {
+    Allow,
+    Deny,
+}
+/// 上游承接策略。没有策略行等价于 `allow` 且两个列表为空。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpstreamPolicy {
+    pub upstream_id: String,
+    pub default_action: PolicyAction,
+    pub allow_patterns: Vec<String>,
+    pub deny_patterns: Vec<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Retry {
@@ -232,7 +344,10 @@ pub struct ValidationOptions {
 }
 impl Config {
     pub fn parse(bytes: &[u8], instance: &str, options: &ValidationOptions) -> Result<Self> {
-        let config: Self = serde_json::from_slice(bytes).map_err(|_| ConfigError("json".into()))?;
+        let value: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|_| ConfigError("json".into()))?;
+        reject_unknown_fields(&value)?;
+        let config: Self = serde_json::from_value(value).map_err(|_| ConfigError("json".into()))?;
         config.validate(instance, options)?;
         Ok(config)
     }
@@ -355,6 +470,17 @@ impl Config {
                 )?;
             }
         }
+        // 路由与策略没有安全的“忽略”默认，必须由能力标记守护。
+        require(
+            self.features.model_name_routing || self.model_routes.is_empty(),
+            "features.model_name_routing",
+        )?;
+        require(
+            self.features.upstream_model_policy || self.upstream_policies.is_empty(),
+            "features.upstream_model_policy",
+        )?;
+        self.validate_upstream_policies()?;
+        self.validate_model_routes()?;
         range(self.retry.max_attempts.into(), 1, 10, "retry.max_attempts")?;
         let mut statuses = HashSet::new();
         for s in &self.retry.retry_statuses {
@@ -509,6 +635,104 @@ impl Config {
             DAY_MS,
             "limits.shutdown_grace_ms",
         )?;
+        Ok(())
+    }
+
+    fn validate_upstream_policies(&self) -> Result<()> {
+        unique(
+            self.upstream_policies
+                .iter()
+                .map(|p| p.upstream_id.as_str()),
+            "upstream_policies.upstream_id",
+        )?;
+        for (i, policy) in self.upstream_policies.iter().enumerate() {
+            let base = format!("upstream_policies[{i}]");
+            let upstream = format!("{base}.upstream_id");
+            canonical_uuid(&policy.upstream_id, &upstream)?;
+            require(
+                self.upstreams.iter().any(|u| u.id == policy.upstream_id),
+                &upstream,
+            )?;
+            for (field, patterns) in [
+                ("allow_patterns", &policy.allow_patterns),
+                ("deny_patterns", &policy.deny_patterns),
+            ] {
+                let mut seen = HashSet::new();
+                for (j, pattern) in patterns.iter().enumerate() {
+                    let path = format!("{base}.{field}[{j}]");
+                    require(glob::validate(pattern), &path)?;
+                    require(seen.insert(pattern.as_str()), &path)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_model_routes(&self) -> Result<()> {
+        unique(
+            self.model_routes.iter().map(|r| r.id.as_str()),
+            "model_routes.id",
+        )?;
+        let mut exact_patterns = HashSet::new();
+        for (i, route) in self.model_routes.iter().enumerate() {
+            let base = format!("model_routes[{i}]");
+            let pattern = format!("{base}.pattern");
+            canonical_uuid(&route.id, &format!("{base}.id"))?;
+            match route.match_type {
+                // 精确别名沿用模型 ID 的字符串约束；Glob 只接受受限语言。
+                MatchType::Exact => text(&route.pattern, 256, &pattern)?,
+                MatchType::Glob => require(glob::validate(&route.pattern), &pattern)?,
+            }
+            // 全局 Model ID 保留给对应 Model，任何 match_type 都不能占用同名 pattern。
+            require(
+                !self.models.iter().any(|m| m.model_id == route.pattern),
+                &pattern,
+            )?;
+            require(
+                self.models
+                    .iter()
+                    .any(|m| m.model_id == route.target_model_id),
+                &format!("{base}.target_model_id"),
+            )?;
+            if let Some(upstream_id) = &route.upstream_id {
+                require(
+                    self.upstreams.iter().any(|u| u.id == *upstream_id),
+                    &format!("{base}.upstream_id"),
+                )?;
+            }
+            range(
+                route.priority.into(),
+                0,
+                100000,
+                &format!("{base}.priority"),
+            )?;
+            if route.enabled && route.match_type == MatchType::Exact {
+                require(exact_patterns.insert(route.pattern.as_str()), &pattern)?;
+            }
+            if let Some(description) = &route.description {
+                require(
+                    description.chars().count() <= 1024,
+                    &format!("{base}.description"),
+                )?;
+            }
+        }
+        // 同优先级 Glob 重叠时目标与上游限制必须一致，否则会静默改变路由含义。
+        for (i, a) in self.model_routes.iter().enumerate() {
+            if a.match_type != MatchType::Glob {
+                continue;
+            }
+            for (j, b) in self.model_routes.iter().enumerate().skip(i + 1) {
+                if b.match_type != MatchType::Glob || a.priority != b.priority {
+                    continue;
+                }
+                require(
+                    !glob::overlap(&a.pattern, &b.pattern)
+                        || (a.target_model_id == b.target_model_id
+                            && a.upstream_id == b.upstream_id),
+                    &format!("model_routes[{j}].pattern"),
+                )?;
+            }
+        }
         Ok(())
     }
 }
