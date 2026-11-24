@@ -1764,9 +1764,9 @@ networks:
 | `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
 | `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
 | `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像；仅第二期 Compose 必需 | 第二期是 |
-| `XRAY_API_URL` | Xray gRPC API 地址，默认 `10.42.0.10:10085`，只在 `xray-control` 网络可达 | 否 |
-| `XRAY_PROXY_PORT_MIN` / `XRAY_PROXY_PORT_MAX` | 动态 SOCKS5 入站端口范围，默认 15000–15999 | 否 |
-| `XRAY_RECONCILE_INTERVAL_SECONDS` | Xray 运行态对账周期，默认 30 秒 | 否 |
+| `XRAY_API_URL` | Xray gRPC API 地址，默认 `10.42.0.10:10085`，只在 `xray-control` 网络可达；仅第二期，非必需 | 第二期可选 |
+| `XRAY_PROXY_PORT_MIN` / `XRAY_PROXY_PORT_MAX` | 动态 SOCKS5 入站端口范围，默认 15000–15999；仅第二期，非必需 | 第二期可选 |
+| `XRAY_RECONCILE_INTERVAL_SECONDS` | Xray 运行态对账周期，默认 30 秒；仅第二期，非必需 | 第二期可选 |
 | `CORE_METRICS_LISTEN` | 核心内部 Prometheus 监听，默认 `0.0.0.0:9091`，不发布宿主端口 | 否 |
 | `STATUS_REWRITE_CONFIG` | 控制面读取的状态码改写 YAML/JSON 路径，默认 `/etc/token-ne/status-rewrite.yaml` | 否 |
 | `STREAM_USAGE_INJECTION` | 数据面开关的部署默认值，默认 `true`；Cores 页或 `PUT /api/data-plane-settings` 保存的选择优先于它。关闭后核心不再注入 `stream_options.include_usage`，流式用量依赖上游返回 | 否 |
