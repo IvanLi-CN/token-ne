@@ -3,7 +3,7 @@
   "source_id": "builtin",
   "name": "内置价目表",
   "fetched_at": "2026-11-24T13:05:31Z",
-  "note": "受控快照：models.dev（https://models.dev/api.json）2026-11-25 抓取的一手厂商条目；保留全部计费维度（输入/缓存读/缓存写/音频入/音频出/推理/输出）与上下文阶梯（tiers，阈值取来源 tier.size）。",
+  "note": "受控快照：token 价格、阶梯与发布日期来自 models.dev（2026-11-25）；按次（网页搜索）与 1 小时缓存写入价来自 OpenRouter 快照（2026-11-24），按来源模型 ID 精确匹配，未匹配的行留空。",
   "models": [
     {
       "source_model_id": "gpt-4o-mini",
@@ -17,7 +17,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "OpenAI/GPT_4o",
@@ -31,7 +33,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-4.1",
@@ -46,7 +50,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -60,7 +66,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.79,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/deepseek-v4-flash-0731",
@@ -74,7 +82,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.32,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/glm-5.2",
@@ -88,7 +98,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/kimi-k3",
@@ -102,7 +114,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qvq-max",
@@ -116,7 +130,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-flash",
@@ -141,7 +157,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 2
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-max",
@@ -155,7 +173,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 6.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-mt-plus",
@@ -169,7 +189,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 7.37,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-mt-turbo",
@@ -183,7 +205,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.49,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-omni-turbo",
@@ -197,7 +221,9 @@
       "audio_output_usd_per_mtok": 8.89,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.27,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-omni-turbo-realtime",
@@ -211,7 +237,9 @@
       "audio_output_usd_per_mtok": 8.89,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.07,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-plus",
@@ -236,7 +264,9 @@
           "reasoning_usd_per_mtok": 12,
           "output_usd_per_mtok": 3.6
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-plus-character-ja",
@@ -250,7 +280,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-turbo",
@@ -264,7 +296,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 0.5,
       "output_usd_per_mtok": 0.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-vl-max",
@@ -278,7 +312,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-vl-ocr",
@@ -292,7 +328,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.16,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen-vl-plus",
@@ -306,7 +344,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.63,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen2-5-omni-7b",
@@ -320,7 +360,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-14b",
@@ -334,7 +376,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 4.2,
       "output_usd_per_mtok": 1.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-235b-a22b",
@@ -348,7 +392,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 8.4,
       "output_usd_per_mtok": 2.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-32b",
@@ -362,7 +408,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 8.4,
       "output_usd_per_mtok": 2.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-8b",
@@ -376,7 +424,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 2.1,
       "output_usd_per_mtok": 0.7,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-coder-30b-a3b-instruct",
@@ -411,7 +461,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 6
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-coder-480b-a35b-instruct",
@@ -446,7 +498,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 22.5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-coder-flash",
@@ -491,7 +545,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 9.6
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-coder-plus",
@@ -505,7 +561,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-livetranslate-flash-realtime",
@@ -519,7 +577,9 @@
       "audio_output_usd_per_mtok": 38,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-max",
@@ -533,7 +593,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-next-80b-a3b-instruct",
@@ -547,7 +609,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-next-80b-a3b-thinking",
@@ -561,7 +625,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-omni-flash",
@@ -575,7 +641,9 @@
       "audio_output_usd_per_mtok": 15.11,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.66,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-omni-flash-realtime",
@@ -589,7 +657,9 @@
       "audio_output_usd_per_mtok": 18.13,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.99,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-vl-235b-a22b",
@@ -603,7 +673,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 8.4,
       "output_usd_per_mtok": 2.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-vl-30b-a3b",
@@ -617,7 +689,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 2.4,
       "output_usd_per_mtok": 0.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3-vl-plus",
@@ -652,7 +726,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 4.8
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-122b-a10b",
@@ -666,7 +742,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-27b",
@@ -680,7 +758,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-35b-a3b",
@@ -694,7 +774,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-397b-a17b",
@@ -708,7 +790,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-flash",
@@ -722,7 +806,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.5-plus",
@@ -747,7 +833,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 3
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.6-27b",
@@ -761,7 +849,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.6-35b-a3b",
@@ -775,7 +865,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.6-flash",
@@ -800,7 +892,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 4
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.6-max-preview",
@@ -814,7 +908,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 7.8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.6-plus",
@@ -839,7 +935,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 6
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.7-flash",
@@ -874,7 +972,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 0.8
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.7-max",
@@ -888,7 +988,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 7.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.7-plus",
@@ -913,7 +1015,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 4.8
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.8-flash",
@@ -927,7 +1031,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.47,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.8-max",
@@ -941,7 +1047,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwen3.8-omni-flash",
@@ -955,7 +1063,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.47,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "alibaba/qwq-plus",
@@ -969,7 +1079,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-fable-5",
@@ -983,7 +1095,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 50,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": 20
     },
     {
       "source_model_id": "anthropic/claude-fable-5-1",
@@ -997,7 +1111,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 50,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-fable-5-2",
@@ -1011,7 +1127,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 40,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-haiku-4-5",
@@ -1025,7 +1143,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-haiku-4-5-20251001",
@@ -1039,7 +1159,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-haiku-5-5",
@@ -1064,7 +1186,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 2.5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-4-5",
@@ -1078,7 +1202,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-4-5-20251101",
@@ -1092,7 +1218,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-4-6",
@@ -1106,7 +1234,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-4-7",
@@ -1120,7 +1250,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-4-8",
@@ -1134,7 +1266,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-opus-5",
@@ -1148,7 +1282,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": 10
     },
     {
       "source_model_id": "anthropic/claude-opus-5-5",
@@ -1162,7 +1298,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 20,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-sonnet-4-5",
@@ -1176,7 +1314,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-sonnet-4-5-20250929",
@@ -1190,7 +1330,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-sonnet-4-6",
@@ -1204,7 +1346,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "anthropic/claude-sonnet-5",
@@ -1218,7 +1362,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": 4
     },
     {
       "source_model_id": "anthropic/claude-sonnet-5-5",
@@ -1232,7 +1378,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/c4ai-aya-expanse-32b",
@@ -1246,7 +1394,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-a-03-2025",
@@ -1260,7 +1410,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-a-plus-05-2026",
@@ -1274,7 +1426,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-a-reasoning-08-2025",
@@ -1288,7 +1442,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-a-translate-08-2025",
@@ -1302,7 +1458,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-a-vision-07-2025",
@@ -1316,7 +1474,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-r-08-2024",
@@ -1330,7 +1490,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-r-plus-08-2024",
@@ -1344,7 +1506,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-r7b-12-2024",
@@ -1358,7 +1522,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/command-r7b-arabic-02-2025",
@@ -1372,7 +1538,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/north-mini-code-1-0",
@@ -1386,7 +1554,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "cohere/north-small-translate-09-2026",
@@ -1400,7 +1570,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "deepseek/deepseek-flash",
@@ -1414,7 +1586,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 0.6,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "deepseek/deepseek-v4-flash",
@@ -1428,7 +1602,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 0.6,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "deepseek/deepseek-v4-flash-vision-exp",
@@ -1442,7 +1618,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 0.6,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "deepseek/deepseek-v4-pro",
@@ -1456,7 +1634,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": 1.98,
       "output_usd_per_mtok": 1.98,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/deep-research-max-preview-04-2026",
@@ -1481,7 +1661,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 18
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/deep-research-preview-04-2026",
@@ -1506,7 +1688,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 18
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-flash",
@@ -1520,7 +1704,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-flash-image",
@@ -1534,7 +1720,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-flash-lite",
@@ -1548,7 +1736,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-flash-preview-tts",
@@ -1562,7 +1752,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-pro",
@@ -1587,7 +1779,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 15
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-2.5-pro-preview-tts",
@@ -1601,7 +1795,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 20,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3-flash-preview",
@@ -1615,7 +1811,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3-pro-image",
@@ -1629,7 +1827,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 12,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-flash-image",
@@ -1643,7 +1843,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-flash-lite",
@@ -1657,7 +1859,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-flash-lite-image",
@@ -1671,7 +1875,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-flash-live-preview",
@@ -1685,7 +1891,9 @@
       "audio_output_usd_per_mtok": 12,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-flash-tts-preview",
@@ -1699,7 +1907,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 20,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-pro-preview",
@@ -1724,7 +1934,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 18
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.1-pro-preview-customtools",
@@ -1749,7 +1961,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 18
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.5-flash",
@@ -1763,7 +1977,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 9,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.5-flash-lite",
@@ -1777,7 +1993,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.5-live-translate-preview",
@@ -1791,7 +2009,9 @@
       "audio_output_usd_per_mtok": 21,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 21,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.6-flash",
@@ -1805,7 +2025,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.75,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.7-flash",
@@ -1819,7 +2041,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.75,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-3.8-flash",
@@ -1833,7 +2057,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 3.75,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-4-argon",
@@ -1847,7 +2073,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-4-carbon",
@@ -1861,7 +2089,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-4-hydrogen",
@@ -1875,7 +2105,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 7.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-4-neon",
@@ -1889,7 +2121,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.014,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-embedding-001",
@@ -1903,7 +2137,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemini-embedding-2",
@@ -1917,7 +2153,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemma-4-26b-a4b-it",
@@ -1931,7 +2169,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/gemma-4-31b-it",
@@ -1945,7 +2185,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/lyria-3-clip-preview",
@@ -1959,7 +2201,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "google/lyria-3-pro-preview",
@@ -1973,7 +2217,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-ember-1.0",
@@ -1998,7 +2244,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 1.5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-spark-1.1",
@@ -2012,7 +2260,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.0025,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-spark-1.2",
@@ -2026,7 +2276,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.0025,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-spark-1.2-contributor",
@@ -2040,7 +2292,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.0025,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-spark-1.3",
@@ -2054,7 +2308,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.0025,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-spark-1.3-contributor",
@@ -2068,7 +2324,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.0025,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "meta/muse-wonder-1.0",
@@ -2082,7 +2340,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 20,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/codestral-2508",
@@ -2096,7 +2356,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.9,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/deepseek-v4-1-flash-1017",
@@ -2110,7 +2372,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/glm-5-2",
@@ -2124,7 +2388,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/ministral-14b-2512",
@@ -2138,7 +2404,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/ministral-3b-2512",
@@ -2152,7 +2420,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.1,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/ministral-8b-2512",
@@ -2166,7 +2436,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/mistral-embed",
@@ -2180,7 +2452,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/mistral-large-2512",
@@ -2194,7 +2468,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/mistral-large-4",
@@ -2208,7 +2484,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.1,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/mistral-medium-2604",
@@ -2222,7 +2500,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 7.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/mistral-small-2603",
@@ -2236,7 +2516,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/voxtral-small-2507",
@@ -2250,7 +2532,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/zai-glm-5-2",
@@ -2264,7 +2548,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/zai-glm-5-3",
@@ -2278,7 +2564,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "mistral/zai-glm-5-3-flash",
@@ -2292,7 +2580,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k2.6",
@@ -2306,7 +2596,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k2.7-code",
@@ -2320,7 +2612,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k2.7-code-highspeed",
@@ -2334,7 +2628,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k3",
@@ -2348,7 +2644,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 15,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k3.1-pro",
@@ -2362,7 +2660,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "moonshotai/kimi-k3.1-pro-highspeed",
@@ -2376,7 +2676,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 20,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/black-forest-labs/flux.1-dev",
@@ -2390,7 +2692,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/black-forest-labs/flux_1-kontext-dev",
@@ -2404,7 +2708,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/black-forest-labs/flux_1-schnell",
@@ -2418,7 +2724,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/black-forest-labs/flux_2-klein-4b",
@@ -2432,7 +2740,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/deepseek-ai/deepseek-v4.1-flash",
@@ -2446,7 +2756,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/google/diffusiongemma-26b-a4b-it",
@@ -2460,7 +2772,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/google/gemma-3-12b-it",
@@ -2474,7 +2788,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/google/gemma-3-4b-it",
@@ -2488,7 +2804,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/google/gemma-4-31b-it",
@@ -2502,7 +2820,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/google/google-paligemma",
@@ -2516,7 +2836,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/meta/llama-3.2-11b-vision-instruct",
@@ -2530,7 +2852,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/meta/llama-3.2-90b-vision-instruct",
@@ -2544,7 +2868,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/meta/llama-guard-4-12b",
@@ -2558,7 +2884,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/meta/muse-glimmer-30b",
@@ -2572,7 +2900,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/minimaxai/minimax-m3.1-flash",
@@ -2586,7 +2916,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/mistralai/magistral-small-2506",
@@ -2600,7 +2932,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/mistralai/mistral-7b-instruct-v0.3",
@@ -2614,7 +2948,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/mistralai/mistral-medium-3-instruct",
@@ -2628,7 +2964,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/moonshotai/kimi-k2.6",
@@ -2642,7 +2980,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/moonshotai/kimi-k3",
@@ -2656,7 +2996,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/active-speaker-detection",
@@ -2670,7 +3012,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/bevformer",
@@ -2684,7 +3028,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/cosmos-reason2-8b",
@@ -2698,7 +3044,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/cosmos-transfer2_5-2b",
@@ -2712,7 +3060,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/llama-3.1-nemotron-70b-instruct",
@@ -2726,7 +3076,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
@@ -2740,7 +3092,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1",
@@ -2754,7 +3108,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/llama-nemotron-embed-vl-1b-v2",
@@ -2768,7 +3124,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/llama-nemotron-rerank-vl-1b-v2",
@@ -2782,7 +3140,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/magpie-tts-zeroshot",
@@ -2796,7 +3156,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
@@ -2810,7 +3172,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
@@ -2824,7 +3188,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-3.5-content-safety",
@@ -2838,7 +3204,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b",
@@ -2852,7 +3220,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b",
@@ -2866,7 +3236,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/nemotron-voicechat",
@@ -2880,7 +3252,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/rerank-qa-mistral-4b",
@@ -2894,7 +3268,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/riva-translate-4b-instruct-v1.1",
@@ -2908,7 +3284,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/sparsedrive",
@@ -2922,7 +3300,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/streampetr",
@@ -2936,7 +3316,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/studiovoice",
@@ -2950,7 +3332,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/synthetic-video-detector",
@@ -2964,7 +3348,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/usdcode",
@@ -2978,7 +3364,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/nvidia/usdvalidate",
@@ -2992,7 +3380,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/openai/gpt-oss-20b",
@@ -3006,7 +3396,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/openai/whisper-large-v3",
@@ -3020,7 +3412,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/poolside/laguna-xs-2.1",
@@ -3034,7 +3428,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/qwen/qwen-image",
@@ -3048,7 +3444,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/qwen/qwen-image-edit",
@@ -3062,7 +3460,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/stepfun-ai/step-5-preview",
@@ -3076,7 +3476,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/z-ai/glm-5.3",
@@ -3090,7 +3492,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "nvidia/z-ai/glm-5.3-flash",
@@ -3104,7 +3508,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-4.1-mini",
@@ -3118,7 +3524,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.6,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-4o-2024-08-06",
@@ -3132,7 +3540,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-4o-2024-11-20",
@@ -3146,7 +3556,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5",
@@ -3160,7 +3572,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5-mini",
@@ -3174,7 +3588,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5-nano",
@@ -3188,7 +3604,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.4,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5-pro",
@@ -3202,7 +3620,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 120,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.1",
@@ -3216,7 +3636,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.2",
@@ -3230,7 +3652,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 14,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.2-pro",
@@ -3244,7 +3668,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 168,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.3-codex",
@@ -3258,7 +3684,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 14,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.4",
@@ -3283,7 +3711,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 22.5
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.4-mini",
@@ -3297,7 +3727,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.5,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.4-nano",
@@ -3311,7 +3743,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.25,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.4-pro",
@@ -3336,7 +3770,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 270
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.5",
@@ -3361,7 +3797,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 45
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.5-pro",
@@ -3386,7 +3824,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 270
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.6",
@@ -3411,7 +3851,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 30
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.6-luna",
@@ -3436,7 +3878,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 1.8
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.6-sol",
@@ -3461,7 +3905,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 30
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-5.6-terra",
@@ -3486,7 +3932,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 18
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6-astra",
@@ -3511,7 +3959,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 75
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6-luna",
@@ -3536,7 +3986,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 0.75
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6-sol",
@@ -3561,7 +4013,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 15
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6.1-sol",
@@ -3586,7 +4040,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 15
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6.1-terra",
@@ -3611,7 +4067,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 7.5
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6.2-astra",
@@ -3636,7 +4094,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 60
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-6.2-sol",
@@ -3661,7 +4121,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 15
         }
-      ]
+      ],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/gpt-image-1.5",
@@ -3675,7 +4137,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 10,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/o3",
@@ -3689,7 +4153,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 8,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/o3-pro",
@@ -3703,7 +4169,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 80,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": 0.01,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/text-embedding-3-large",
@@ -3717,7 +4185,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/text-embedding-3-small",
@@ -3731,7 +4201,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "openai/text-embedding-ada-002",
@@ -3745,7 +4217,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.20-0309-non-reasoning",
@@ -3770,7 +4244,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.20-0309-reasoning",
@@ -3795,7 +4271,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.20-multi-agent-0309",
@@ -3820,7 +4298,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.3",
@@ -3845,7 +4325,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 5
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.5",
@@ -3870,7 +4352,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 12
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.6",
@@ -3895,7 +4379,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 12
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "xai/grok-4.7",
@@ -3920,7 +4406,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 12
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.5",
@@ -3934,7 +4422,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.5-air",
@@ -3959,7 +4449,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 1.19516
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.5-flash",
@@ -3973,7 +4465,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.5v",
@@ -3998,7 +4492,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 1.79274
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.6",
@@ -4012,7 +4508,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 2.2,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.6v",
@@ -4037,7 +4535,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 0.89637
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.6v-flash",
@@ -4051,7 +4551,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.7",
@@ -4076,7 +4578,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 2.39032
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.7-flash",
@@ -4090,7 +4594,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-4.7-flashx",
@@ -4104,7 +4610,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.44819,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5",
@@ -4129,7 +4637,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 3.28669
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5.1",
@@ -4154,7 +4664,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 4.18306
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5.2",
@@ -4168,7 +4680,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.18306,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5.3",
@@ -4182,7 +4696,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 4.18306,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5.3-flash",
@@ -4196,7 +4712,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 0.41831,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5.3-flashx",
@@ -4210,7 +4728,9 @@
       "audio_output_usd_per_mtok": null,
       "reasoning_usd_per_mtok": null,
       "output_usd_per_mtok": 1.04577,
-      "tiers": []
+      "tiers": [],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     },
     {
       "source_model_id": "zhipuai/glm-5v-turbo",
@@ -4235,7 +4755,9 @@
           "reasoning_usd_per_mtok": null,
           "output_usd_per_mtok": 3.88427
         }
-      ]
+      ],
+      "web_search_usd_per_call": null,
+      "cache_write_1h_usd_per_mtok": null
     }
   ]
 }

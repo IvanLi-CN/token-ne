@@ -80,6 +80,8 @@ type Entry struct {
 	AudioOut        *float64   `json:"audio_output_usd_per_mtok"`
 	Reasoning       *float64   `json:"reasoning_usd_per_mtok"`
 	Output          *float64   `json:"output_usd_per_mtok"`
+	WebSearch       *float64   `json:"web_search_usd_per_call,omitempty"`
+	CacheWrite1h    *float64   `json:"cache_write_1h_usd_per_mtok,omitempty"`
 	Tiers           []Tier     `json:"tiers,omitempty"`
 	ExplicitModelID *string    `json:"explicit_model_id,omitempty"`
 }
@@ -279,7 +281,7 @@ func validateDataset(d Dataset) error {
 		if m.Input == nil && m.Cached == nil && m.Output == nil && m.CacheWrite == nil && m.AudioIn == nil && m.AudioOut == nil {
 			return errors.New("price source model has no prices: " + m.SourceModelID)
 		}
-		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Reasoning, m.Output} {
+		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Reasoning, m.Output, m.WebSearch, m.CacheWrite1h} {
 			if p != nil && (*p < 0 || *p >= 1e8 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
 				return errors.New("price source prices must be nonnegative numeric(14,6) values")
 			}

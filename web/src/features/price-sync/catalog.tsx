@@ -243,14 +243,21 @@ export function PriceSourceCatalogSection() {
                     />
                     <code>{row.source_model_id}</code>
                   </label>
-                  <span className="price-row-meta">
+                  <span
+                    className="price-row-meta"
+                    title={`${row.vendor || "未知供应商"} · ${
+                      row.released_at ? formatTime(row.released_at) : "发布日期未提供"
+                    }${row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}`}
+                  >
                     {row.vendor || "未知供应商"} ·{" "}
                     {row.released_at ? formatTime(row.released_at) : "发布日期未提供"}
                     {row.deprecated_at ? ` · 弃用 ${formatTime(row.deprecated_at)}` : ""}
-                    {row.model_id !== row.source_model_id ? ` · 将添加为 ${row.model_id}` : ""}
                   </span>
                   <div className="price-row-badges">
-                    <span className="mode-chip">按量 · USD / 1M</span>
+                    <span className="mode-chip">按量</span>
+                    {row.web_search_usd_per_call != null && (
+                      <span className="mode-chip mode-chip-call">按次</span>
+                    )}
                     {row.installed ? (
                       <StatusBadge tone="success">已添加</StatusBadge>
                     ) : (
@@ -260,7 +267,7 @@ export function PriceSourceCatalogSection() {
                 </div>
                 <div className="price-groups">
                   <dl className="price-group">
-                    <dt>输入</dt>
+                    <dt>按量 · 输入</dt>
                     <dd>
                       <span>基础</span>
                       <Money value={row.billing.input_usd_per_mtok} label="输入价格" />
@@ -271,7 +278,14 @@ export function PriceSourceCatalogSection() {
                     </dd>
                     <dd>
                       <span>缓存写</span>
-                      <Money value={row.billing.cache_write_usd_per_mtok} label="缓存写入价格" />
+                      {row.cache_write_1h_usd_per_mtok != null ? (
+                        <span className="price-num" title="5 分钟 / 1 小时">
+                          {formatMoney(row.billing.cache_write_usd_per_mtok) ?? "—"} /{" "}
+                          {formatMoney(row.cache_write_1h_usd_per_mtok)}
+                        </span>
+                      ) : (
+                        <Money value={row.billing.cache_write_usd_per_mtok} label="缓存写入价格" />
+                      )}
                     </dd>
                     <dd>
                       <span>音频</span>
@@ -279,7 +293,7 @@ export function PriceSourceCatalogSection() {
                     </dd>
                   </dl>
                   <dl className="price-group">
-                    <dt>输出</dt>
+                    <dt>按量 · 输出</dt>
                     <dd>
                       <span>基础</span>
                       <Money value={row.billing.output_usd_per_mtok} label="输出价格" />
@@ -294,7 +308,22 @@ export function PriceSourceCatalogSection() {
                     </dd>
                   </dl>
                   <dl className="price-group">
-                    <dt>阶梯价</dt>
+                    <dt>按次</dt>
+                    {row.web_search_usd_per_call != null ? (
+                      <dd>
+                        <span>网页搜索</span>
+                        <span className="price-num">
+                          {formatMoney(row.web_search_usd_per_call)} / 次
+                        </span>
+                      </dd>
+                    ) : (
+                      <dd>
+                        <span className="price-missing">无按次费用</span>
+                      </dd>
+                    )}
+                  </dl>
+                  <dl className="price-group">
+                    <dt>阶梯</dt>
                     {row.billing.tiers && row.billing.tiers.length > 0 ? (
                       row.billing.tiers.map((tier) => (
                         <dd key={tier.threshold_tokens}>
@@ -302,16 +331,12 @@ export function PriceSourceCatalogSection() {
                           <span className="tier-items">
                             {formatMoney(tier.input_usd_per_mtok) ?? "—"} /{" "}
                             {formatMoney(tier.output_usd_per_mtok) ?? "—"}
-                            {tier.reasoning_usd_per_mtok != null
-                              ? ` · 推 ${formatMoney(tier.reasoning_usd_per_mtok)}`
-                              : ""}
                           </span>
                         </dd>
                       ))
                     ) : (
                       <dd>
-                        <span>—</span>
-                        <span className="tier-items muted">无阶梯</span>
+                        <span className="price-missing">无阶梯</span>
                       </dd>
                     )}
                   </dl>

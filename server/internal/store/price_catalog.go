@@ -22,6 +22,8 @@ type SourceModel struct {
 	Billing       Billing    `json:"billing"`
 	ModelID       string     `json:"model_id"`
 	Installed     bool       `json:"installed"`
+	WebSearch     *float64   `json:"web_search_usd_per_call"`
+	CacheWrite1h  *float64   `json:"cache_write_1h_usd_per_mtok"`
 }
 
 // PriceSourceCatalog is the controllable browsing surface for one source.
@@ -92,8 +94,10 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 				Reasoning: entry.Reasoning, Output: entry.Output,
 				Tiers: catalogTiers(entry.Tiers),
 			},
-			ModelID:   target,
-			Installed: installed[target],
+			ModelID:      target,
+			Installed:    installed[target],
+			WebSearch:    entry.WebSearch,
+			CacheWrite1h: entry.CacheWrite1h,
 		})
 		if entry.Vendor != "" && !seen[entry.Vendor] {
 			seen[entry.Vendor] = true

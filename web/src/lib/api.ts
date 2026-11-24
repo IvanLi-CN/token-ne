@@ -453,6 +453,8 @@ export interface SourceModel {
   billing: Billing;
   model_id: string;
   installed: boolean;
+  web_search_usd_per_call?: number | null;
+  cache_write_1h_usd_per_mtok?: number | null;
 }
 
 export interface PriceSourceCatalog {
