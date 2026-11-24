@@ -95,6 +95,17 @@ function PriceRunPanel({
   const unreviewed = selectedNonSafe.filter((quote) => !reviewed.has(quote.id));
   const lockedSelected = selectedQuotes.filter((quote) => quote.locked);
   const rejection = priceRejection(applyError);
+  // A batch whose quotes all match the current prices changes nothing; say so
+  // instead of leaving the reader to infer it from per-row states.
+  const counts = data.items.reduce<Record<string, number>>((acc, quote) => {
+    acc[quote.status] = (acc[quote.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const summary = (["safe", "needs_review", "conflict", "missing", "ignored"] as const)
+    .filter((status) => counts[status])
+    .map((status) => `${quoteStatusMeta[status].label} ${counts[status]}`)
+    .join(" · ");
+  const actionable = data.items.filter((quote) => selectable(quote)).length;
   function toggleQuote(id: string) {
     setApplyError(undefined);
     const next = new Set(selected);
@@ -237,6 +248,10 @@ function PriceRunPanel({
           </EmptyState>
         ) : (
           <>
+            <p className="muted text-sm" role="status">
+              共 {data.items.length} 条报价：{summary}。
+              {actionable === 0 ? "当前价格与来源一致或来源缺失，无需变更。" : ""}
+            </p>
             <div className="flex flex-wrap items-center gap-3">
               <ConfirmDialog
                 trigger={
