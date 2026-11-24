@@ -968,7 +968,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。动态 core 实例必须使用精确版本或 digest；`latest` 只能作为控制面部署通道，不能作为 core 实例身份。
-- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止且最后一次 heartbeat/status 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零或缺失时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
+- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止且最后一次在线 `status` 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零、缺失或仅有过期心跳时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -2052,7 +2052,7 @@ token-ne/
 
 `egress_proxies` 是配置快照的完整函数；被禁用、对账失败或不可用的代理绑定的上游不进入候选。核心不得回退直连或改用其他代理档案。Xray 启动配置只有 API、blackhole 和路由骨架，未匹配流量不能直连。
 
-旧核心未声明 `egress_proxy` 时不能接收出站代理字段；部署中存在绑定代理的上游时，旧核心不能获得正权重。代理档案删除、禁用、对账失败和 Xray 不可用都不重写历史用量中的 `egress_proxy_id`。
+旧核心未声明 `egress_proxy` 时，快照必须省略绑定代理的上游及其 `upstream_models` 关系，不得把 `egress_proxy_id` 置空后保留该上游；部署中存在绑定代理的上游时，旧核心不能获得正权重。代理档案删除、禁用、对账失败和 Xray 不可用都不重写历史用量中的 `egress_proxy_id`。
 
 ### 第二期模型、价格与出站代理数据扩展
 
@@ -2210,9 +2210,15 @@ create table egress_proxies (
 
 alter table upstreams add column egress_proxy_id uuid references egress_proxies(id) on delete restrict;
 
-alter table usage_events add column egress_mode text not null default 'direct'
+alter table usage_events add column egress_mode text
   check (egress_mode in ('direct', 'proxy'));
 alter table usage_events add column egress_proxy_id uuid;
+
+alter table usage_events add constraint usage_events_egress_pair check (
+  (egress_mode = 'proxy' and egress_proxy_id is not null) or
+  (egress_mode = 'direct' and egress_proxy_id is null) or
+  (egress_mode is null and egress_proxy_id is null)
+);
 
 create index usage_events_egress_proxy_time
   on usage_events (egress_proxy_id, occurred_at desc);
@@ -2228,4 +2234,4 @@ create index usage_events_egress_proxy_time
 - 出站代理凭据使用 `MASTER_KEY` 做 AES-256-GCM 加密，只写不读；API、日志、审计和 core 快照不出现明文。`server`、`port`、`transport` 和 `tls` 只用于控制面生成 Xray outbound，不进入 core 快照；`transport` 和 `tls` 只保存非秘密选项，私钥、密码和 token 必须进入 `credentials_ciphertext`。
 - `egress_proxies.inbound_port` 由控制面在配置范围内分配并持久化；端口只在该档案的 Xray 运行态清理完成后回收。`runtime_state` 是对账观测，不是期望状态；管理员期望启用状态以数据库 `enabled` 为准，core 快照中的 `egress_proxies[].enabled` 是管理员状态与 `runtime_state` 计算后的有效资格。
 - `upstreams.egress_proxy_id` 使用 `on delete restrict`，删除仍被上游引用的档案由 API 返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。
-- `usage_events.egress_proxy_id` 是历史归因，不设外键；删除代理档案或改绑不重写历史。`egress_mode` 为 `direct` 时该列必须为空。
+- `usage_events.egress_proxy_id` 是历史归因，不设外键；删除代理档案或改绑不重写历史。`egress_mode` 可空，表示一期或未记录事件；`proxy` 时 `egress_proxy_id` 必填，`direct` 时必须为空，两者由 `usage_events_egress_pair` 约束保证。
