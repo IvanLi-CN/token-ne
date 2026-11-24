@@ -68,6 +68,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、可选 `upstream_id`、`priority`、`enabled` 和描述。`exact` 的 `pattern` 是全局 Model ID 或精确别名；`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。
 - `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
 - 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有同 `pattern` 规则，同样拒绝并返回字段路径。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
+- 路由规则写入、Model 创建和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。
 
 ## 价格 API
 

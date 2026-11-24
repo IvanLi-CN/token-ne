@@ -77,6 +77,7 @@
 - The system MUST treat third-party price synchronization as a reviewable quote workflow rather than an unconditional overwrite.
 - Inputs: a controlled price source, normalized quotes, explicit mappings, and a selected set of changes.
 - Outputs: a diff containing current value, proposed value, source, match method, and conflict state; exact safe matches may be batch-applied, normalized suggestions and conflicts require explicit selection, missing source rows preserve existing prices, and manual locks are not overwritten by ordinary sync. Match methods are `explicit`, `upstream_exact`, `model_exact`, `normalized`, and `none`; `normalized` is deterministic name normalization, not similarity matching.
+- Normalization: `normalized` compares two names only after lowercasing, trimming, dropping one leading `vendor/` segment, mapping `_` and `.` to `-`, and collapsing repeated `-`. Identical normalized forms match; no edit distance, token similarity, or stop-word removal is permitted.
 - Concurrency: every quote captures the target profile revision at generation. Applying a quote whose target revision changed since generation MUST fail without modifying current prices.
 - covers: `../../prd.md#fr-21-第三方价格获取与快捷同步`
 
@@ -101,6 +102,13 @@
 - Outputs: an audit fact with actor, action, target, and outcome; applying a quote to a locked profile or replacing a manually locked price MUST require separate confirmation that is visible in the audit.
 - covers: `../../prd.md#fr-22-模型管理与用量归因`
 
+### REQ-MUM-012
+
+- The system MUST expose the second-phase management surfaces with observable state, not only write endpoints.
+- Inputs: catalog sync results, catalog bindings, upstream policies, route rules and previews, price profiles and quote runs.
+- Outputs: Models shows route conflicts with the field path and preview results; Upstreams shows the latest sync state, stale items, bindings and the effective policy; Prices shows current value, proposed value, base revision, scope and lock state, and distinguishes `stale_price_quote`, `quote_review_required`, `price_profile_locked`, and `quote_not_applicable` with distinct next actions.
+- covers: `../../prd.md#fr-22-模型管理与用量归因`
+
 ## Verification
 
 ### VER-MUM-001
@@ -119,7 +127,7 @@
 
 - Method: price synchronization and usage-ingestion tests covering scope precedence, manual locks, exact versus normalized matches, missing quotes, partial and repeated apply, atomic apply, and price revision attribution.
 - covers: `REQ-MUM-007`, `REQ-MUM-008`, `REQ-MUM-009`
-- Pass condition: exact safe matches are batch-applicable. Normalized or conflicting quotes cannot apply before per-quote review, quotes cannot apply if their target revision changed since generation (including a `null` baseline whose target now exists), and locked overrides require separate confirmation. Two applies of one run append their revision IDs instead of overwriting the earlier batch. The current-price pointer must reference a revision for the same model and upstream scope. Each successful phase-two event retains requested model, resolved global model, upstream model, upstream ID, and the exact price revision used; an unknown `resolved_model` falls back to `requested_model` without dropping the event. Missing quotes preserve configured prices; existing event costs never change.
+- Pass condition: exact safe matches are batch-applicable. `OpenAI/GPT_4o` matches `gpt-4o` under `normalized`, while `gpt-4o` does not match `gpt-4o-mini`. Normalized or conflicting quotes cannot apply before per-quote review, quotes cannot apply if their target revision changed since generation (including a `null` baseline whose target now exists), and locked overrides require separate confirmation. Two applies of one run append their revision IDs instead of overwriting the earlier batch. The current-price pointer must reference a revision for the same model and upstream scope. Each successful phase-two event retains requested model, resolved global model, upstream model, upstream ID, and the exact price revision used; an unknown `resolved_model` falls back to `requested_model` without dropping the event. Missing quotes preserve configured prices; existing event costs never change.
 
 ### VER-MUM-004
 
@@ -132,6 +140,12 @@
 - Method: audit-fact and confirmation tests over catalog sync, import or bind, policy replacement, route rule change, quote fetch, quote apply, price edit, and lock or unlock.
 - covers: `REQ-MUM-011`
 - Pass condition: every mutation writes one audit fact with actor, action, target, and outcome; applying a quote to a locked profile or replacing a manually locked price without the separate confirmation is rejected and leaves prices unchanged; the accepted path records the confirmation.
+
+### VER-MUM-006
+
+- Method: Web component tests plus visual evidence for the Models, Upstreams, and Prices surfaces.
+- covers: `REQ-MUM-012`
+- Pass condition: a conflicting route rule renders the field path; an upstream without a policy renders `allow` with empty lists; a catalog view renders the latest run state and stale markers; a price run renders current and proposed values with the base revision and renders each rejection code with a distinct next action; a locked profile requires the confirmation step before the mutation is sent.
 
 ## Related ADRs
 
