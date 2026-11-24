@@ -964,7 +964,7 @@ flowchart TD
   - 加入 `CORE_NETWORKS` 指定的网络；第二期启用出站代理时必须包含 `egress`。
   - 不发布端口。
   - 设置 `CORE_VERSION`、`CORE_INSTANCE_ID`、控制面地址、控制 Token、可选配置签名密钥与模式、缓存密钥和状态目录。`CORE_VERSION` 必须与核心 `/internal/v1/meta` 报告的版本完全一致；Compose 标签、核心自报版本不一致时，控制面拒绝接管实例。
-  - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。API 在创建容器前用 `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）启动一次性 helper，以 root 在宿主机父目录创建实例子目录并 chown 给 core UID `10001`；Docker 直接创建 bind 目录会得到 root:root `0755`，非 root core 无法写入。控制面不拉取该镜像，宿主机必须已预拉取。
+  - 挂载宿主机 `${CORE_STATE_HOST_DIR}/<instance_id>` 到容器 `/var/lib/token-ne/state`；容器重建时复用该目录。API 在创建容器前用 `CORE_STATE_INIT_IMAGE`（默认 `busybox:1.37`）启动一次性 helper，以 root 在宿主机父目录创建实例子目录并 chown 给 core UID `10001`；Docker 直接创建 bind 目录会得到 root:root `0755`，非 root core 无法写入。同一 helper 在自动销毁时以 root 执行 `rm -rf /state/<instance_id>` 删除状态子目录；实例 ID 必须通过规范 UUID 校验。控制面不拉取该镜像，宿主机必须已预拉取。
   - 配置 Docker healthcheck 和日志驱动。
   - Go 管理的实例使用 `restart=no`，避免排水后的容器被自动拉起；代价是宿主机或 Docker daemon 重启后这些实例不会自行恢复，控制面接管时必须重新启动。
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
@@ -1722,7 +1722,7 @@ networks:
 - Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的网络（一期为 `edge`、`core-control`，第二期追加 `egress`），使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载 `bootstrap.json`：管理 API 使用 Unix socket，`/internal/*` 返回 404，空核心池的 `/v1/*` fail-closed 返回 503；Go 启动后装载完整受控配置并对账。
 - Caddy 默认只映射 `127.0.0.1:${CADDY_HTTP_PORT:-8080}` 到容器 `:80`；外部 TLS 反向代理负责公网 443。只有 `CADDY_TLS_MODE=auto` 才需要额外的 443 映射。
-- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。动态实例的子目录由 API 通过一次性 helper 创建，避免 Docker 以 root 创建不可写的 bind 目录；控制面不拉取 `CORE_STATE_INIT_IMAGE`，该镜像必须已在宿主机预拉取（默认 `busybox:1.37` 由 `caddy-init` 服务顺带拉取）。
+- `CORE_STATE_HOST_DIR` 是宿主机目录，保存每个实例的加密配置缓存和用量 spool；只有对应 core 挂载自己的子目录，API 容器不挂载该目录。生产环境应使用绝对路径，目录权限 `0700`。动态实例的子目录由 API 通过一次性 helper 创建和删除，避免 Docker 以 root 创建不可写的 bind 目录，也让 API 不必挂载状态根目录；控制面不拉取 `CORE_STATE_INIT_IMAGE`，该镜像必须已在宿主机预拉取（默认 `busybox:1.37` 由 `caddy-init` 服务顺带拉取）。
 - 核心镜像仓库只有一个，由 `CORE_IMAGE_REPOSITORY` 指定；动态实例的镜像是 `<repo>:<version>` 或 `<repo>@<digest>`。控制面不构建镜像；每次发布把精确产品版本登记为核心版本，并在需要时通过 Docker Engine 拉取和部署对应 core。
 - 不建议在 Compose 中为每个版本写死 service；那会导致每次升级修改部署文件并重建整个项目。
 
@@ -1755,7 +1755,7 @@ networks:
 | `CORE_CONFIG_OVERRIDE` | 手动 override 文件路径，默认状态目录下 `config.override.json` | 否 |
 | `CORE_CACHE_KEY` | 核心配置缓存加密密钥 | 是 |
 | `CORE_STATE_HOST_DIR` | 宿主机上的核心状态根目录，生产环境用绝对路径 | 是 |
-| `CORE_STATE_INIT_IMAGE` | 为动态实例创建状态子目录的一次性容器镜像，默认 `busybox:1.37`；控制面不拉取，必须已在宿主机预拉取 | 否 |
+| `CORE_STATE_INIT_IMAGE` | 为动态实例创建和删除状态子目录的一次性容器镜像，默认 `busybox:1.37`；控制面不拉取，必须已在宿主机预拉取 | 否 |
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络；一期默认 `token_ne_edge,token_ne_core_control`，第二期追加 `token_ne_egress` | 否 |
