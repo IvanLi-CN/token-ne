@@ -33,6 +33,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 提交前重试：连接失败、首字节超时、可重试 HTTP 状态、SSE 错误事件。
 - 用量与延迟事实写入 PostgreSQL；Prometheus `/metrics`；外部 Grafana 仪表盘。
 - Web 后台：本地登录与可选 OIDC 登录、系统页（Cores 与设置子页面）、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
+- 纯前端 Web demo：用正式页面与正式路由的 mock 运行时演示同一套管理流程，不依赖任何后端服务。
 - 管理面 OIDC 登录：单一 OIDC Provider、显式 `iss` + `sub` 身份绑定、本地登录 break-glass、可配置会话 TTL。
 - Go 控制面动态创建/停止 Rust 核心容器；动态容器带 Compose 项目标签和网络，属于项目成员但不是 Compose 声明服务。
 - 默认部署下，退役核心容器在控制面观测到停止且用量 spool 清零后自动销毁；异常、状态缺失或 spool 未清零的实例保留并告警，不需要常规手工 prune。
@@ -502,6 +503,19 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 **验收**：创建 HTTP、SOCKS5、VMess 或 VLESS 档案并绑定上游后，请求实际经过 Xray 出站，mock 代理能观察到连接；Xray 停止时请求失败且没有直连回退，恢复后自动恢复；Xray 重启后控制面对账恢复所有档案；档案禁用或删除被引用时行为符合确认或 `409` 要求；core 容器无法连接 Xray API；API、日志和 core 配置中搜索不到代理凭据；Xray 启动时未匹配流量进入 blackhole。
 
+### FR-25 纯前端 Web demo
+
+- 提供纯前端 demo：不启动控制面、PostgreSQL、Docker、Caddy 或 Xray，也能在浏览器里走完整的正式管理流程。
+- demo 复用正式 `App` 树、正式 `routes`、正式组件与正式 `apiRequest` 调用面；不复制页面、不新增 demo 专用路由、不在正式路由里加 demo 分支。
+- mock 在首次渲染前安装，覆盖全部 `/api/*`；未覆盖的接口返回结构化错误，禁止回退到真实后端。演示身份通过 mock 的 `GET /api/auth/me` 满足正式会话引导。
+- demo 写操作只修改内存模型并立即在正式 UI 回显；Inspector 标注 `simulated` 并保留近期变更记录；表单中输入的密钥不回显。
+- demo 是独立构建目标：`base=/demo/`，产物 `web/dist-demo`；不进入 API 镜像，不改变生产 `web/dist` 与 `server/Dockerfile` 的嵌入关系。
+- 场景与可分享状态写入 URL（`demo=<scene>` 与 `d_*`），切换场景走客户端导航，不整页刷新；Inspector 的面板布局只存本地，不进入分享链接。
+- `/demo/**` 由静态托管提供深链恢复；Go 的 SPA 回退仍只服务生产 `dist`。
+- demo 数据全部为合成数据；不得出现真实凭据、真实上游或代理地址、真实管理员身份或生产用量。
+
+**验收**：不启动任何后端，打开 demo 即可看到总览、请求、Models、Upstreams、Downstream Keys 与系统页的真实布局；登录页可通过 mock 会话进入管理面；在 demo 中修改模型或上游会立即在 UI 回显并标记为模拟；`devtools` 网络面板里没有指向真实后端的 `/api/*` 请求；刷新带 `demo=` 与 `d_*` 的 URL 后场景与分享状态保持；生产构建产物中搜索不到 demo 场景标识；API 镜像不含 `dist-demo`。
+
 ## 非功能需求
 
 ### 性能
@@ -599,6 +613,6 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 请求/响应正文的可选、脱敏、限时留证。
 - 小时/日 rollup、长期归档、成本预算与告警。
 - 多租户与 RBAC。
-- SSE 实时管理界面、PWA、Storybook 交互证据。
+- SSE 实时管理界面、PWA、Storybook 交互证据；demo Inspector 的录制/回放与多场景对比。
 - 独立 `core-controller` 服务，进一步收窄 Docker socket 权限。
 - 出站代理订阅导入、节点测速、自动选路、故障转移、代理链和按请求切换代理。

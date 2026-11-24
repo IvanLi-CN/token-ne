@@ -179,6 +179,19 @@
 - Dialog 打开时焦点进入，关闭后回到触发元素。
 - 面板展开、命令面板和邻近效果必须支持键盘与 `prefers-reduced-motion`；状态不能只靠 hover 或动画表达。
 
+## Demo 面
+
+- 与正式管理面共用同一份页面、路由与组件；demo 只替换运行时，不新增演示专用页面。
+- 入口为独立构建产物（`/demo/`），生产 `web/dist` 与生产镜像不受影响。
+- 首屏即为真实布局；演示身份由 mock 会话满足正式登录引导，不出现伪造的「演示模式」横幅遮住页面。
+- Inspector 覆盖 scene、persona、network、data、simulated actions、share 六组控制：
+  - 宽视口在不挤压正式最大版心时可固定为全高左 rail，且必须能收起为 bubble 以回看正常布局；
+  - 普通桌面使用可避让浮层；窄视口使用 bubble 展开为 drawer。
+  - 面板布局只存本地；scene 与分享状态写入 URL。
+- 写操作只改内存模型，回显走正式组件；Inspector 明确标记 `simulated` 并保留近期变更记录。raw JSON 只作为高级入口，不作为主操作面。
+- 危险操作的确认对话框在 demo 中保留，否则无法审阅其文案与影响范围。
+- demo 数据为合成数据，不含真实凭据、真实上游或代理地址、真实管理员身份。
+
 ## 测试与证据
 
 - Vitest + Testing Library 覆盖表单校验、空态、错误态和危险操作确认。
@@ -186,3 +199,5 @@
 - UI 变更在进入 PR 前按 `ui-visual-evidence` 产出快照，并展示实际页面状态。
 - Vitest 覆盖面板展开/关闭、命令面板、pin 持久化与 reduced-motion 分支；不测试伪造的“行为学习”。
 - 不使用 Storybook 作为第一期交付门槛；组件审查需要时再补故事。
+- 页面级 demo 证据由 `/demo/` 产出；Storybook 若补齐，只承担组件状态 QA，不替代整页验收。
+- demo 交互回归至少覆盖：mock 启动先于渲染、未覆盖接口 fail-closed、模拟写入回显、URL 状态保真、面板三种形态与收起恢复、切换场景不整页刷新。

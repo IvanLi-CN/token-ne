@@ -1792,6 +1792,9 @@ networks:
 - `server` 镜像构建阶段把 `web/dist` 复制到 `server/internal/web/dist`，Go `go:embed` 嵌入。
 - API 镜像不包含 Node/Bun；前端和后端作为同一镜像发布，避免版本错配。
 - 静态资源使用内容哈希；`index.html` 不缓存。
+- demo 是独立构建目标 `bun run build:demo`：`base=/demo/`，产物 `web/dist-demo`，入口 `web/demo.html`。它复用正式 `App` 与 `routes`，运行前安装 `/api/*` 的 mock 拦截。
+- `web/dist-demo` 不复制进 `server/internal/web/dist`，API 镜像不包含 demo；`server/internal/web/static.go` 的 SPA 回退只服务生产 `dist`，`/demo/**` 由独立静态托管提供深链恢复。
+- 生产入口 `web/src/main.tsx` 不引用 `web/src/demo/`；生产 bundle 不得包含 demo 场景数据。
 
 ## 构建与发布
 
