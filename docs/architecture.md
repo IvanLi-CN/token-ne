@@ -1760,7 +1760,7 @@ networks:
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络；一期默认 `token_ne_edge,token_ne_core_control`，第二期追加 `token_ne_egress` | 否 |
-| `CORE_AUTO_PRUNE` | 是否自动销毁已确认退役且 spool 清零的核心实例，默认 `true` | 否 |
+| `CORE_AUTO_PRUNE` | 是否自动销毁部署已 `completed`、回滚窗口已过、排水已完成且 spool 清零的核心实例，默认 `true` | 否 |
 | `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
 | `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
 | `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像；仅第二期 Compose 必需 | 第二期是 |
