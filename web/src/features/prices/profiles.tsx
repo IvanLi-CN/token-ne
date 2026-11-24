@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../../components/confirm-dialog";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
 import { Button, StatusBadge } from "../../components/primitives";
+import { Select } from "../../components/select";
 import { type Billing, type PriceProfile, type PriceProfileInput, pricesApi } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import type { Model } from "../models/api";
@@ -150,12 +151,10 @@ function PriceProfileEditor({
             {profile ? (
               <input className="input rounded-xl" readOnly value={upstreamName} />
             ) : (
-              <select
-                className="input rounded-xl"
-                name="upstream_id"
+              <Select
+                label="上游"
                 value={upstreamId}
-                onChange={(event) => {
-                  const next = event.target.value;
+                onValueChange={(next) => {
                   setUpstreamId(next);
                   setModelId(
                     models.find(
@@ -166,32 +165,26 @@ function PriceProfileEditor({
                     )?.model_id ?? "",
                   );
                 }}
-              >
-                {upstreams.map((upstream) => (
-                  <option key={upstream.id} value={upstream.id}>
-                    {upstream.name}
-                  </option>
-                ))}
-              </select>
+                options={upstreams.map((upstream) => ({
+                  value: upstream.id,
+                  label: upstream.name,
+                }))}
+              />
             )}
           </Field>
           <Field label="全局模型">
             {profile ? (
               <input className="input rounded-xl" readOnly value={profile.model_id} />
             ) : (
-              <select
-                className="input rounded-xl"
-                name="model_id"
-                required
+              <Select
+                label="全局模型"
                 value={modelId}
-                onChange={(event) => setModelId(event.target.value)}
-              >
-                {candidates.map((model) => (
-                  <option key={model.model_id} value={model.model_id}>
-                    {model.model_id}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setModelId}
+                options={candidates.map((model) => ({
+                  value: model.model_id,
+                  label: model.model_id,
+                }))}
+              />
             )}
           </Field>
           {prices.map(([key, label]) => (

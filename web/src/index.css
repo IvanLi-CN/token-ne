@@ -1288,3 +1288,50 @@ th {
   background: var(--accent);
   vertical-align: middle;
 }
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+.select-icon {
+  color: var(--muted);
+  flex: none;
+}
+.select-content {
+  z-index: 60;
+  min-width: var(--radix-select-trigger-width);
+  max-height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.22);
+  padding: 4px;
+}
+.select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--fg);
+  cursor: pointer;
+  outline: none;
+}
+.select-item[data-highlighted] {
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+}
+.select-item[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.select-indicator {
+  color: var(--accent);
+  flex: none;
+}

@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
 import { Button, EmptyState, StatusBadge } from "../../components/primitives";
+import { Select } from "../../components/select";
 import {
   type MatchType,
   type ModelRoute,
@@ -34,6 +35,10 @@ function RouteEditor({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [matchType, setMatchType] = useState<MatchType>(route?.match_type ?? "exact");
+  const [targetModelId, setTargetModelId] = useState(
+    route?.target_model_id ?? models[0]?.model_id ?? "",
+  );
+  const [upstreamId, setUpstreamId] = useState(route?.upstream_id ?? "");
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -72,16 +77,17 @@ function RouteEditor({
       <form onSubmit={submit} onChange={() => setDirty(true)} className="flex flex-col gap-5">
         <fieldset disabled={pending} className="grid gap-5 sm:grid-cols-2">
           <Field label="匹配方式">
-            <select
-              className="input rounded-xl"
-              name="match_type"
+            <Select
+              label="匹配方式"
               value={matchType}
-              onChange={(event) => setMatchType(event.target.value === "glob" ? "glob" : "exact")}
-            >
-              <option value="exact">精确</option>
-              <option value="glob">Glob</option>
-            </select>
+              onValueChange={(next) => setMatchType(next === "glob" ? "glob" : "exact")}
+              options={[
+                { value: "exact", label: "精确" },
+                { value: "glob", label: "Glob" },
+              ]}
+            />
           </Field>
+          <input type="hidden" name="match_type" value={matchType} />
           <Field
             label="Pattern"
             hint="exact 为全局 Model ID 或精确别名；glob 只支持 * 与 ?，方括号、花括号和反斜线非法。"
@@ -97,35 +103,29 @@ function RouteEditor({
             />
           </Field>
           <Field label="目标全局模型">
-            <select
-              className="input rounded-xl"
-              name="target_model_id"
-              required
-              defaultValue={route?.target_model_id ?? models[0]?.model_id ?? ""}
-              aria-invalid={fieldInvalid(error, "target_model_id")}
-            >
-              {models.map((model) => (
-                <option key={model.model_id} value={model.model_id}>
-                  {model.model_id}
-                </option>
-              ))}
-            </select>
+            <Select
+              label="目标全局模型"
+              value={targetModelId}
+              onValueChange={setTargetModelId}
+              options={models.map((model) => ({
+                value: model.model_id,
+                label: model.model_id,
+              }))}
+            />
           </Field>
+          <input type="hidden" name="target_model_id" value={targetModelId} />
           <Field label="上游限制" hint="限制候选只来自该上游；不改变目标模型。">
-            <select
-              className="input rounded-xl"
-              name="upstream_id"
-              defaultValue={route?.upstream_id ?? ""}
-              aria-invalid={fieldInvalid(error, "upstream_id")}
-            >
-              <option value="">不限制上游</option>
-              {upstreams.map((upstream) => (
-                <option key={upstream.id} value={upstream.id}>
-                  {upstream.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              label="上游限制"
+              value={upstreamId}
+              onValueChange={setUpstreamId}
+              options={[
+                { value: "", label: "不限制上游" },
+                ...upstreams.map((upstream) => ({ value: upstream.id, label: upstream.name })),
+              ]}
+            />
           </Field>
+          <input type="hidden" name="upstream_id" value={upstreamId} />
           <Field label="优先级" hint="按升序匹配；数字越小越先判定。">
             <input
               className="input rounded-xl"

@@ -47,6 +47,10 @@ function install(second: boolean) {
     if (url === "/api/upstreams") return Promise.resolve(response({ data: [] }));
     if (url === "/api/prices") return Promise.resolve(response({ data: [] }));
     if (url === "/api/price-sources") return Promise.resolve(response({ data: [] }));
+    if (url.startsWith("/api/price-sources/"))
+      return Promise.resolve(
+        response({ source_id: "builtin", fetched_at: timestamp, vendors: [], data: [] }),
+      );
     if (url === "/api/model-routes") return Promise.resolve(response({ data: [] }));
     return Promise.resolve(response({ data: [] }));
   });
@@ -54,7 +58,7 @@ function install(second: boolean) {
   return fetch;
 }
 function mount() {
-  const router = createMemoryRouter(routes, { initialEntries: ["/models"] });
+  const router = createMemoryRouter(routes, { initialEntries: ["/system/models"] });
   render(
     <AppProviders client={createQueryClient()}>
       <RouterProvider router={router} />
@@ -68,20 +72,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Prices navigation gate", () => {
-  it("exposes the Prices entry only when the deployment advertises the second phase", async () => {
+describe("model navigation group", () => {
+  it("groups the model presets and prices under 系统 → 模型", async () => {
     install(true);
     const router = mount();
-    const link = await screen.findByRole("link", { name: "Prices" });
-    fireEvent.click(link);
+    await screen.findByRole("heading", { name: "Models" });
+    expect(await screen.findByRole("link", { name: "预设" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "价格" }));
     expect(await screen.findByRole("heading", { name: "价格档案" })).toBeTruthy();
-    expect(router.state.location.pathname).toBe("/prices");
+    expect(router.state.location.pathname).toBe("/system/prices");
   });
 
-  it("hides the Prices entry in phase one", async () => {
+  it("hides the prices child in phase one", async () => {
     install(false);
     mount();
     await screen.findByRole("heading", { name: "Models" });
-    expect(screen.queryByRole("link", { name: "Prices" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "价格" })).toBeNull();
   });
 });

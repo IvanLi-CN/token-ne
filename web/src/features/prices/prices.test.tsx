@@ -182,7 +182,7 @@ function mount() {
 }
 async function openRun() {
   mount();
-  await screen.findByText("内置价目表");
+  await screen.findAllByText("内置价目表");
   fireEvent.click(screen.getByRole("button", { name: "获取报价" }));
   const panel = await screen.findByRole("region", { name: "报价批次" });
   await within(panel).findByText("显式映射");
@@ -244,7 +244,7 @@ describe("prices surface", () => {
         : syncHandler(base())(url, init),
     );
     mount();
-    await screen.findByText("内置价目表");
+    await screen.findAllByText("内置价目表");
     fireEvent.click(screen.getByRole("button", { name: "获取报价" }));
     const panel = await screen.findByRole("region", { name: "报价批次" });
     fireEvent.click(await within(panel).findByRole("button", { name: /应用选中报价（1）/ }));
@@ -310,7 +310,7 @@ describe("prices surface", () => {
         : syncHandler(base())(url, init),
     );
     mount();
-    await screen.findByText("内置价目表");
+    await screen.findAllByText("内置价目表");
     fireEvent.click(screen.getByRole("button", { name: "获取报价" }));
     const panel = await screen.findByRole("region", { name: "报价批次" });
     fireEvent.click(await within(panel).findByRole("button", { name: /应用选中报价（1）/ }));

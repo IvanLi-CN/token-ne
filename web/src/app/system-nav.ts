@@ -5,18 +5,35 @@ export interface MainSection {
   phaseTwo?: boolean;
 }
 
+export interface SystemChild {
+  href: string;
+  label: string;
+  phaseTwo?: boolean;
+}
+
+export interface SystemSection {
+  to: string;
+  label: string;
+  children: readonly SystemChild[];
+}
+
 export const mainSections: readonly MainSection[] = [
   { to: "/", label: "总览" },
   { to: "/requests", label: "请求" },
-  { to: "/models", label: "Models" },
   { to: "/upstreams", label: "Upstreams" },
-  { to: "/prices", label: "Prices", phaseTwo: true },
-  { to: "/price-sync", label: "价格同步", phaseTwo: true },
   { to: "/keys", label: "Downstream Keys" },
   { to: "/system", label: "系统" },
 ];
 
-export const systemSections = [
+export const systemSections: readonly SystemSection[] = [
+  {
+    to: "/system/models",
+    label: "模型",
+    children: [
+      { href: "/system/models", label: "预设" },
+      { href: "/system/prices", label: "价格", phaseTwo: true },
+    ],
+  },
   {
     to: "/system/cores",
     label: "Cores",
@@ -27,4 +44,4 @@ export const systemSections = [
     ],
   },
   { to: "/system/settings", label: "设置", children: [] },
-] as const;
+];

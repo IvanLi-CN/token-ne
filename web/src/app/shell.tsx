@@ -13,6 +13,7 @@ import {
 } from "react-router";
 import { CommandPanel } from "../components/command-panel";
 import { Button, Spinner } from "../components/primitives";
+import { Select } from "../components/select";
 import { VersionBadge } from "../components/version-badge";
 import { type AdminUser, authApi } from "../lib/api";
 import { useAdaptiveState } from "./adaptive-state";
@@ -50,6 +51,9 @@ export function AppShell() {
   useEffect(() => {
     const title =
       mainSections.find((section) => section.to === location.pathname)?.label ??
+      systemSections
+        .flatMap((section) => section.children)
+        .find((child) => child.href === location.pathname)?.label ??
       systemSections.find((section) => section.to === location.pathname)?.label ??
       "页面未找到";
     document.title = `${title} · token-ne`;
@@ -131,17 +135,19 @@ export function AppShell() {
                           </NavLink>
                           {section.children && (
                             <ul className="mobile-nav-subtree">
-                              {section.children.map((child) => (
-                                <li key={child.href}>
-                                  <Link
-                                    to={child.href}
-                                    className="mobile-sub-sublink"
-                                    onClick={() => setMobileOpen(false)}
-                                  >
-                                    {child.label}
-                                  </Link>
-                                </li>
-                              ))}
+                              {section.children
+                                .filter((child) => !child.phaseTwo || secondPhase)
+                                .map((child) => (
+                                  <li key={child.href}>
+                                    <Link
+                                      to={child.href}
+                                      className="mobile-sub-sublink"
+                                      onClick={() => setMobileOpen(false)}
+                                    >
+                                      {child.label}
+                                    </Link>
+                                  </li>
+                                ))}
                             </ul>
                           )}
                         </li>
@@ -188,16 +194,20 @@ export function AppShell() {
                 </button>
               ))}
             </fieldset>
-            <label className="control-pill language-control">
+            <div className="control-pill language-control">
               <Globe size={18} aria-hidden="true" />
               <span className="visually-hidden">界面语言</span>
-              <select aria-label="界面语言" defaultValue="zh">
-                <option value="zh">简体中文</option>
-                <option value="en" disabled>
-                  English · 待支持
-                </option>
-              </select>
-            </label>
+              <Select
+                label="界面语言"
+                value="zh"
+                onValueChange={() => {}}
+                options={[
+                  { value: "zh", label: "简体中文" },
+                  { value: "en", label: "English · 待支持", disabled: true },
+                ]}
+                className="border-0 bg-transparent"
+              />
+            </div>
           </div>
         </div>
       </header>

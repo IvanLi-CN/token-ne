@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SecondPhaseSurface } from "../../app/phase";
-import { PageTitle } from "../../components/primitives";
+import { PageHeader, PageTitle } from "../../components/primitives";
 import { pricesApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
 import { errorMessage } from "../models/management";
+import { PriceSourceCatalogSection } from "../price-sync/catalog";
 import { upstreamsApi } from "../upstreams/api";
 import { PriceProfilesSection } from "./profiles";
 import { PriceQuotesSection } from "./quotes";
@@ -36,6 +37,11 @@ function PricesContent() {
       : undefined;
   return (
     <>
+      <PageHeader
+        title="价格"
+        description="先浏览受控价格源并按需加入全局模型，再获取报价、审核差异并应用；上游覆盖与锁定状态同页维护。"
+      />
+      <PriceSourceCatalogSection />
       <PriceProfilesSection
         models={models.data}
         profiles={profiles.data}
@@ -56,7 +62,7 @@ function PricesContent() {
 export default function PricesPage() {
   return (
     <>
-      <PageTitle title="Prices" />
+      <PageTitle title="价格" />
       <SecondPhaseSurface>
         <PricesContent />
       </SecondPhaseSurface>

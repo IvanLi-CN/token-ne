@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { SecondPhaseSurface } from "../../app/phase";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
-import { Button, Input, PageHeader, PageTitle, StatusBadge } from "../../components/primitives";
+import { Button, Input, StatusBadge } from "../../components/primitives";
+import { Select } from "../../components/select";
 import {
   type PriceSourceInstall,
   priceSourceCatalogApi,
@@ -27,7 +27,7 @@ function priceLabel(billing: SourceModel["billing"]) {
   return `入 ${value(billing.input_usd_per_mtok)} · 缓 ${value(billing.cached_input_usd_per_mtok)} · 出 ${value(billing.output_usd_per_mtok)}`;
 }
 
-function PriceSyncContent() {
+export function PriceSourceCatalogSection() {
   const client = useQueryClient();
   const sources = useQuery({
     queryKey: queryKeys.priceSources,
@@ -89,11 +89,6 @@ function PriceSyncContent() {
 
   return (
     <>
-      <PageHeader
-        title="价格同步"
-        description="浏览受控价格源的全部模型，按供应商与发布时间筛选，把需要的模型批量加入全局模型。报价差异与应用仍在 Prices 页完成。"
-      />
-
       <section className="surface-card">
         <div className="panel-heading">
           <div>
@@ -107,24 +102,21 @@ function PriceSyncContent() {
         </div>
         <div className="grid gap-3 px-5 pb-5">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="grid gap-1 text-sm">
+            <div className="grid gap-1 text-sm">
               <span className="muted">来源</span>
-              <select
-                className="input"
-                aria-label="价格源"
+              <Select
+                label="价格源"
                 value={sourceId}
-                onChange={(event) => {
-                  setSourceId(event.target.value);
+                onValueChange={(next) => {
+                  setSourceId(next);
                   setSelected(new Set());
                 }}
-              >
-                {(sources.data ?? []).map((source) => (
-                  <option key={source.id} value={source.id}>
-                    {source.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={(sources.data ?? []).map((source) => ({
+                  value: source.id,
+                  label: source.name,
+                }))}
+              />
+            </div>
             <div className="grid min-w-64 gap-1 text-sm">
               <span className="muted">搜索模型名 / ID</span>
               <Input
@@ -134,37 +126,30 @@ function PriceSyncContent() {
                 onChange={(event) => setQ(event.target.value)}
               />
             </div>
-            <label className="grid gap-1 text-sm">
+            <div className="grid gap-1 text-sm">
               <span className="muted">供应商</span>
-              <select
-                className="input"
-                aria-label="供应商"
+              <Select
+                label="供应商"
                 value={vendor}
-                onChange={(event) => setVendor(event.target.value)}
-              >
-                <option value="">全部供应商</option>
-                {(catalog.data?.vendors ?? []).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
+                onValueChange={setVendor}
+                options={[
+                  { value: "", label: "全部供应商" },
+                  ...(catalog.data?.vendors ?? []).map((name) => ({ value: name, label: name })),
+                ]}
+              />
+            </div>
+            <div className="grid gap-1 text-sm">
               <span className="muted">排序</span>
-              <select
-                className="input"
-                aria-label="排序字段"
+              <Select
+                label="排序字段"
                 value={sort}
-                onChange={(event) => setSort(event.target.value as SortField)}
-              >
-                {(Object.keys(sortLabels) as SortField[]).map((field) => (
-                  <option key={field} value={field}>
-                    {sortLabels[field]}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onValueChange={(next) => setSort(next as SortField)}
+                options={(Object.keys(sortLabels) as SortField[]).map((field) => ({
+                  value: field,
+                  label: sortLabels[field],
+                }))}
+              />
+            </div>
             <Button
               variant="secondary"
               aria-label="切换排序方向"
@@ -286,17 +271,6 @@ function PriceSyncContent() {
           ]}
         />
       </section>
-    </>
-  );
-}
-
-export default function PriceSyncPage() {
-  return (
-    <>
-      <PageTitle title="价格同步" />
-      <SecondPhaseSurface>
-        <PriceSyncContent />
-      </SecondPhaseSurface>
     </>
   );
 }

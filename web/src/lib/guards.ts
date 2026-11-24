@@ -7,6 +7,8 @@ const routePaths: Record<string, true> = {
   "/price-sync": true,
   "/keys": true,
   "/system": true,
+  "/system/models": true,
+  "/system/prices": true,
   "/system/cores": true,
   "/system/settings": true,
 };

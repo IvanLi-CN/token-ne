@@ -1,4 +1,5 @@
 import { Button, StatusBadge } from "../../components/primitives";
+import { Select } from "../../components/select";
 import type { Model } from "../models/api";
 import type { Capability } from "./api";
 
@@ -73,28 +74,24 @@ export function CapabilityEditor({
               {value.map((row, index) => (
                 <tr key={row.model_id}>
                   <td>
-                    <select
-                      className="input rounded-xl"
-                      aria-label={`能力 ${index + 1} 模型`}
+                    <Select
+                      label={`能力 ${index + 1} 模型`}
                       value={row.model_id}
-                      onChange={(event) => change(index, { model_id: event.target.value })}
-                    >
-                      {!models.some((model) => model.model_id === row.model_id) && (
-                        <option value={row.model_id}>{row.model_id}</option>
-                      )}
-                      {models.map((model) => (
-                        <option
-                          key={model.model_id}
-                          value={model.model_id}
-                          disabled={value.some(
+                      onValueChange={(next) => change(index, { model_id: next })}
+                      options={[
+                        ...(models.some((model) => model.model_id === row.model_id)
+                          ? []
+                          : [{ value: row.model_id, label: row.model_id }]),
+                        ...models.map((model) => ({
+                          value: model.model_id,
+                          label: model.model_id,
+                          disabled: value.some(
                             (other, position) =>
                               position !== index && other.model_id === model.model_id,
-                          )}
-                        >
-                          {model.model_id}
-                        </option>
-                      ))}
-                    </select>
+                          ),
+                        })),
+                      ]}
+                    />
                   </td>
                   <td>
                     <input
