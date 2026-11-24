@@ -104,6 +104,10 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://tokenne:tokenne@localhost:5432/tokenne?sslmode=disable
+      # The job owns this service container: its server address is a private
+      # Docker network IP, so the script's remote-reset guard needs an explicit
+      # acknowledgement that this database is disposable.
+      CLOSURE_ALLOW_REMOTE_DB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
