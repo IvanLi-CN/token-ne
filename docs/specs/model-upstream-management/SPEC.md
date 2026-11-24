@@ -67,6 +67,7 @@
 ### REQ-MUM-007
 
 - The system MUST use `Model.billing` as the authoritative global default and select a whole upstream override when present. A missing override selects the global profile. `null` means unknown and `0` means free.
+- The profile MUST price every token dimension providers bill: uncached input, cache reads, cache writes, audio input, audio output and output. A provider context tier replaces the base rates once the prompt reaches its threshold; dimensions a tier omits keep the base rate. Usage events carry the matching token counts, and a dimension with tokens but no price makes the cost unknown rather than zero.
 - Inputs: resolved global model, selected upstream, price profile, and usage token details.
 - Outputs: a cost calculated with the effective profile for the new event; changing a price MUST NOT recalculate an existing event.
 - Compatibility: the shared OpenAPI schema accepts phase-one model responses without `billing_state`. Phase-two model responses include the current global price revision and lock state. The phase-two migration backfills one `scope=global`, `source=manual`, `locked=false` revision per existing model, and creating a model creates one in the same transaction, so `billing_state.price_revision_id` is never null.

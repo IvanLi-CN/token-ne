@@ -20,13 +20,17 @@ type pricedUsage struct {
 // priceProfile mirrors the ingestion price query. Overrides is keyed by
 // upstream UUID; the global row carries no upstream override.
 type priceProfile struct {
-	Input, Cached, Output *string
-	RevisionID            *string
-	Overrides             map[string]priceProfile
+	Input, Cached, CacheWrite, AudioIn, AudioOut, Output *string
+	RevisionID                                           *string
+	Tiers                                                []cost.Tier
+	Overrides                                            map[string]priceProfile
 }
 
 func (p priceProfile) Prices() cost.Prices {
-	return cost.Prices{Input: p.Input, Cached: p.Cached, Output: p.Output}
+	return cost.Prices{
+		Input: p.Input, Cached: p.Cached, CacheWrite: p.CacheWrite,
+		AudioIn: p.AudioIn, AudioOut: p.AudioOut, Output: p.Output,
+	}
 }
 
 type UsageTx interface {
@@ -59,7 +63,8 @@ const usageInsert = `
 insert into usage_events (
  event_id, request_id, occurred_at, core_version, core_instance, downstream_key_id, upstream_id,
  endpoint, requested_model, resolved_model, upstream_model, stream, http_status, status_rewritten_from, outcome,
- error_class, error_code, error_message, attempt_count, input_tokens, cached_input_tokens, output_tokens,
+ error_class, error_code, error_message, attempt_count, input_tokens, cached_input_tokens,
+ cache_write_tokens, audio_input_tokens, audio_output_tokens, output_tokens,
  reasoning_tokens, total_tokens, cost_usd, price_revision_id, ttft_ms, upstream_ttfb_ms, duration_ms, upstream_duration_ms,
  request_bytes, response_bytes
 )
@@ -68,6 +73,7 @@ select e.* from jsonb_to_recordset($1::jsonb) as e (
  downstream_key_id uuid, upstream_id uuid, endpoint text, requested_model text, resolved_model text, upstream_model text,
  stream boolean, http_status int, status_rewritten_from int, outcome text, error_class text,
  error_code text, error_message text, attempt_count int, input_tokens bigint, cached_input_tokens bigint,
+ cache_write_tokens bigint, audio_input_tokens bigint, audio_output_tokens bigint,
  output_tokens bigint, reasoning_tokens bigint, total_tokens bigint, cost_usd numeric(14,6), price_revision_id uuid,
  ttft_ms int, upstream_ttfb_ms int, duration_ms int, upstream_duration_ms int, request_bytes bigint,
  response_bytes bigint
@@ -77,14 +83,37 @@ on conflict (event_id) do nothing
 returning event_id::text`
 
 const usagePriceQuery = `select coalesce((select jsonb_object_agg(model_id,jsonb_build_object(
- 'Input',input_usd_per_mtok::text,'Cached',cached_input_usd_per_mtok::text,'Output',output_usd_per_mtok::text,
+ 'Input',input_usd_per_mtok::text,'Cached',cached_input_usd_per_mtok::text,
+ 'CacheWrite',cache_write_usd_per_mtok::text,'AudioIn',audio_input_usd_per_mtok::text,
+ 'AudioOut',audio_output_usd_per_mtok::text,'Output',output_usd_per_mtok::text,
+ 'Tiers',coalesce((select jsonb_agg(jsonb_build_object(
+   'threshold_tokens',(t->>'threshold_tokens')::bigint,
+   'input_usd_per_mtok',t->>'input_usd_per_mtok',
+   'cached_input_usd_per_mtok',t->>'cached_input_usd_per_mtok',
+   'cache_write_usd_per_mtok',t->>'cache_write_usd_per_mtok',
+   'audio_input_usd_per_mtok',t->>'audio_input_usd_per_mtok',
+   'audio_output_usd_per_mtok',t->>'audio_output_usd_per_mtok',
+   'output_usd_per_mtok',t->>'output_usd_per_mtok'))
+  from jsonb_array_elements(tiers) t), '[]'::jsonb),
  'RevisionID',billing_revision_id::text,'Overrides',coalesce(overrides,'{}'::jsonb)))
- from (select m.model_id,m.input_usd_per_mtok,m.cached_input_usd_per_mtok,m.output_usd_per_mtok,m.billing_revision_id,
+ from (select m.model_id,r.input_usd_per_mtok,r.cached_input_usd_per_mtok,r.cache_write_usd_per_mtok,
+   r.audio_input_usd_per_mtok,r.audio_output_usd_per_mtok,r.output_usd_per_mtok,r.tiers,m.billing_revision_id,
   (select jsonb_object_agg(mp.upstream_id::text,jsonb_build_object(
-    'Input',mp.input_usd_per_mtok::text,'Cached',mp.cached_input_usd_per_mtok::text,'Output',mp.output_usd_per_mtok::text,
+    'Input',mp.input_usd_per_mtok::text,'Cached',mp.cached_input_usd_per_mtok::text,
+    'CacheWrite',mp.cache_write_usd_per_mtok::text,'AudioIn',mp.audio_input_usd_per_mtok::text,
+    'AudioOut',mp.audio_output_usd_per_mtok::text,'Output',mp.output_usd_per_mtok::text,
+    'Tiers',coalesce((select jsonb_agg(jsonb_build_object(
+      'threshold_tokens',(t->>'threshold_tokens')::bigint,
+      'input_usd_per_mtok',t->>'input_usd_per_mtok',
+      'cached_input_usd_per_mtok',t->>'cached_input_usd_per_mtok',
+      'cache_write_usd_per_mtok',t->>'cache_write_usd_per_mtok',
+      'audio_input_usd_per_mtok',t->>'audio_input_usd_per_mtok',
+      'audio_output_usd_per_mtok',t->>'audio_output_usd_per_mtok',
+      'output_usd_per_mtok',t->>'output_usd_per_mtok'))
+     from jsonb_array_elements(mp.tiers) t), '[]'::jsonb),
     'RevisionID',mp.price_revision_id::text))
    from model_prices mp where mp.model_id=m.model_id) as overrides
-  from models m where m.model_id=any($1::text[])) s), '{}')`
+  from models m join price_revisions r on r.id=m.billing_revision_id where m.model_id=any($1::text[])) s), '{}')`
 
 const usageReferenceQuery = `select
  array(select event_id::text from usage_events where event_id=any($1::text[]::uuid[])),
@@ -192,7 +221,10 @@ func ingestUsage(ctx context.Context, pool UsagePool, batch usage.Batch, priceQu
 				}
 				obs.ModelLabel = *modelID
 				var fits bool
-				obs.Cost, fits = cost.Calculate(effective.Prices(), e.InputTokens, e.CachedInputTokens, e.OutputTokens)
+				obs.Cost, fits = cost.Calculate(effective.Prices(), effective.Tiers, cost.Usage{
+					Input: e.InputTokens, Cached: e.CachedInputTokens, CacheWrite: e.CacheWriteTokens,
+					AudioIn: e.AudioInputTokens, AudioOut: e.AudioOutputTokens, Output: e.OutputTokens,
+				})
 				if !fits {
 					field := "input_tokens"
 					if e.CachedInputTokens != nil && e.InputTokens != nil && *e.CachedInputTokens > *e.InputTokens {

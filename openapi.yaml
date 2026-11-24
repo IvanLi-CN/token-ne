@@ -2743,9 +2743,43 @@ components:
         cached_input_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
+        cache_write_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 缓存写入按此价格计费；一期或未提供时为 null。
+        audio_input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        audio_output_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
         output_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
+        tiers:
+          type: array
+          description: 上下文阶梯；prompt 达到 threshold_tokens 时整份替换基础价，未给出的维度沿用基础价。
+          items:
+            $ref: "#/components/schemas/PriceTier"
+    PriceTier:
+      type: object
+      required: [threshold_tokens]
+      properties:
+        threshold_tokens:
+          type: integer
+          minimum: 1
+        input_usd_per_mtok:
+          type: [number, "null"]
+        cached_input_usd_per_mtok:
+          type: [number, "null"]
+        cache_write_usd_per_mtok:
+          type: [number, "null"]
+        audio_input_usd_per_mtok:
+          type: [number, "null"]
+        audio_output_usd_per_mtok:
+          type: [number, "null"]
+        output_usd_per_mtok:
+          type: [number, "null"]
     ModelAdmin:
       type: object
       required: [model_id, enabled, created_at, updated_at, billing]

@@ -15,6 +15,9 @@ import { BillingCell, RevisionCell } from "./presentation";
 const prices = [
   ["input_usd_per_mtok", "输入价格"],
   ["cached_input_usd_per_mtok", "缓存输入价格"],
+  ["cache_write_usd_per_mtok", "缓存写入价格"],
+  ["audio_input_usd_per_mtok", "音频输入价格"],
+  ["audio_output_usd_per_mtok", "音频输出价格"],
   ["output_usd_per_mtok", "输出价格"],
 ] as const;
 const sourceLabels = { manual: "手工", price_source: "报价源" } as const;
@@ -123,9 +126,12 @@ function PriceProfileEditor({
     event.preventDefault();
     if (pending) return;
     const data = new FormData(event.currentTarget);
-    const billing = Object.fromEntries(
-      prices.map(([key]) => [key, data.get(key) === "" ? null : Number(data.get(key))]),
-    ) as unknown as Billing;
+    const billing = {
+      ...Object.fromEntries(
+        prices.map(([key]) => [key, data.get(key) === "" ? null : Number(data.get(key))]),
+      ),
+      tiers: profile?.tiers ?? [],
+    } as unknown as Billing;
     const body: PriceProfileInput = { ...billing, locked };
     if (profile?.locked) {
       const pricesChanged = prices.some(([key]) => profile[key] !== billing[key]);

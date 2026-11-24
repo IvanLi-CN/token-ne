@@ -38,6 +38,9 @@ type Event struct {
 	AttemptCount        int       `json:"attempt_count"`
 	InputTokens         *int64    `json:"input_tokens"`
 	CachedInputTokens   *int64    `json:"cached_input_tokens"`
+	CacheWriteTokens    *int64    `json:"cache_write_tokens"`
+	AudioInputTokens    *int64    `json:"audio_input_tokens"`
+	AudioOutputTokens   *int64    `json:"audio_output_tokens"`
 	OutputTokens        *int64    `json:"output_tokens"`
 	ReasoningTokens     *int64    `json:"reasoning_tokens"`
 	TotalTokens         *int64    `json:"total_tokens"`

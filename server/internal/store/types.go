@@ -21,9 +21,24 @@ type Admin struct {
 	SessionVersion int    `json:"-"`
 }
 type Billing struct {
-	Input  *float64 `json:"input_usd_per_mtok"`
-	Cached *float64 `json:"cached_input_usd_per_mtok"`
-	Output *float64 `json:"output_usd_per_mtok"`
+	Input      *float64    `json:"input_usd_per_mtok"`
+	Cached     *float64    `json:"cached_input_usd_per_mtok"`
+	CacheWrite *float64    `json:"cache_write_usd_per_mtok"`
+	AudioIn    *float64    `json:"audio_input_usd_per_mtok"`
+	AudioOut   *float64    `json:"audio_output_usd_per_mtok"`
+	Output     *float64    `json:"output_usd_per_mtok"`
+	Tiers      []PriceTier `json:"tiers,omitempty"`
+}
+
+// PriceTier replaces the base rates once the prompt reaches ThresholdTokens.
+type PriceTier struct {
+	ThresholdTokens int64    `json:"threshold_tokens"`
+	Input           *float64 `json:"input_usd_per_mtok"`
+	Cached          *float64 `json:"cached_input_usd_per_mtok"`
+	CacheWrite      *float64 `json:"cache_write_usd_per_mtok"`
+	AudioIn         *float64 `json:"audio_input_usd_per_mtok"`
+	AudioOut        *float64 `json:"audio_output_usd_per_mtok"`
+	Output          *float64 `json:"output_usd_per_mtok"`
 }
 type Model struct {
 	ID            string              `json:"model_id"`

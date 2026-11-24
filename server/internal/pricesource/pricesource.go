@@ -42,9 +42,25 @@ var datasets embed.FS
 
 // Billing is one normalized price set. nil means unknown; 0 means free.
 type Billing struct {
-	Input  *float64 `json:"input_usd_per_mtok"`
-	Cached *float64 `json:"cached_input_usd_per_mtok"`
-	Output *float64 `json:"output_usd_per_mtok"`
+	Input      *float64 `json:"input_usd_per_mtok"`
+	Cached     *float64 `json:"cached_input_usd_per_mtok"`
+	CacheWrite *float64 `json:"cache_write_usd_per_mtok"`
+	AudioIn    *float64 `json:"audio_input_usd_per_mtok"`
+	AudioOut   *float64 `json:"audio_output_usd_per_mtok"`
+	Output     *float64 `json:"output_usd_per_mtok"`
+	Tiers      []Tier   `json:"tiers,omitempty"`
+}
+
+// Tier is a long-context price set applied once the prompt reaches the
+// threshold, as published by providers that charge a higher rate past a size.
+type Tier struct {
+	ThresholdTokens int64    `json:"threshold_tokens"`
+	Input           *float64 `json:"input_usd_per_mtok"`
+	Cached          *float64 `json:"cached_input_usd_per_mtok"`
+	CacheWrite      *float64 `json:"cache_write_usd_per_mtok"`
+	AudioIn         *float64 `json:"audio_input_usd_per_mtok"`
+	AudioOut        *float64 `json:"audio_output_usd_per_mtok"`
+	Output          *float64 `json:"output_usd_per_mtok"`
 }
 
 // Entry is one source-model row in a versioned dataset. Vendor, released and
@@ -57,12 +73,20 @@ type Entry struct {
 	DeprecatedAt    *time.Time `json:"deprecated_at,omitempty"`
 	Input           *float64   `json:"input_usd_per_mtok"`
 	Cached          *float64   `json:"cached_input_usd_per_mtok"`
+	CacheWrite      *float64   `json:"cache_write_usd_per_mtok"`
+	AudioIn         *float64   `json:"audio_input_usd_per_mtok"`
+	AudioOut        *float64   `json:"audio_output_usd_per_mtok"`
 	Output          *float64   `json:"output_usd_per_mtok"`
+	Tiers           []Tier     `json:"tiers,omitempty"`
 	ExplicitModelID *string    `json:"explicit_model_id,omitempty"`
 }
 
 func (e Entry) billing() Billing {
-	return Billing{Input: e.Input, Cached: e.Cached, Output: e.Output}
+	return Billing{
+		Input: e.Input, Cached: e.Cached, CacheWrite: e.CacheWrite,
+		AudioIn: e.AudioIn, AudioOut: e.AudioOut, Output: e.Output,
+		Tiers: e.Tiers,
+	}
 }
 
 // TargetModelID is the global model this row installs as. An explicit mapping
@@ -249,12 +273,25 @@ func validateDataset(d Dataset) error {
 		if m.ExplicitModelID != nil && !validText(*m.ExplicitModelID, 256) {
 			return errors.New("price source explicit_model_id must be 1 to 256 characters")
 		}
-		if m.Input == nil && m.Cached == nil && m.Output == nil {
+		if m.Input == nil && m.Cached == nil && m.Output == nil && m.CacheWrite == nil && m.AudioIn == nil && m.AudioOut == nil {
 			return errors.New("price source model has no prices: " + m.SourceModelID)
 		}
-		for _, p := range []*float64{m.Input, m.Cached, m.Output} {
+		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Output} {
 			if p != nil && (*p < 0 || *p >= 1e8 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
 				return errors.New("price source prices must be nonnegative numeric(14,6) values")
+			}
+		}
+		for i, tier := range m.Tiers {
+			if tier.ThresholdTokens <= 0 {
+				return errors.New("price source tier thresholds must be positive")
+			}
+			if i > 0 && tier.ThresholdTokens <= m.Tiers[i-1].ThresholdTokens {
+				return errors.New("price source tiers must be ordered by threshold")
+			}
+			for _, p := range []*float64{tier.Input, tier.Cached, tier.CacheWrite, tier.AudioIn, tier.AudioOut, tier.Output} {
+				if p != nil && (*p < 0 || *p >= 1e8 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
+					return errors.New("price source tier prices must be nonnegative numeric(14,6) values")
+				}
 			}
 		}
 	}

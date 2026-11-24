@@ -144,7 +144,7 @@ describe("models management", () => {
     mock();
     mount(ModelsPage);
     await screen.findByText("可路由");
-    expect(screen.getByText("未配置")).toBeTruthy();
+    expect(screen.getAllByText("未配置").length).toBeGreaterThan(0);
     expect(screen.getByText("免费")).toBeTruthy();
     expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("1 个引用，禁止删除")).toBeTruthy();

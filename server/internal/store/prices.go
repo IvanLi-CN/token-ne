@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"time"
@@ -11,35 +12,69 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// billingColumns carries the six token dimensions at numeric(14,6) scale.
+type billingColumns struct {
+	input, cached, write, audioIn, audioOut, output *float64
+}
+
+func (v billingColumns) params() []any {
+	return []any{v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output}
+}
+
 // AppendGlobalRevision appends one immutable global price revision inside the
 // caller's transaction. Directory import (T4) and SaveModel both use it so a
 // model's pointer and its first revision commit together.
 func AppendGlobalRevision(ctx context.Context, tx pgx.Tx, modelID string, b Billing, source string, sourceID *string, locked bool) (string, error) {
 	id := uuid.NewString()
-	input, cached, output := roundedBilling(b)
-	err := tx.QueryRow(ctx, `
-insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,source,source_id,locked,scope)
-values($1,$2,null,$3,$4,$5,$6,$7,$8,'global') returning id::text`,
-		id, modelID, input, cached, output, source, sourceID, locked).Scan(&id)
-	return id, normalize(err)
+	tiers, err := marshalTiers(b.Tiers)
+	if err != nil {
+		return "", err
+	}
+	var returned string
+	err = tx.QueryRow(ctx, `
+insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
+values($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'global') returning id::text`,
+		append([]any{id, modelID}, append(roundedBilling(b).params(), tiers, source, sourceID, locked)...)...).Scan(&returned)
+	return returned, normalize(err)
 }
 
 func appendUpstreamRevision(ctx context.Context, tx pgx.Tx, modelID, upstreamID string, b Billing, locked bool) (string, error) {
 	id := uuid.NewString()
-	input, cached, output := roundedBilling(b)
+	tiers, err := marshalTiers(b.Tiers)
+	if err != nil {
+		return "", err
+	}
 	var returned string
-	err := tx.QueryRow(ctx, `
-insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,source,source_id,locked,scope)
-values($1,$2,$3,$4,$5,$6,'manual',null,$7,'upstream') returning id::text`,
-		id, modelID, upstreamID, input, cached, output, locked).Scan(&returned)
+	err = tx.QueryRow(ctx, `
+insert into price_revisions(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,source_id,locked,scope)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',null,$11,'upstream') returning id::text`,
+		append([]any{id, modelID, upstreamID}, append(roundedBilling(b).params(), tiers, locked)...)...).Scan(&returned)
 	return returned, normalize(err)
+}
+
+func marshalTiers(tiers []PriceTier) ([]byte, error) {
+	if len(tiers) == 0 {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(tiers)
+}
+
+func unmarshalTiers(raw []byte) []PriceTier {
+	tiers := []PriceTier{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &tiers)
+	}
+	return tiers
 }
 
 // roundedBilling applies the numeric(14,6) scale before comparison and
 // insertion so resubmitting the same JSON number reuses the revision instead
 // of appending one per floating-point representation.
-func roundedBilling(b Billing) (*float64, *float64, *float64) {
-	return roundedPrice(b.Input), roundedPrice(b.Cached), roundedPrice(b.Output)
+func roundedBilling(b Billing) billingColumns {
+	return billingColumns{
+		input: roundedPrice(b.Input), cached: roundedPrice(b.Cached), write: roundedPrice(b.CacheWrite),
+		audioIn: roundedPrice(b.AudioIn), audioOut: roundedPrice(b.AudioOut), output: roundedPrice(b.Output),
+	}
 }
 
 func roundedPrice(v *float64) *float64 {
@@ -51,9 +86,27 @@ func roundedPrice(v *float64) *float64 {
 }
 
 func sameBilling(a, b Billing) bool {
-	ai, ac, ao := roundedBilling(a)
-	bi, bc, bo := roundedBilling(b)
-	return samePrice(ai, bi) && samePrice(ac, bc) && samePrice(ao, bo)
+	av, bv := roundedBilling(a), roundedBilling(b)
+	if !samePrice(av.input, bv.input) || !samePrice(av.cached, bv.cached) || !samePrice(av.write, bv.write) ||
+		!samePrice(av.audioIn, bv.audioIn) || !samePrice(av.audioOut, bv.audioOut) || !samePrice(av.output, bv.output) {
+		return false
+	}
+	at, bt := a.Tiers, b.Tiers
+	if len(at) != len(bt) {
+		return false
+	}
+	for i := range at {
+		if at[i].ThresholdTokens != bt[i].ThresholdTokens ||
+			!samePrice(roundedPrice(at[i].Input), roundedPrice(bt[i].Input)) ||
+			!samePrice(roundedPrice(at[i].Cached), roundedPrice(bt[i].Cached)) ||
+			!samePrice(roundedPrice(at[i].CacheWrite), roundedPrice(bt[i].CacheWrite)) ||
+			!samePrice(roundedPrice(at[i].AudioIn), roundedPrice(bt[i].AudioIn)) ||
+			!samePrice(roundedPrice(at[i].AudioOut), roundedPrice(bt[i].AudioOut)) ||
+			!samePrice(roundedPrice(at[i].Output), roundedPrice(bt[i].Output)) {
+			return false
+		}
+	}
+	return true
 }
 
 func samePrice(a, b *float64) bool {
@@ -144,7 +197,9 @@ where model_id=$1`,
 // defaults are exposed through model billing_state instead.
 func (s *Store) Prices(ctx context.Context) ([]PriceProfile, error) {
 	rows, err := s.Pool.Query(ctx, `
-select mp.model_id,mp.upstream_id::text,mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,
+select mp.model_id,mp.upstream_id::text,mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
+       mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
+       mp.output_usd_per_mtok::float8,mp.tiers::text,
        mp.locked,r.source,r.source_id,r.id::text,r.created_at,mp.updated_at
 from model_prices mp join price_revisions r on r.id=mp.price_revision_id
 order by mp.model_id,mp.upstream_id`)
@@ -155,10 +210,12 @@ order by mp.model_id,mp.upstream_id`)
 	out := []PriceProfile{}
 	for rows.Next() {
 		var p PriceProfile
-		if err = rows.Scan(&p.ModelID, &p.UpstreamID, &p.Input, &p.Cached, &p.Output,
-			&p.Locked, &p.Source, &p.SourceID, &p.PriceRevisionID, &p.RevisionCreatedAt, &p.UpdatedAt); err != nil {
+		var tiers string
+		if err = rows.Scan(&p.ModelID, &p.UpstreamID, &p.Input, &p.Cached, &p.CacheWrite, &p.AudioIn, &p.AudioOut, &p.Output,
+			&tiers, &p.Locked, &p.Source, &p.SourceID, &p.PriceRevisionID, &p.RevisionCreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
+		p.Tiers = unmarshalTiers([]byte(tiers))
 		p.Scope = "upstream"
 		out = append(out, p)
 	}
@@ -180,13 +237,18 @@ func (s *Store) SaveUpstreamPrice(ctx context.Context, modelID, upstreamID strin
 		}
 
 		var current PriceProfile
+		var currentTiers string
 		err := tx.QueryRow(ctx, `
-select mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,
+select mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
+       mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
+       mp.output_usd_per_mtok::float8,mp.tiers::text,
        mp.locked,r.source,r.source_id,r.id::text,r.created_at,mp.updated_at
 from model_prices mp join price_revisions r on r.id=mp.price_revision_id
 where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamID).
-			Scan(&current.Input, &current.Cached, &current.Output, &current.Locked,
+			Scan(&current.Input, &current.Cached, &current.CacheWrite, &current.AudioIn, &current.AudioOut, &current.Output,
+				&currentTiers, &current.Locked,
 				&current.Source, &current.SourceID, &current.PriceRevisionID, &current.RevisionCreatedAt, &current.UpdatedAt)
+		current.Tiers = unmarshalTiers([]byte(currentTiers))
 		found := err == nil
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -198,13 +260,20 @@ where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamI
 		}
 		profile = current
 		profile.ModelID, profile.UpstreamID, profile.Scope = modelID, upstreamID, "upstream"
-		profile.Billing = Billing{}
-		profile.Input, profile.Cached, profile.Output = roundedBilling(b)
+		v := roundedBilling(b)
+		profile.Billing = Billing{
+			Input: v.input, Cached: v.cached, CacheWrite: v.write,
+			AudioIn: v.audioIn, AudioOut: v.audioOut, Output: v.output, Tiers: b.Tiers,
+		}
 		profile.Locked = locked
 		if !changed {
 			return nil
 		}
 
+		tiersJSON, err := marshalTiers(b.Tiers)
+		if err != nil {
+			return err
+		}
 		revision, err := appendUpstreamRevision(ctx, tx, modelID, upstreamID, b, locked)
 		if err != nil {
 			return err
@@ -212,14 +281,17 @@ where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamI
 		if found {
 			err = tx.QueryRow(ctx, `
 update model_prices
-set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,output_usd_per_mtok=$5,source='manual',locked=$6,price_revision_id=$7,updated_at=now()
+set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,cache_write_usd_per_mtok=$5,
+    audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,output_usd_per_mtok=$8,
+    tiers=$9::jsonb,source='manual',locked=$10,price_revision_id=$11,updated_at=now()
 where model_id=$1 and upstream_id=$2 returning updated_at`,
-				modelID, upstreamID, profile.Input, profile.Cached, profile.Output, locked, revision).Scan(&profile.UpdatedAt)
+				modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
 		} else {
 			err = tx.QueryRow(ctx, `
-insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,source,locked,price_revision_id)
-values($1,$2,$3,$4,$5,$6,'manual',$7,$8) returning updated_at`,
-				uuid.NewString(), modelID, upstreamID, profile.Input, profile.Cached, profile.Output, locked, revision).Scan(&profile.UpdatedAt)
+insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
+  audio_input_usd_per_mtok,audio_output_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'manual',$11,$12) returning updated_at`,
+				uuid.NewString(), modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.output, tiersJSON, locked, revision).Scan(&profile.UpdatedAt)
 		}
 		if err != nil {
 			return normalize(err)

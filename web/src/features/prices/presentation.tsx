@@ -111,11 +111,27 @@ export function priceRejection(error: unknown): PriceRejection | undefined {
 
 export function BillingCell({ billing }: { billing: Billing | null | undefined }) {
   if (!billing) return <span className="muted">无价格</span>;
+  const rows: Array<[string, number | null | undefined]> = [
+    ["输入", billing.input_usd_per_mtok],
+    ["缓存", billing.cached_input_usd_per_mtok],
+    ["缓存写", billing.cache_write_usd_per_mtok],
+    ["音频入", billing.audio_input_usd_per_mtok],
+    ["音频出", billing.audio_output_usd_per_mtok],
+    ["输出", billing.output_usd_per_mtok],
+  ];
   return (
     <div className="grid gap-0.5 text-xs">
-      <span>输入 {formatPrice(billing.input_usd_per_mtok)}</span>
-      <span>缓存 {formatPrice(billing.cached_input_usd_per_mtok)}</span>
-      <span>输出 {formatPrice(billing.output_usd_per_mtok)}</span>
+      {rows.map(([label, price]) => (
+        <span key={label}>
+          {label} {formatPrice(price)}
+        </span>
+      ))}
+      {(billing.tiers ?? []).map((tier) => (
+        <span key={tier.threshold_tokens} className="muted">
+          ≥{tier.threshold_tokens.toLocaleString()} tokens：入{" "}
+          {formatPrice(tier.input_usd_per_mtok)} / 出 {formatPrice(tier.output_usd_per_mtok)}
+        </span>
+      ))}
     </div>
   );
 }

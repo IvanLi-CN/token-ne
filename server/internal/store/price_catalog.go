@@ -86,9 +86,13 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 			Vendor:        entry.Vendor,
 			ReleasedAt:    entry.ReleasedAt,
 			DeprecatedAt:  entry.DeprecatedAt,
-			Billing:       Billing{Input: entry.Input, Cached: entry.Cached, Output: entry.Output},
-			ModelID:       target,
-			Installed:     installed[target],
+			Billing: Billing{
+				Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
+				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut, Output: entry.Output,
+				Tiers: catalogTiers(entry.Tiers),
+			},
+			ModelID:   target,
+			Installed: installed[target],
 		})
 		if entry.Vendor != "" && !seen[entry.Vendor] {
 			seen[entry.Vendor] = true
@@ -148,7 +152,11 @@ func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, i
 				out.Data = append(out.Data, SourceModelInstall{SourceModelID: id, ModelID: target, Outcome: "conflict", Reason: "a route rule already uses this pattern"})
 				continue
 			}
-			billing := Billing{Input: entry.Input, Cached: entry.Cached, Output: entry.Output}
+			billing := Billing{
+				Input: entry.Input, Cached: entry.Cached, CacheWrite: entry.CacheWrite,
+				AudioIn: entry.AudioIn, AudioOut: entry.AudioOut, Output: entry.Output,
+				Tiers: catalogTiers(entry.Tiers),
+			}
 			revision, err := AppendGlobalRevision(ctx, tx, target, billing, "price_source", &sourceID, false)
 			if err != nil {
 				return err
@@ -163,4 +171,17 @@ values($1,false,null,null,$2,$3,$4,$5,'global')`, target, billing.Input, billing
 		return nil
 	})
 	return out, err
+}
+
+// catalogTiers copies the source tiers into the store shape.
+func catalogTiers(tiers []pricesource.Tier) []PriceTier {
+	out := make([]PriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		out = append(out, PriceTier{
+			ThresholdTokens: tier.ThresholdTokens,
+			Input:           tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
+			AudioIn: tier.AudioIn, AudioOut: tier.AudioOut, Output: tier.Output,
+		})
+	}
+	return out
 }

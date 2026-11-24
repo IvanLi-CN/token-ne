@@ -189,10 +189,23 @@ export const settingsApi = {
 // 第二期管理契约。类型与 openapi.yaml 对齐，页面只通过这一层发请求。
 // ---------------------------------------------------------------------------
 
+export interface PriceTier {
+  threshold_tokens: number;
+  input_usd_per_mtok: number | null;
+  cached_input_usd_per_mtok: number | null;
+  cache_write_usd_per_mtok: number | null;
+  audio_input_usd_per_mtok: number | null;
+  audio_output_usd_per_mtok: number | null;
+  output_usd_per_mtok: number | null;
+}
 export interface Billing {
   input_usd_per_mtok: number | null;
   cached_input_usd_per_mtok: number | null;
+  cache_write_usd_per_mtok?: number | null;
+  audio_input_usd_per_mtok?: number | null;
+  audio_output_usd_per_mtok?: number | null;
   output_usd_per_mtok: number | null;
+  tiers?: PriceTier[];
 }
 export interface PriceRevisionState {
   source: "manual" | "price_source";

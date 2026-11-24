@@ -23,11 +23,20 @@ const sortLabels: Record<SortField, string> = {
 };
 
 function PriceCell({ billing }: { billing: SourceModel["billing"] }) {
-  const metrics = [
+  const metrics: Array<[string, number | null | undefined]> = [
     ["输入", billing.input_usd_per_mtok],
     ["缓存", billing.cached_input_usd_per_mtok],
+    ...(billing.cache_write_usd_per_mtok != null
+      ? ([["缓存写", billing.cache_write_usd_per_mtok]] as Array<[string, number | null]>)
+      : []),
+    ...(billing.audio_input_usd_per_mtok != null
+      ? ([["音频入", billing.audio_input_usd_per_mtok]] as Array<[string, number | null]>)
+      : []),
+    ...(billing.audio_output_usd_per_mtok != null
+      ? ([["音频出", billing.audio_output_usd_per_mtok]] as Array<[string, number | null]>)
+      : []),
     ["输出", billing.output_usd_per_mtok],
-  ] as const;
+  ];
   return (
     <div className="price-metrics">
       {metrics.map(([label, price]) => (
