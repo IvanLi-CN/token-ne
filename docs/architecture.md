@@ -2100,6 +2100,7 @@ create table price_sync_runs (
 - 目录同步只写 `upstream_model_catalog` 和 `upstream_model_sync_runs`。每个上游同一时间最多运行一个同步。同步失败保留目录，成功时在同一事务内写入快照和终态。
 - 导入和能力全量编辑先锁定同一上游行，在事务内提交能力变更与递增 `capabilities_revision`。全量编辑先比对 revision，保留仍在集合内的能力对应的 `catalog_model_id`。目录绑定身份属于控制面，配置快照只导出实际路由所需字段。
 - 全局当前价格保存在 `models` 的 billing 字段，上游当前覆盖保存在 `model_prices`。每条历史修订分别标明 `scope=global|upstream`，且保存 `model_id` 和可空的 `upstream_id`。全局当前修订通过 billing revision 外键限制为同模型的 global scope；上游覆盖含 `scope=upstream` 并通过复合外键限制为同模型、同上游的 upstream scope。历史修订不以模型/上游外键限制生命周期删除。报价应用事务先锁定批次行和全部目标行（`select ... for update`），再重检 `base_price_revision_id`：非空时必须等于目标当前修订，为 `null` 时目标必须仍不存在。成功后追加本批 `price_revision_ids` 并更新 `applied_at`，不覆盖此前批次结果；批次 `state` 为 `failed` 或仍为 `running` 时拒绝。基线过期以 `409 stale_price_quote` 回滚整批。
+- 批次 `state` 在首次成功应用后为 `applied`，且仍可继续应用剩余报价；`applied_at` 表示最近一次成功应用时间，不是终结标记。
 - 第二期迁移为每个既有 Model 回填一条 `scope=global`、`source=manual`、`locked=false` 的价格修订，并把 `billing_revision_id` 指向它；新建 Model、目录导入新建 Model 和首次改价都在同一事务内创建初始修订。因此二期模型响应总有非空 `billing_state.price_revision_id`。
 - 第二期迁移为 `usage_events` 增加可空的 `resolved_model` 和 `price_revision_id`，并为 `resolved_model` 建查询索引。成功路由并选中上游的第二期事件必须带请求模型名、解析模型、实际上游模型名与上游 ID；第一期与未完成路由的本地错误事件可以省略。摄入不因 `resolved_model` 不在当前配置中而丢弃事件：按当前配置解析失败时只告警并回退 `requested_model` 选价。首次摄入在同一事件事务中计算 `cost_usd` 并保存实际价格修订。旧事件继续使用原有归因，按 `event_id` 重复投递保留已写入的费用和修订。
 - 路由规则和当前上游覆盖会阻塞删除其目标。删除 Model 还需先移除能力。删除 Upstream 时其能力、目录、策略和目录同步记录随之清理。`price_revisions` 的模型和上游标识是历史快照，删除实体后继续保留。

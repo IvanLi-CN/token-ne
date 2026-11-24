@@ -3050,6 +3050,7 @@ components:
         state:
           type: string
           enum: [running, ready, applied, failed]
+          description: running 为正在获取；ready 为报价可审核并应用；applied 表示已至少成功应用一次，仍可继续应用剩余报价；failed 为获取失败。applied_at 为最近一次成功应用时间。
         fetched_at:
           type: [string, "null"]
           format: date-time
