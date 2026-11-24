@@ -7,7 +7,7 @@ import type { Column } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
 import { Button, PageTitle, StatusBadge } from "../../components/primitives";
 import { type PriceRevisionState, type UpstreamPolicy, upstreamPolicyApi } from "../../lib/api";
-import { formatPrice, formatTime } from "../../lib/format";
+import { formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
 import { type Billing, type Model, type ModelInput, type ModelUpdateInput, modelsApi } from "./api";
@@ -54,7 +54,6 @@ function BillingState({ state }: { state: PriceRevisionState | undefined }) {
         {sourceLabels[state.source]}
         {state.source_id ? `（${state.source_id}）` : ""}
       </span>
-      <code className="text-xs">{state.price_revision_id.slice(0, 8)}</code>
     </span>
   );
 }
@@ -496,7 +495,9 @@ export default function ModelsPage() {
         <div className="panel-heading">
           <div>
             <h2>模型目录</h2>
-            <p className="muted">价格为 USD / 百万 tokens；未配置与免费分别展示。</p>
+            <p className="muted">
+              价格在「价格」页维护；这里调整模型是否被接受，以及它当前是否可路由。
+            </p>
           </div>
           <div className="panel-controls">
             <fieldset className="segmented-control range-control">
@@ -571,11 +572,6 @@ export default function ModelsPage() {
                   );
                 },
               },
-              ...prices.map(([key, label]) => ({
-                key,
-                header: label,
-                cell: (model: Model) => formatPrice(model.billing[key]),
-              })),
               ...billingColumns,
               {
                 key: "mapping",

@@ -99,7 +99,7 @@ describe("models management", () => {
       ModelsPage,
       "全局模型",
       "example",
-      ["输入价格", "缓存输入价格", "输出价格", "全局映射", "停用日期", "能力数"],
+      ["接受", "路由", "全局映射", "停用日期", "能力数"],
       "example",
     ],
     [
@@ -147,12 +147,12 @@ describe("models management", () => {
       expect(document.querySelector(".management-record")).toBeNull();
     },
   );
-  it("distinguishes unknown/free pricing and derives routing only from explicit positive capabilities", async () => {
+  it("derives routing only from explicit positive capabilities and keeps prices out of the list", async () => {
     mock();
     mount(ModelsPage);
     await screen.findByText("可路由");
-    expect(screen.getAllByText("未配置").length).toBeGreaterThan(0);
-    expect(screen.getByText("免费")).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "输入价格" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "输出价格" })).toBeNull();
     expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("1 个引用，禁止删除")).toBeTruthy();
   });
