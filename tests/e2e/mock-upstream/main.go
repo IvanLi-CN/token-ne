@@ -33,6 +33,18 @@ type mock struct {
 	mu        sync.Mutex
 	scenarios []Scenario
 	requests  []RecordedRequest
+	// catalog overrides the model directory GET /v1/models serves. Empty means
+	// the default single mock-model entry; tests set it to create stale entries.
+	catalog []string
+}
+
+func (m *mock) catalogIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.catalog) == 0 {
+		return []string{"mock-model"}
+	}
+	return append([]string(nil), m.catalog...)
 }
 
 func (m *mock) nextScenario() Scenario {
@@ -81,6 +93,7 @@ func (m *mock) routes() http.Handler {
 	mux.HandleFunc("POST /__mock/scenarios", m.setScenarios)
 	mux.HandleFunc("POST /__mock/reset", m.reset)
 	mux.HandleFunc("GET /__mock/requests", m.listRequests)
+	mux.HandleFunc("POST /__mock/models", m.setCatalog)
 	mux.HandleFunc("GET /v1/models", m.models)
 	mux.HandleFunc("POST /v1/chat/completions", m.chat)
 	mux.HandleFunc("POST /v1/responses", m.responses)
@@ -106,8 +119,23 @@ func (m *mock) reset(w http.ResponseWriter, _ *http.Request) {
 	m.mu.Lock()
 	m.scenarios = nil
 	m.requests = nil
+	m.catalog = nil
 	m.mu.Unlock()
 	writeJSON(w, 200, map[string]any{"status": "ok"})
+}
+
+func (m *mock) setCatalog(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Models []string `json:"models"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid catalog payload"})
+		return
+	}
+	m.mu.Lock()
+	m.catalog = append([]string(nil), payload.Models...)
+	m.mu.Unlock()
+	writeJSON(w, 200, map[string]any{"status": "ok", "models": payload.Models})
 }
 
 func (m *mock) listRequests(w http.ResponseWriter, _ *http.Request) {
@@ -118,12 +146,11 @@ func (m *mock) listRequests(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (m *mock) models(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"object": "list",
-		"data": []map[string]any{
-			{"id": "mock-model", "object": "model", "created": 1700000000, "owned_by": "mock"},
-		},
-	})
+	data := []map[string]any{}
+	for _, id := range m.catalogIDs() {
+		data = append(data, map[string]any{"id": id, "object": "model", "created": 1700000000, "owned_by": "mock"})
+	}
+	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
 }
 
 func (m *mock) chat(w http.ResponseWriter, r *http.Request) {
