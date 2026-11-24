@@ -31,7 +31,7 @@
 
 ### REQ-DEMO-002
 
-- The demo MUST install its mock transport before the first React render, and it MUST intercept every `/api/*` request.
+- The demo MUST install its mock transport before the first React render, and it MUST intercept every `/api/*` request issued through `window.fetch`. No reachable production code path may issue a `/api/*` document navigation (`href`/`target`, `download`, `window.location`), because such a request cannot be intercepted.
 - Inputs: mock scene data; the production `apiRequest` boundary.
 - Outputs: a `window.fetch` replacement active before `createRoot().render()`. Any `/api/*` path the demo does not implement MUST return a structured error response and MUST NOT fall through to the real network. Non-`/api` requests MAY fall through.
 - Compatibility: the interception surface is `window.fetch` because `apiRequest` performs exactly one `fetch(`/api${path}`)` call; changing that boundary requires updating this requirement.
@@ -40,7 +40,7 @@
 
 - The demo MUST satisfy the production session boundary instead of bypassing it.
 - Inputs: production `sessionLoader` calling `authApi.me()`; the production login page calling `authApi.config()` and `authApi.login()`.
-- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. The `session-expired` scene MUST make that endpoint answer `401` so the production redirect path is exercised; no other scene returns `401`. Because the production login page renders its local form only when `GET /api/auth/config` reports `local_login_enabled: true`, and authenticates through `POST /api/auth/login`, both endpoints MUST be mocked (login returns the same demo `AdminUser` and never echoes the password). `oidc_login_available` MUST be `false` so the page never emits the `/api/auth/oidc/start` document navigation that `window.fetch` cannot intercept.
+- Outputs: mock `GET /api/auth/me` returning a demo `AdminUser`, so the production shell, guards and error boundaries run unmodified. The `session-expired` scene MUST make that endpoint answer `401` until a successful `POST /api/auth/login` in the current page lifetime; after that login it MUST answer the demo `AdminUser`, so the production redirect path is exercised once and the shell is reachable again. A reload of the scene re-arms the `401`. No other scene returns `401`. Because the production login page renders its local form only when `GET /api/auth/config` reports `local_login_enabled: true`, and authenticates through `POST /api/auth/login`, both endpoints MUST be mocked (login returns the same demo `AdminUser` and never echoes the password). `oidc_login_available` MUST be `false` so the page never emits the `/api/auth/oidc/start` document navigation that `window.fetch` cannot intercept.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-004
@@ -62,7 +62,7 @@
 - Scene selection and shareable state MUST be URL-encoded and MUST survive reload.
 - Inputs: `?demo=<scene-id>` and `d_*` query keys.
 - Outputs: the demo starts in the named scene with the named persona/network/data toggles; changing scene or share state MUST use client-side navigation via the demo router's history API and MUST NOT trigger a full document reload. Reading `demo`/`d_*` at boot and writing them on change are both required: a memory-only router that never touches `window.location` does not satisfy this requirement.
-- Outputs: because production `Link`/`NavLink` carry only `to`, the demo runtime MUST re-apply the current `demo` value and every `d_*` key to the URL after each location change, so refresh and copied links keep the scene and share state on every page rather than only on the entry page.
+- Outputs: because production `Link`/`NavLink` carry only `to`, the demo runtime MUST treat the URL as the source of truth for `demo` and every `d_*` key on each location change and restore them with `history.replaceState` (or the router's `replace`), merging into the existing search string and preserving every non-demo query key and the hash. Refresh, Back/Forward and copied links must therefore keep the scene and share state on every page rather than only on the entry page.
 - Compatibility: demo query keys MUST NOT collide with production query keys; production code MUST NOT read `demo` or `d_*`.
 
 ### REQ-DEMO-007
@@ -74,8 +74,8 @@
 ### REQ-DEMO-008
 
 - Static hosting of `/demo/**` MUST provide deep-link recovery for unknown sub-paths.
-- Inputs: a request for `/demo/` (no sub-path) and for `/demo/<any-known-route>`, including after reload.
-- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must serve `/demo/demo.html` for both `/demo/` and unknown `/demo/*`; renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
+- Inputs: a request for `/demo` or `/demo/` (no sub-path) and for `/demo/<any-known-route>`, including after reload.
+- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must serve that document, without redirecting (a redirect would change the pathname and break `basename=/demo`), for `/demo`, `/demo/`, and every `/demo/*` path that is not an existing asset file; missing assets under `/demo/assets/` must still return `404`. Renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
 - Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file, including `/demo/**`. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
 
 ### REQ-DEMO-009
@@ -83,7 +83,7 @@
 - The demo MUST NOT change production runtime behavior, production access rules, or production delivery.
 - Inputs: demo entry, mock module, and build config.
 - Outputs: the production entry `web/src/main.tsx` does not import anything under `web/src/demo/`; the production artifact contains no demo scene data. Scene identifiers MUST carry a `demo-scene-` prefix so their absence is greppable.
-- Verification: `grep -r "demo-scene-" web/dist` returns nothing, and the production entry document does not reference the demo entry chunk.
+- Verification: the production build MUST fail if any module under `web/src/demo/` is reachable from `web/src/main.tsx` (a `generateBundle` guard rejecting any emitted module id matching `src/demo/`); `grep -r "demo-scene-" web/dist` returns nothing; and `web/index.html` references no demo entry chunk or demo script.
 
 ### REQ-DEMO-010
 

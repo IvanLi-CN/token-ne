@@ -300,10 +300,10 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 支持一键回滚：把权重切回旧版本，保留旧实例直到确认。
 - 所有部署状态持久化到 PostgreSQL；控制面重启后可以恢复/对账。
 - 新版本配置 schema 不兼容时，控制面拒绝加入流量。
-- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。自动删除只对部署状态已达 `completed`、权重为 0、排水完成并已停止、且 spool 清零已确认的实例生效；停止后经过默认 5 分钟宽限期才进入删除。
-- 回滚窗口从淘汰该实例的那次部署变为 `completed` 起算，到该实例容器与状态目录被实际删除为止；窗口内容器、镜像身份和状态目录均保留。宽限期从实例停止时刻起算。回滚按状态目录是否存在分支：原目录仍在时复用它并由兼容 core 重放 spool，容器缺失时按登记的镜像 digest 重建容器；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零。
+- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。自动删除只对淘汰该实例的部署状态已达 `completed`、权重为 0、排水完成并已停止、且 spool 清零已确认的实例生效；停止后经过默认 5 分钟宽限期才进入删除。
+- 回滚窗口从淘汰该实例的那次部署变为 `completed` 起算，到该实例容器与状态目录被实际删除为止；窗口内镜像身份与状态目录均保留；容器在清零确认后删除，显式 `force=true` 的强制清理可提前删除容器。宽限期从实例停止时刻起算。回滚按状态目录是否存在分支：原目录仍在时复用它并由兼容 core 重放 spool，容器缺失时按登记的镜像 digest 重建容器；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零。
 - 失败实例必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描）才进入删除候选；不使用无法从协议观测的“从未接收流量”作为条件，删除前保留结构化错误、最后状态和退出信息。
-- 只有存在确认零观测时才删除容器，并用同一观测作为删除状态目录的前提；观测缺失或非零时容器与状态目录都保留。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
+- 自动销毁只有在存在确认零观测时才删除容器，并用同一观测作为删除状态目录的前提；观测缺失或非零时容器与状态目录都保留。显式 `force=true` 的强制清理是唯一例外：只删除容器并保留状态目录，清零确认后才允许删除状态目录。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。Docker 退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为零未确认确认。排水后的零观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成、或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
 - 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致；标签不完整时不进入删除候选，也不进入 `cleanup_blocked`，只计数并写审计。观测非零或缺失时先用兼容 core 重启重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，并停止自动重启与自动重试。该标记不是终态：spool 事后清零则清除并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计，保留给手工处置。
@@ -622,7 +622,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - [ ] 创建出站代理档案并绑定上游，请求、目录同步和测试都实际经过 Xray；mock 代理能观察到连接。
 - [ ] 停止 Xray 后绑定代理的请求失败且没有直连回退；恢复 Xray 后控制面对账恢复，直连上游全程不受影响。
 - [ ] 出站代理凭据不出现在 API、日志、审计和 core 配置中；core 无法连接 Xray API；Xray 未匹配流量进入 blackhole。
-- [ ] 动态核心带 Compose 项目标签和 `com.docker.compose.config-hash`；`docker compose ps` 可见，整机下线时 `down --remove-orphans` 可清理；单实例在 spool 未清零前不会被 prune，清零后自动销毁。
+- [ ] 动态核心带 Compose 项目标签和 `com.docker.compose.config-hash`；`docker compose ps` 可见，整机下线时 `down --remove-orphans` 可清理；单实例在 spool 未清零前不会被自动销毁，也不能删除状态目录；显式 `force=true` 只删除容器，清零后自动销毁。
 - [ ] `/internal/*` 从公网不可达；日志无密钥明文。
 
 ## 后续演进

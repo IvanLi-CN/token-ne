@@ -525,12 +525,12 @@ sequenceDiagram
 
 ### 退役实例自动销毁
 
-- 默认 `CORE_AUTO_PRUNE=true`。自动销毁只对同时满足以下条件的实例生效：所属部署状态已达到 `completed`、权重为 0、排水完成并已停止、且通过 spool 清零确认。停止后经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）才进入删除队列。
-- 回滚窗口从“淘汰该实例的那次部署”进入 `completed` 起，到该实例容器与状态目录被实际删除为止；窗口内实例容器、镜像身份和状态目录都保留。`CORE_AUTO_PRUNE_GRACE_SECONDS` 从实例停止时刻起算，宽限期结束且其余门禁全部满足后才进入删除队列。只有实例已被实际销毁（或状态目录已不存在）时，回滚才按登记的镜像 digest 重建实例和新状态目录：自动销毁的前提是 spool 已确认清零，因此这种情况下没有用量需要重放；未被销毁（含 `cleanup_blocked`）时回滚必须复用原状态目录并重放其 spool。
+- 默认 `CORE_AUTO_PRUNE=true`。自动销毁只对同时满足以下条件的实例生效：淘汰该实例的部署状态已达到 `completed`（由 `core_instances.retired_by_deployment_id` 记录）、权重为 0、排水完成并已停止、且通过 spool 清零确认。停止后经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）才进入删除队列。
+- 回滚窗口从“淘汰该实例的那次部署”进入 `completed` 起，到该实例容器与状态目录被实际删除为止；窗口内保留镜像身份和状态目录；容器在正常路径下保留到删除队列执行，`force=true` 提前删除容器时按回滚步骤以登记的镜像 digest 重建容器并复用保留的状态目录。`CORE_AUTO_PRUNE_GRACE_SECONDS` 从实例停止时刻起算，宽限期结束且其余门禁全部满足后才进入删除队列。只有实例已被实际销毁（或状态目录已不存在）时，回滚才按登记的镜像 digest 重建实例和新状态目录：自动销毁的前提是 spool 已确认清零，因此这种情况下没有用量需要重放；未被销毁（含 `cleanup_blocked`）时回滚必须复用原状态目录并重放其 spool。
 - 失败实例没有“从未接收流量”这类无法从协议观测的前置条件；它必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描），才进入删除候选。容器删除与状态目录删除共用同一次确认零观测；没有确认观测时两者都保留。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为确认；该观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成，或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在，且分别等于固定值 `core`、`core_versions.version`、`core_instances.id`、`core_instances.deployment_id`；`core_instances.deployment_id` 指向的 `core_deployments.state` 必须是 `completed`。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计。观测非零或缺失时先重启兼容 core 重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，同时停止自动重启与自动重试，只保留观测。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选；未清除时只由手工 `POST /api/cores/prune` 处置。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在，且分别等于固定值 `core`、`core_versions.version`、`core_instances.id`、`core_instances.deployment_id`；`core_instances.retired_by_deployment_id` 在该部署把实例权重归零时写入，它指向的 `core_deployments.state` 必须是 `completed`，旧实例在淘汰它的部署完成前不进入删除候选；`core_instances.deployment_id` 只用于归属标签校验。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计。观测非零或缺失时先重启兼容 core 重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，同时停止自动重启与自动重试，只保留观测。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选；未清除时只由手工 `POST /api/cores/prune` 处置。
 - 状态目录由 `CORE_STATE_INIT_IMAGE` 的一次性 helper 以 root 删除：把宿主机 `CORE_STATE_HOST_DIR` 挂载到 helper 的 `/state`，执行 `rm -rf /state/<instance_id>`；`<instance_id>` 必须通过规范 UUID 校验后才拼接路径。API 容器始终不挂载状态根目录，也不读取 spool 文件。
 - 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁；删除前保留失败实例的结构化错误、最后状态和退出信息。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时返回 409 `spool_not_drained` 并先重启兼容 core 重放；显式 `force=true` 的强制清理只删除容器、保留状态目录并写审计，清零确认后才允许删除状态目录。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`），并更新 `token_ne_core_auto_prune_total{result}`。
@@ -891,7 +891,7 @@ api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>
 - 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则。`StatsService` 只在 `stats` app 与 `policy.system.statsInboundUplink/statsOutboundUplink` 开启时才有可读计数；否则 `GetStats` 返回 `NotFound`，档案状态一律以对账结果为准，不使用统计推断可用性。
 - 控制面启动、Xray 重启和档案变更后读取 Xray 的 inbound/outbound 列表，补齐缺失项、移除不属于期望状态的 `egress:` 标签，验证路由后才把档案标记为 `ready`。`swapping` 期间被路由引用的 `:staged` 属于期望状态，不作为孤儿清理。数据库是期望状态，Xray 运行态可重建。
 - 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警、递增 revision；绑定它的上游不进入候选，已建立连接继续使用，新请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有当快照中该档案的有效 `enabled` 值或端点发生变化时才递增配置 revision，以便发布有效的 `enabled` 值：管理员启用或停用、运行态进入或离开 `ready`（含 `pending`/`disabled` → `ready`）、`ready` 与 `degraded` 之间切换、以及端点变化都触发发布；`ready` 与 `swapping` 之间 `enabled` 不变，因此不递增。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有当快照中该档案的有效 `enabled` 值或端点发生变化时才递增配置 revision，以便发布有效的 `enabled` 值：管理员启用或停用、`pending`/`disabled` → `ready`、`ready` 与 `degraded` 之间切换、`swapping` → `degraded`、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 不变，因此不递增。
 - Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更按固定顺序执行：新增 `egress:<id>:out:staged` → 把 `inboundTag -> outboundTag` 路由切到 `:staged` → 删除旧 `egress:<id>:out` → 以稳定 tag `egress:<id>:out` 新增新出站 → 路由切回 `egress:<id>:out` → 删除 `:staged`。交换进行中的档案在数据库中标记为 `swapping` 并记录交换阶段 `swap_phase`（`staged_added` → `route_staged` → `old_removed` → `stable_added` → `route_stable`）。对账按 `swap_phase` 推进：`:staged` 存在且阶段早于 `route_stable` 时必须继续推进，不作为孤儿清理。只有 `swap_phase = route_stable`、`egress:<id>:out` 已存在且路由已指向它时才允许删除 `:staged` 并把档案标记为 `ready`。任何一步失败或崩溃后，被路由引用的出站都不被删除；档案保持 `swapping`，下次对账从已记录的 `swap_phase` 继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或发现路由指向不存在的出站时才标记 `degraded` 并递增 revision；承载流量的 tag 从不先删后加，因此不存在无出站可用的空窗期。
 - 档案被上游引用时删除返回 `409`；禁用后其 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。历史用量保留原 `egress_proxy_id`，删除档案不重写历史。
 - Xray API 不提供认证，安全依赖 `xray-control` 网络隔离和只绑定该网络地址；核心不加入该网络。
@@ -970,7 +970,7 @@ flowchart TD
 - 重建/停止/删除都先写数据库状态，再执行 Docker 操作；操作失败保留 `failed` 状态和错误摘要。
 - 容器重建后即使名称不变，也重新应用 Caddy 配置，确保上游 DNS 被重新解析；不要假设 Caddy 会持续跟踪容器 IP 变化。
 - 新版本部署自动拉取镜像；旧版本或手动刷新使用 `POST /api/cores/versions/{version_id}/pull`；回滚不拉取镜像，宿主机缺少镜像时回滚失败。动态 core 实例必须使用精确版本或 digest；`latest` 只能作为控制面部署通道，不能作为 core 实例身份。
-- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止、且排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零、缺失、仅有过期心跳或早于排水完成时先重启兼容 core 等待清零。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
+- 清理入口：默认由控制面自动执行退役实例销毁；单实例手工入口保留为 `POST /api/cores/prune`，只删除已停止、且排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 的实例容器和状态目录；观测非零、缺失、仅有过期心跳或早于排水完成时只允许显式 `force=true` 强制清理容器，状态目录保留到清零确认。`docker compose down --remove-orphans` 会停止整个项目，只用于整机下线。
 - 编排器是实现接口，不是硬编码在 HTTP handler 里。第一期用 Docker Engine API；如果后续必须让核心成为 Compose 声明 service，可以替换为 Compose CLI adapter，但需要额外的并发锁和文件状态机。
 
 #### Compose 成员关系
@@ -989,7 +989,7 @@ flowchart TD
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`：管理员启用或停用、运行态进入或离开 `ready`（含 `pending`/`disabled` → `ready`）、以及端点变化都触发发布。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
+- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`：管理员启用或停用、`pending`/`disabled` → `ready`、`ready` 与 `degraded` 之间切换、`swapping` → `degraded`、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 不变，因此不递增。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1297,6 +1297,9 @@ create table core_deployments (
 alter table core_instances
   add column deployment_id uuid references core_deployments(id);
 create index core_instances_deployment_idx on core_instances(deployment_id);
+alter table core_instances
+  add column retired_by_deployment_id uuid references core_deployments(id);
+create index core_instances_retired_by_idx on core_instances(retired_by_deployment_id);
 
 create table usage_events (
   event_id uuid primary key,
@@ -1596,9 +1599,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # 第二期追加：
+      # 第二期追加（可选依赖，Xray 缺失不阻断 API 启动）：
       xray:
         condition: service_started
+        required: false
     environment:
       DATABASE_URL: postgres://token_ne:${POSTGRES_PASSWORD}@postgres:5432/token_ne?sslmode=disable
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
@@ -1721,7 +1725,7 @@ networks:
 
 - `socket-proxy` 是推荐的收敛方式；`CONTAINERS=1` 配合 `POST=1` 覆盖创建与删除接口，`ALLOW_START`、`ALLOW_STOP`、`ALLOW_RESTARTS` 控制容器状态操作。如果暂时直接挂载 socket，风险更高，必须保证 API 不暴露公网。
 - `xray` 是 Compose 声明的单例，使用固定镜像或 digest；不发布宿主端口，不加入 `edge` 或 `data`。`bootstrap.json` 只包含 gRPC API、默认 blackhole、`stats` app 和日志/路由骨架；API 绑定 `xray-control` 静态地址 `10.42.0.10:10085`，且 `api.services` 必须列出 `HandlerService`、`RoutingService` 和 `StatsService`，否则运行时增删或统计会返回未实现。SOCKS5 入站由控制面通过 API 动态创建。
-- `xray`、`egress`、`xray-control`、`XRAY_*` 变量、`api` 的 `xray` 依赖和 `CORE_NETWORKS` 中的 `token_ne_egress` 都属于第二期；一期 compose 不声明它们，也不需要 `XRAY_IMAGE`。第二期部署必须把 `CORE_NETWORKS` 显式设为包含 `token_ne_egress`；控制面在启用出站代理前必须验证目标实例实际已加入 `egress` 网络（`CORE_NETWORKS` 包含 `token_ne_egress` 且容器网络列表含该网络），仅验证网络对象存在不算通过。未满足时拒绝启用档案，且不把绑定代理的上游及其 `upstream_models` 关系写入任何快照，也不给相关实例正权重。
+- `xray`、`egress`、`xray-control`、`XRAY_*` 变量、`api` 的 `xray` 依赖和 `CORE_NETWORKS` 中的 `token_ne_egress` 都属于第二期；一期 compose 不声明它们，也不需要 `XRAY_IMAGE`。第二期部署必须把 `CORE_NETWORKS` 显式设为包含 `token_ne_egress`；控制面在启用出站代理前必须验证目标实例实际已加入 `egress` 网络（`CORE_NETWORKS` 包含 `token_ne_egress` 且容器网络列表含该网络），仅验证网络对象存在不算通过。未满足时拒绝启用档案，且不把绑定代理的上游及其 `upstream_models` 关系写入该实例的快照，也不给该实例正权重。
 - Compose 负责控制面、数据库、Caddy、Xray 单例、网络和持久卷，不声明 core service；启动时控制面登记自身产品版本，并自动通过 Docker Engine API 部署精确同版本的 core。
 - Go 创建的容器不发布端口，加入 `CORE_NETWORKS` 指定的网络（一期为 `edge`、`core-control`，第二期追加 `egress`），使用容器名作为 Caddy 上游 `dial`；容器同时带 `com.docker.compose.project`、`com.docker.compose.service`、`com.docker.compose.oneoff` 等标签，因此属于 Compose 项目成员，但不是 Compose 文件声明的 service。`docker compose down --remove-orphans` 会停止整个项目，不是单实例清理入口；`docker compose up` 不会重建它们。
 - Caddy 启动脚本在有 `/config/caddy/autosave.json` 时使用 `--resume`，否则加载 `bootstrap.json`：管理 API 使用 Unix socket，`/internal/*` 返回 404，空核心池的 `/v1/*` fail-closed 返回 503；Go 启动后装载完整受控配置并对账。
@@ -1829,7 +1833,7 @@ networks:
 
 1. 把新版本权重降为 0，旧版本恢复到上一阶段或 100。
 2. 如果旧实例仍在，等待新版本在途归零后停止。
-3. 按状态目录是否存在分支，而不是按容器是否存在：原状态目录仍在时复用它，由兼容 core 重放其 spool，容器缺失时按登记的镜像 digest 重建实例（强制清理删除了容器、或删除 helper 失败，都可能出现“目录在、容器不在”）；状态目录不存在即视为已销毁：唯一被允许的删除路径必须已确认 spool 清零，因此按登记的镜像 digest 重建实例与新状态目录，不需要重放。若删除成功但审计或状态记录尚未落库，控制面必须先补齐该次删除的审计，再执行回滚。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
+3. 按状态目录是否存在分支，而不是按容器是否存在：原状态目录仍在时复用它，由兼容 core 重放其 spool，容器缺失时按登记的镜像 digest 重建实例（强制清理删除了容器、或删除 helper 失败，都可能出现“目录在、容器不在”）；状态目录不存在即视为已销毁：唯一被允许的删除路径必须已确认 spool 清零，因此按登记的镜像 digest 重建实例与新状态目录，不需要重放。若删除成功但审计或状态记录尚未落库，控制面必须先补齐该次删除的审计，再执行回滚。两个分支重建的实例都先以权重 0 预热，确认配置与健康后再接流量。回滚不自动拉取镜像，宿主机缺少该镜像时回滚失败，必须先恢复镜像或显式调用 `POST /api/cores/versions/{version_id}/pull`。
 4. 回滚不修改数据库 schema；如果新版本要求 schema 变更，必须在升级前单独完成兼容迁移。
 
 ### 强制排水
@@ -1854,7 +1858,7 @@ networks:
 | 上游不可用 | 核心按候选重试；重试耗尽后按策略改写成 503，原始状态记录在请求事实中 | 指标和请求记录可见 | 修复上游或调整候选 |
 | Docker API 不可用 | 现有核心继续运行 | 无法部署/排水 | 恢复 socket proxy；对账 |
 | Xray 不可用或重启 | 绑定代理的上游请求按连接失败重试，耗尽后返回 503；直连上游不受影响 | 出错、对账失败 | 恢复 Xray；控制面重新对账；不回退直连 |
-| Xray API 应用失败 | 档案 `degraded`，绑定上游没有候选 | 档案状态和告警可见 | 修复 API/配置后重试对账；不得改用其他档案或直连 |
+| Xray API 应用失败 | 交换序列内的单步失败保持 `swapping` 并按 `swap_phase` 重试；连续多次对账仍无法推进或发现路由指向不存在的出站时 `degraded`，绑定上游没有候选 | 档案状态和告警可见 | 修复 API/配置后重试对账；不得改用其他档案或直连 |
 | 出站代理凭据错误或代理拒绝连接 | 只用该档案的上游失败，按连接错误处理 | 测试和对账状态可见 | 更新档案凭据；更新成功后无需重启 core |
 | 自动销毁失败 | 容器和状态目录保留，不影响数据面 | 指标/审计标记失败 | 检查 Docker/权限；退避重试或手工 prune |
 | 配置推送失败 | 核心用旧配置；新请求可能路由到旧模型 | 部署阻塞 | 修复网络/Token；重试推送 |
