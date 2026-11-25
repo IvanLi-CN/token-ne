@@ -112,7 +112,7 @@ type configBody struct {
 	Features         map[string]bool  `json:"features"`
 	Keys             json.RawMessage  `json:"downstream_keys"`
 	Models           json.RawMessage  `json:"models"`
-	Upstreams        []upstream       `json:"upstreams"`
+	Upstreams        []boundUpstream  `json:"upstreams"`
 	Capabilities     json.RawMessage  `json:"upstream_models"`
 	Retry            json.RawMessage  `json:"retry"`
 	Policy           policy           `json:"status_rewrite"`
@@ -121,7 +121,22 @@ type configBody struct {
 	AllowUnsigned    bool             `json:"allow_unsigned,omitempty"`
 	ModelRoutes      []routeRule      `json:"model_routes,omitempty"`
 	UpstreamPolicies []upstreamPolicy `json:"upstream_policies,omitempty"`
+	EgressProxies    []egressProxy    `json:"egress_proxies,omitempty"`
 }
+
+// egressProxy is the snapshot projection of one proxy profile: the internal
+// SOCKS5 endpoint, the profile id and the computed routing eligibility. The
+// third-party protocol, server address and credentials never appear here.
+type egressProxy struct {
+	ID       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// egressSOCKS5Host is the Compose service name of the Xray singleton on the
+// egress network. Cores resolve it through container DNS; the contract fixes
+// the endpoint shape as socks5h://<xray-host>:<inbound_port>.
+const egressSOCKS5Host = "xray"
 
 // routeRule and upstreamPolicy are the configuration projections of the
 // management API resources. They are omitted entirely when the control plane
@@ -154,6 +169,13 @@ type upstream struct {
 	Connect   int    `json:"connect_timeout_ms"`
 	FirstByte int    `json:"first_byte_timeout_ms"`
 	Idle      int    `json:"idle_timeout_ms"`
+}
+
+// boundUpstream is one upstream row plus its egress binding before the
+// capability gate decides whether it survives into the snapshot.
+type boundUpstream struct {
+	upstream
+	EgressProxyID *string `json:"egress_proxy_id,omitempty"`
 }
 
 type generation struct {
@@ -217,30 +239,146 @@ func (s *Snapshots) upstreamPolicies(ctx context.Context, tx pgx.Tx) ([]upstream
 	return out, rows.Err()
 }
 
+// declaredFeatures reads the capability set the instance reports through its
+// latest heartbeat, which is the same set its meta endpoint publishes. Missing
+// instance is ErrUnknown; a malformed declaration is ErrInvalid.
+func declaredFeatures(ctx context.Context, tx pgx.Tx, instance string) ([]string, error) {
+	var stored []byte
+	e := tx.QueryRow(ctx, `select coalesce(control_status->'features','[]'::jsonb) from core_instances where id=$1`, instance).Scan(&stored)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return nil, ErrUnknown
+	}
+	if e != nil {
+		return nil, e
+	}
+	declared := []string{}
+	if len(stored) > 0 {
+		if e = json.Unmarshal(stored, &declared); e != nil {
+			return nil, fmt.Errorf("%w: invalid declared features", ErrInvalid)
+		}
+	}
+	return declared, nil
+}
+
+func containsFeature(declared []string, name string) bool {
+	for _, f := range declared {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
 // admitSnapshot keeps a target instance out of traffic when its declared
 // capabilities do not cover the routing or policy semantics the snapshot
-// carries. The declaration comes from the instance's latest heartbeat, which
-// reports the same feature set as its meta endpoint.
+// carries.
 func (s *Snapshots) admitSnapshot(ctx context.Context, tx pgx.Tx, instance string, raw []byte) error {
 	required, e := SnapshotFeatures(raw)
 	if e != nil || len(required) == 0 {
 		return e
 	}
-	var stored []byte
-	e = tx.QueryRow(ctx, `select coalesce(control_status->'features','[]'::jsonb) from core_instances where id=$1`, instance).Scan(&stored)
-	if errors.Is(e, pgx.ErrNoRows) {
-		return ErrUnknown
-	}
+	declared, e := declaredFeatures(ctx, tx, instance)
 	if e != nil {
 		return e
 	}
-	declared := []string{}
-	if len(stored) > 0 {
-		if e = json.Unmarshal(stored, &declared); e != nil {
-			return fmt.Errorf("%w: invalid declared features", ErrInvalid)
+	return RequireSnapshotFeatures(declared, raw)
+}
+
+// egressEffective is the contract's routing eligibility (docs/protocol.md,
+// "出站代理字段"): the administrator enabled the profile and its runtime state
+// still holds a live routed outbound. A swap routes through an outbound that
+// exists, so it stays eligible; pending, degraded and disabled do not. It is the
+// same rule store.egressEffective applies to the admin projection.
+func egressEffective(enabled bool, runtimeState string) bool {
+	return enabled && (runtimeState == "ready" || runtimeState == "swapping")
+}
+
+// egressSection projects the egress bindings into the snapshot. It is the
+// capability gate and the only place that emits egress_proxies:
+//
+//   - A core that does not declare egress_proxy must never receive the field,
+//     because it would ignore it and route direct. Proxy-bound upstreams are
+//     removed here, before filterConfig sees the capability relations, and the
+//     routes and policies pinned to those upstreams go with them: keeping a
+//     reference to a removed upstream would make the core reject the snapshot.
+//   - For a declaring core, egress_proxies is a complete function of the
+//     snapshot: one entry per profile at least one surviving upstream binds,
+//     including an effectively disabled profile so the reference never dangles,
+//     and no entry for a profile nothing binds. A previous snapshot's entries
+//     are never carried over.
+func (s *Snapshots) egressSection(ctx context.Context, tx pgx.Tx, instance string, c *configBody) (bool, error) {
+	bound := map[string]bool{}
+	anyBound := false
+	for _, u := range c.Upstreams {
+		if u.EgressProxyID != nil {
+			bound[*u.EgressProxyID] = true
+			anyBound = true
 		}
 	}
-	return RequireSnapshotFeatures(declared, raw)
+	if !anyBound {
+		// No binding: the array stays absent, so a deployment without bindings
+		// publishes byte-identical phase-one bodies.
+		return false, nil
+	}
+	declared, e := declaredFeatures(ctx, tx, instance)
+	if e != nil {
+		return false, e
+	}
+	if !containsFeature(declared, FeatureEgressProxy) {
+		removed := make(map[string]bool, len(bound))
+		for _, u := range c.Upstreams {
+			if u.EgressProxyID != nil {
+				removed[u.ID] = true
+			}
+		}
+		c.Upstreams = c.filterBoundUpstreams(removed)
+		if c.Capabilities, e = dropUpstreamRelations(c.Capabilities, removed); e != nil {
+			return false, e
+		}
+		c.ModelRoutes = dropUpstreamRoutes(c.ModelRoutes, removed)
+		c.UpstreamPolicies = dropUpstreamPolicies(c.UpstreamPolicies, removed)
+		return true, nil
+	}
+
+	rows, e := tx.Query(ctx, `select id::text,enabled,runtime_state,inbound_port from egress_proxies order by id`)
+	if e != nil {
+		return true, e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, runtimeState string
+		var enabled bool
+		var port int
+		if e = rows.Scan(&id, &enabled, &runtimeState, &port); e != nil {
+			return true, e
+		}
+		if !bound[id] {
+			continue
+		}
+		c.EgressProxies = append(c.EgressProxies, egressProxy{ID: id, Endpoint: fmt.Sprintf("socks5h://%s:%d", egressSOCKS5Host, port),
+			Enabled: egressEffective(enabled, runtimeState)})
+	}
+	if e = rows.Err(); e != nil {
+		return true, e
+	}
+	// The contract keys the flag on a non-empty array or any non-null binding;
+	// a binding whose profile row is missing leaves neither, so the snapshot is
+	// rejected by the publisher instead of published half-bound.
+	if len(c.EgressProxies) > 0 || len(bound) > 0 {
+		c.Features[FeatureEgressProxy] = true
+	}
+	return true, nil
+}
+
+// filterBoundUpstreams removes the upstreams a non-declaring core must not see.
+func (c *configBody) filterBoundUpstreams(removed map[string]bool) []boundUpstream {
+	kept := make([]boundUpstream, 0, len(c.Upstreams))
+	for _, u := range c.Upstreams {
+		if !removed[u.ID] {
+			kept = append(kept, u)
+		}
+	}
+	return kept
 }
 
 // Build serializes publication against other builders. PostgreSQL stores the
@@ -278,7 +416,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if e != nil {
 		return Snapshot{}, e
 	}
-	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []upstream{}, Policy: p,
+	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []boundUpstream{}, Policy: p,
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
 		Usage: map[string]any{"endpoint": strings.TrimRight(s.BaseURL, "/") + "/internal/v1/usage/batch", "token": s.Token, "batch_max_events": 500, "queue_max_events": 10000,
@@ -311,6 +449,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		Idle      int    `json:"idle_timeout_ms"`
 		Cipher    string `json:"cipher"`
 		Nonce     string `json:"nonce"`
+		Proxy     *string `json:"egress_proxy_id"`
 	}
 	var entries []byte
 	e = tx.QueryRow(ctx, `select
@@ -318,7 +457,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
  (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
   'created_at',extract(epoch from created_at)::bigint,
   'billing',jsonb_build_object('input_usd_per_mtok',input_usd_per_mtok,'cached_input_usd_per_mtok',cached_input_usd_per_mtok,'output_usd_per_mtok',output_usd_per_mtok)) order by model_id),'[]') from models),
-	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,
+	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,'egress_proxy_id',egress_proxy_id,
   'cipher',encode(api_key_ciphertext,'base64'),'nonce',encode(api_key_nonce,'base64')) order by id),'[]') from upstreams),
  (select coalesce(jsonb_agg(jsonb_build_object('upstream_id',upstream_id,'model_id',model_id,'upstream_model_name',upstream_model_name,'enabled',enabled,'priority',priority,'weight',weight) order by upstream_id,model_id),'[]') from upstream_models)`).Scan(&c.Keys, &c.Models, &entries, &c.Capabilities)
 	if e != nil {
@@ -341,9 +480,14 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		if e != nil {
 			return Snapshot{}, errors.New("decrypt core upstream credential")
 		}
-		{
-			c.Upstreams = append(c.Upstreams, upstream{ID: v.ID, Name: v.Name, BaseURL: normalizeSnapshotUpstreamBaseURL(v.BaseURL), AuthStyle: v.AuthStyle, Key: key, Enabled: v.Enabled, Connect: v.Connect, FirstByte: v.FirstByte, Idle: v.Idle})
-		}
+		c.Upstreams = append(c.Upstreams, boundUpstream{
+			upstream:      upstream{ID: v.ID, Name: v.Name, BaseURL: normalizeSnapshotUpstreamBaseURL(v.BaseURL), AuthStyle: v.AuthStyle, Key: key, Enabled: v.Enabled, Connect: v.Connect, FirstByte: v.FirstByte, Idle: v.Idle},
+			EgressProxyID: v.Proxy,
+		})
+	}
+	proxyBound, e := s.egressSection(ctx, tx, instance, &c)
+	if e != nil {
+		return Snapshot{}, e
 	}
 	c.Models, c.Keys, c.Capabilities, e = filterConfig(c.Models, c.Keys, c.Capabilities)
 	if e != nil {
@@ -376,7 +520,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if len(raw) > MaxSnapshot {
 		return Snapshot{}, fmt.Errorf("%w: snapshot exceeds 8 MiB", ErrInvalid)
 	}
-	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw}
+	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw, ProxyBound: proxyBound}
 	if override {
 		return result, nil
 	}
@@ -459,6 +603,44 @@ func filterConfig(modelsRaw, keysRaw, capsRaw []byte) (json.RawMessage, json.Raw
 	}
 	u, e := json.Marshal(filteredCaps)
 	return m, k, u, e
+}
+
+// dropUpstreamRelations removes the capability relations of upstreams that the
+// capability gate removed from the snapshot.
+func dropUpstreamRelations(capsRaw []byte, removed map[string]bool) (json.RawMessage, error) {
+	var caps []map[string]json.RawMessage
+	if e := json.Unmarshal(capsRaw, &caps); e != nil {
+		return nil, ErrInvalid
+	}
+	kept := make([]map[string]json.RawMessage, 0, len(caps))
+	for _, c := range caps {
+		var up string
+		_ = json.Unmarshal(c["upstream_id"], &up)
+		if !removed[up] {
+			kept = append(kept, c)
+		}
+	}
+	return json.Marshal(kept)
+}
+
+func dropUpstreamRoutes(routes []routeRule, removed map[string]bool) []routeRule {
+	kept := make([]routeRule, 0, len(routes))
+	for _, r := range routes {
+		if r.UpstreamID == nil || !removed[*r.UpstreamID] {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
+func dropUpstreamPolicies(policies []upstreamPolicy, removed map[string]bool) []upstreamPolicy {
+	kept := make([]upstreamPolicy, 0, len(policies))
+	for _, p := range policies {
+		if !removed[p.UpstreamID] {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 type policy struct {

@@ -17,6 +17,7 @@ import (
 	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
 	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -41,6 +42,15 @@ type Runtime struct {
 	AllowPrivateUpstreams string
 	CurrentVersion        string
 	CurrentCommit         string
+	// Egress reconciles the stored egress proxy profiles against the Xray
+	// singleton. Nil disables the step: a deployment without the egress overlay
+	// must start normally with no Xray, so the wiring leaves this nil until a
+	// client is actually available.
+	Egress EgressReconciler
+	// EgressInterval is the reconcile period; zero uses the contract default.
+	EgressInterval time.Duration
+	// Master decrypts proxy credentials for the reconciler. Never logged.
+	Master                []byte
 	mu                    sync.Mutex
 	lifecycle             sync.Mutex
 	deployMu              sync.Mutex
@@ -313,6 +323,17 @@ func (r *Runtime) Admit(ctx context.Context, instances []instanceRow) ([]caddy.B
 			errorsSeen = append(errorsSeen, e)
 			continue
 		}
+		// The contract keeps a core that cannot enforce egress bindings out of the
+		// pool while the deployment holds a bound upstream, and records the
+		// reason: such a core would silently route direct.
+		proxyBound := snapshot.ProxyBound && !declaresFeature(status.Features, FeatureEgressProxy)
+		if proxyBound && i.Weight > 0 {
+			if err := r.recordEgressDenial(ctx, i.ID); err != nil {
+				errorsSeen = append(errorsSeen, err)
+			}
+			errorsSeen = append(errorsSeen, fmt.Errorf("%w: %s binds egress proxies but the core does not declare %s", ErrFeature, i.ID, FeatureEgressProxy))
+			continue
+		}
 		if e = r.applySnapshot(ctx, i, snapshot, status); e != nil {
 			errorsSeen = append(errorsSeen, e)
 			continue
@@ -337,6 +358,24 @@ func (r *Runtime) Admit(ctx context.Context, instances []instanceRow) ([]caddy.B
 		return ready, errors.Join(errorsSeen...)
 	}
 	return ready, nil
+}
+
+// declaresFeature reports whether a core's heartbeat/meta feature set contains
+// one capability.
+func declaresFeature(declared []string, name string) bool {
+	for _, f := range declared {
+		if f == name {
+			return true
+	}
+	}
+	return false
+}
+
+// recordEgressDenial persists why a core keeps no positive weight. It never
+// carries a proxy endpoint or credential.
+func (r *Runtime) recordEgressDenial(ctx context.Context, instance string) error {
+	_, e := r.database().Exec(ctx, `update core_instances set lifecycle_error='egress proxy bindings require the egress_proxy capability',updated_at=now() where id=$1`, instance)
+	return e
 }
 
 func (r *Runtime) applySnapshot(ctx context.Context, i instanceRow, s Snapshot, status Status) error {
@@ -553,6 +592,7 @@ func (r *Runtime) Run(ctx context.Context) {
 	}
 	cancel()
 	go r.runCurrent(ctx)
+	go r.runEgress(ctx)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -597,6 +637,127 @@ func (r *Runtime) runCurrent(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+// runEgress reconciles the egress proxy profiles against Xray on its own timer.
+// Xray is a Compose service the control plane never restarts, so a failed pass
+// is a logged result to retry, never a reason to touch the container.
+func (r *Runtime) runEgress(ctx context.Context) {
+	if r.Egress == nil {
+		return
+	}
+	interval := r.EgressInterval
+	if interval <= 0 {
+		interval = xray.DefaultReconcileInterval
+	}
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		// The first pass runs immediately: control-plane start and Xray restart
+		// both need the runtime rebuilt before the first interval elapses.
+		passCtx, cancel := context.WithTimeout(ctx, egressReconcileTimeout)
+		if err := r.ReconcileEgress(passCtx); err != nil {
+			slog.Warn("egress proxy reconciliation failed", "error", err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// egressReconcileTimeout bounds one pass. Xray applies a swap step per profile
+// with a 10-second call timeout, so the pass needs room for the whole set while
+// still ending before the next tick.
+const egressReconcileTimeout = 25 * time.Second
+
+// ReconcileEgress loads every profile with its decrypted credentials, asks the
+// Xray engine to apply the complete desired state, and persists the projection.
+// No credential, endpoint or server address reaches a log line or an audit row.
+func (r *Runtime) ReconcileEgress(ctx context.Context) error {
+	if r.Egress == nil {
+		return nil
+	}
+	profiles, e := r.DB.EgressProxies(ctx)
+	if e != nil {
+		return e
+	}
+	targets := make([]xray.Target, 0, len(profiles))
+	var failures []error
+	for _, p := range profiles {
+		credentials := xray.Credentials{}
+		raw, credErr := r.DB.EgressProxyCredential(ctx, p.ID, r.Master)
+		if credErr != nil && !errors.Is(credErr, store.ErrNotFound) {
+			failures = append(failures, fmt.Errorf("egress proxy %s credentials: %w", p.ID, credErr))
+			continue
+		}
+		if len(raw) > 0 {
+			if credErr = json.Unmarshal(raw, &credentials); credErr != nil {
+				failures = append(failures, fmt.Errorf("egress proxy %s credentials are not an object", p.ID))
+				continue
+			}
+		}
+		swapPhase := ""
+		if p.SwapPhase != nil {
+			swapPhase = *p.SwapPhase
+		}
+		targets = append(targets, xray.Target{
+			Desired: xray.Desired{
+				Profile: xray.Profile{ID: p.ID, Protocol: xray.Protocol(p.Protocol), Server: p.Server, Port: p.Port,
+					Transport: p.Transport, TLS: p.TLS, InboundPort: p.InboundPort, Enabled: p.Enabled,
+					RuntimeState: p.RuntimeState, SwapPhase: swapPhase},
+				Credentials: credentials,
+			},
+			PreviouslyEffectiveEnabled: p.Effective,
+		})
+	}
+
+	summary := r.Egress.StartupReconcile(ctx, targets)
+	if summary.Unreachable {
+		// One alerting line, not one per profile: Xray being down says nothing
+		// about any individual profile, and nothing here may restart it.
+		slog.Warn("xray api unreachable; egress profiles keep their previous state", "error", summary.Error)
+		return errors.Join(failures...)
+	}
+	for _, result := range summary.Results {
+		state := store.EgressProxyState{RuntimeState: result.RuntimeState(), LastError: optionalString(result.Error)}
+		if result.Phase != "" {
+			phase := result.Phase
+			state.SwapPhase = &phase
+		}
+		if e = r.DB.SetEgressProxyState(ctx, result.ProfileID, state, store.Audit{Actor: "system", Action: "egress_proxy.reconcile",
+			TargetType: "egress_proxy", TargetID: &result.ProfileID, Payload: egressAuditPayload(result)}); e != nil {
+			failures = append(failures, e)
+		}
+	}
+	if summary.Degraded() {
+		slog.Warn("egress proxy reconciliation degraded at least one profile", "profiles", len(summary.Results))
+	}
+	return errors.Join(failures...)
+}
+
+// egressAuditPayload records the audit-visible outcome. It carries tags, phase
+// and state only: an error string is bounded by the xray package to reason
+// text that never contains a credential.
+func egressAuditPayload(result xray.Result) json.RawMessage {
+	payload, _ := json.Marshal(struct {
+		Status   string `json:"status"`
+		Phase    string `json:"phase,omitempty"`
+		Written  bool   `json:"written"`
+		Enabled  bool   `json:"effective_enabled"`
+		Changed  bool   `json:"effective_enabled_changed"`
+		Error    string `json:"error,omitempty"`
+	}{string(result.Status), result.Phase, result.Written, result.EffectiveEnabled, result.EffectiveEnabledChanged, result.Error})
+	return payload
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func currentCoreAttemptContext(parent context.Context) (context.Context, context.CancelFunc) {

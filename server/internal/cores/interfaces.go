@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -54,6 +55,12 @@ func shouldRestart(state, actual string, blocked bool) bool {
 
 type SnapshotBuilder interface {
 	Build(context.Context, string, bool) (Snapshot, error)
+}
+
+// EgressReconciler brings the Xray runtime in line with the stored profiles.
+// xray.Engine implements it; tests substitute a fake that records the targets.
+type EgressReconciler interface {
+	StartupReconcile(context.Context, []xray.Target) xray.Summary
 }
 type Traffic interface {
 	Apply(context.Context, []caddy.Backend, bool) error

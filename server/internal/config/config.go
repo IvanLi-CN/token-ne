@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"time"
+
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 )
 
 type AuthEnvSet struct {
@@ -38,6 +41,12 @@ type Config struct {
 	// its port until it is deleted, so enable/disable never reallocates.
 	XrayProxyPortMin int
 	XrayProxyPortMax int
+	// XrayAPIURL is the gRPC API of the Xray singleton on the xray-control
+	// network. The control plane is its only writer.
+	XrayAPIURL string
+	// XrayReconcileIntervalSeconds is the egress reconcile period. It is a count,
+	// not a Duration, so the env override and its bounds stay explicit.
+	XrayReconcileIntervalSeconds int
 
 	LocalLoginEnabled bool
 	SessionTTLHours   int
@@ -67,6 +76,9 @@ func Load() (Config, error) {
 		SessionTTLHours:   720,
 		XrayProxyPortMin:  15000,
 		XrayProxyPortMax:  15999,
+		XrayAPIURL:        xray.DefaultAPIAddress,
+
+		XrayReconcileIntervalSeconds: int(xray.DefaultReconcileInterval / time.Second),
 	}
 	var e error
 	c.MasterKey, e = base64.StdEncoding.DecodeString(os.Getenv("MASTER_KEY"))
@@ -125,6 +137,14 @@ func Load() (Config, error) {
 	if v, ok := lookup("XRAY_PROXY_PORT_MAX"); ok {
 		if c.XrayProxyPortMax, e = strconv.Atoi(v); e != nil {
 			return c, errors.New("XRAY_PROXY_PORT_MAX must be an integer")
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("XRAY_API_URL")); v != "" {
+		c.XrayAPIURL = v
+	}
+	if v, ok := lookup("XRAY_RECONCILE_INTERVAL_SECONDS"); ok {
+		if c.XrayReconcileIntervalSeconds, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_RECONCILE_INTERVAL_SECONDS must be an integer")
 		}
 	}
 	c.StreamUsageInjection = true
@@ -228,6 +248,14 @@ func (c Config) Validate() error {
 	}
 	if c.XrayProxyPortMin < 1024 || c.XrayProxyPortMax > 65535 || c.XrayProxyPortMin > c.XrayProxyPortMax {
 		return errors.New("XRAY_PROXY_PORT_MIN and XRAY_PROXY_PORT_MAX must define a range inside 1024 to 65535")
+	}
+	if _, port, err := net.SplitHostPort(c.XrayAPIURL); err != nil {
+		return errors.New("XRAY_API_URL must be host:port")
+	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return errors.New("XRAY_API_URL port must be between 1 and 65535")
+	}
+	if c.XrayReconcileIntervalSeconds < 5 || c.XrayReconcileIntervalSeconds > 3600 {
+		return errors.New("XRAY_RECONCILE_INTERVAL_SECONDS must be between 5 and 3600")
 	}
 	return nil
 }
