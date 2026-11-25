@@ -17,6 +17,7 @@
 /node_modules/
 /web/node_modules/
 /web/dist/
+/web/dist-demo/
 /web/.vite/
 /web/coverage/
 *.tsbuildinfo
