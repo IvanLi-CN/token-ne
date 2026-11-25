@@ -131,6 +131,7 @@ function base(overrides: { catalog?: CatalogView; policy?: UpstreamPolicy } = {}
     if (url === "/api/version") return response(phase());
     if (url === "/api/models") return response({ data: [model] });
     if (url === "/api/upstreams") return response({ data: [upstream, secondary] });
+    if (url === "/api/egress-proxies") return response({ data: [] });
     if (url === `/api/upstreams/${upstream.id}/models/catalog`)
       return response(overrides.catalog ?? catalog);
     if (url === `/api/upstreams/${upstream.id}/model-policy`)

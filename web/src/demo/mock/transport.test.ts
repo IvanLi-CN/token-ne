@@ -60,6 +60,7 @@ describe("demo mock transport", () => {
     const query = "from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z";
     const models = await (await get("/models")).json();
     const upstreams = await (await get("/upstreams")).json();
+    const egress = await (await get("/egress-proxies")).json();
     const keys = await (await get("/downstream-keys")).json();
     const cores = await (await get("/cores")).json();
     const spool = await (await get("/cores/spool")).json();
@@ -101,7 +102,11 @@ describe("demo mock transport", () => {
     expect(policies.every((policy) => policy.upstream_id)).toBe(true);
     for (const model of models.data) expect(model.model_id).toContain(fixturePrefix);
     for (const upstream of upstreams.data) expect(upstream.id).toContain(fixturePrefix);
+    expect(egress.data.length).toBeGreaterThan(0);
+    for (const proxy of egress.data) expect(proxy.id).toContain(fixturePrefix);
     expect(JSON.stringify(models.data)).not.toContain("sk-");
+    // demo 是 fail-closed 的：新 egress 路径全部有映射，不落到 unmapped。
+    expect(JSON.stringify(egress.data)).not.toContain("unmapped");
   });
 
   it("keeps OIDC start endpoints unavailable", async () => {
@@ -162,5 +167,107 @@ describe("demo mock transport", () => {
     expect(created).not.toContain(secret);
     expect(rotated).not.toContain(secret);
     expect(created).toContain("sk-demo-scene-");
+  });
+
+  it("simulates an egress create without echoing credentials", async () => {
+    const { state, restore } = install(createDemoState("upstreams"));
+    const secret = "demo-scene-proxy-password-should-never-return";
+    const response = await fetch("/api/egress-proxies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "demo-scene-new-proxy",
+        protocol: "socks5",
+        server: "new.demo-scene.invalid",
+        port: 1080,
+        transport: { network: "tcp" },
+        tls: { security: "none" },
+        credentials: { username: "demo-scene-user", password: secret },
+        enabled: true,
+      }),
+    });
+    const created = await response.text();
+    const listed = await (await fetch("/api/egress-proxies")).json();
+    restore();
+    expect(response.status).toBe(201);
+    expect(created).not.toContain(secret);
+    expect(JSON.stringify(listed)).not.toContain(secret);
+    expect(JSON.stringify(state.egressProxies)).not.toContain(secret);
+    // 新建档案等待首次对账：管理员已启用，但有效路由资格仍为 false。
+    expect(JSON.parse(created)).toMatchObject({
+      has_credentials: true,
+      enabled: true,
+      effective_enabled: false,
+      runtime_state: "pending",
+    });
+    expect(
+      listed.data.some((proxy: { name: string }) => proxy.name === "demo-scene-new-proxy"),
+    ).toBe(true);
+    // Inspector 的模拟变更列表仍然记录这次写入。
+    expect(state.mutations[0]).toMatchObject({
+      method: "POST",
+      path: "/api/egress-proxies",
+      label: "创建出站代理 demo-scene-new-proxy",
+    });
+  });
+
+  it("serves egress update, test and the referencing 409 without unmapped fallback", async () => {
+    const { state, restore } = install(createDemoState("upstreams"));
+    const proxy = state.egressProxies[0];
+    const updated = await (
+      await fetch(`/api/egress-proxies/${proxy.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: proxy.name,
+          protocol: proxy.protocol,
+          server: proxy.server,
+          port: proxy.port,
+          transport: proxy.transport,
+          tls: proxy.tls,
+          enabled: false,
+        }),
+      })
+    ).json();
+    const tested = await (
+      await fetch(`/api/egress-proxies/${proxy.id}/test`, { method: "POST" })
+    ).json();
+    const removed = await fetch(`/api/egress-proxies/${proxy.id}`, { method: "DELETE" });
+    const conflict = await removed.json();
+    restore();
+    expect(updated).toMatchObject({ enabled: false, runtime_state: "disabled" });
+    expect(tested).toMatchObject({ ok: false, error_class: "proxy_handshake" });
+    expect(removed.status).toBe(409);
+    expect(conflict.error.code).toBe("conflict");
+    expect(conflict.error.details[0].path).toBe("egress_proxy_id");
+  });
+
+  it("keeps a degraded profile degraded across a demo edit", async () => {
+    const { state, restore } = install(createDemoState("upstreams"));
+    const degraded = state.egressProxies.find((proxy) => proxy.runtime_state === "degraded");
+    if (!degraded) throw new Error("fixture missing a degraded profile");
+    const updated = await (
+      await fetch(`/api/egress-proxies/${degraded.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${degraded.name}-renamed`,
+          protocol: degraded.protocol,
+          server: degraded.server,
+          port: degraded.port,
+          transport: degraded.transport,
+          tls: degraded.tls,
+          enabled: degraded.enabled,
+        }),
+      })
+    ).json();
+    restore();
+    // 运行态由对账决定，不是表单输入；绑定上游仍必须显示不可用。
+    expect(updated).toMatchObject({
+      name: `${degraded.name}-renamed`,
+      runtime_state: "degraded",
+      effective_enabled: false,
+      last_error: degraded.last_error,
+    });
   });
 });

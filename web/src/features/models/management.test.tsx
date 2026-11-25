@@ -61,9 +61,12 @@ function mock(handler?: Handler) {
               allow_patterns: [],
               deny_patterns: [],
             })
-          : response({
-              data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
-            })),
+          : url === "/api/egress-proxies"
+            ? response({ data: [] })
+            : response({
+                data:
+                  url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
+              })),
     ),
   );
   vi.stubGlobal("fetch", fetch);
@@ -114,13 +117,14 @@ describe("models management", () => {
     "renders every management field and a single usable action set below 720px: %s",
     async (Page, caption, name, labels, group) => {
       let narrow = true;
-      let listener: (() => void) | undefined;
+      // 页面现在有多张 ManagementTable（上游列表 + 出站代理），各自订阅宽度变化。
+      const listeners: (() => void)[] = [];
       vi.stubGlobal(
         "matchMedia",
         vi.fn((query: string) => ({
           matches: query === "(max-width: 719px)" && narrow,
           addEventListener: (_type: string, callback: () => void) => {
-            listener = callback;
+            listeners.push(callback);
           },
           removeEventListener: vi.fn(),
         })),
@@ -134,16 +138,17 @@ describe("models management", () => {
         expect(within(cards).getByText(label, { selector: "dt" })).toBeTruthy();
       if (group) expect(screen.getByRole("group", { name: group })).toBeTruthy();
       expect(within(cards).getAllByRole("button", { name: "编辑" })).toHaveLength(1);
-      expect(screen.queryByRole("table")).toBeNull();
+      // Upstreams 现在还有独立的出站代理区域，因此按 caption 限定在本次断言的主表。
+      expect(screen.queryByRole("table", { name: caption })).toBeNull();
       fireEvent.click(within(cards).getByRole("button", { name: "编辑" }));
       expect(await screen.findByRole("dialog")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "关闭" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       act(() => {
         narrow = false;
-        listener?.();
+        for (const listener of listeners) listener();
       });
-      expect(screen.getByRole("table")).toBeTruthy();
+      await waitFor(() => expect(screen.getByRole("table", { name: caption })).toBeTruthy());
       expect(document.querySelector(".management-record")).toBeNull();
     },
   );

@@ -2,7 +2,14 @@ import type { Deployment, Instance, Spool, Version } from "../../features/cores/
 import type { CreatedKey, DownstreamKey, KeyInput } from "../../features/keys/api";
 import type { Model, ModelInput, ModelUpdateInput } from "../../features/models/api";
 import type { RequestSummary } from "../../features/requests/api";
-import type { Upstream, UpstreamInput, UpstreamUpdate } from "../../features/upstreams/api";
+import type {
+  EgressProxy,
+  EgressProxyInput,
+  EgressProxyTestResult,
+  Upstream,
+  UpstreamInput,
+  UpstreamUpdate,
+} from "../../features/upstreams/api";
 import type {
   AdminUser,
   AuthConfig,
@@ -52,6 +59,7 @@ export interface DemoState {
   dataPlane: { stream_usage_injection: boolean };
   models: Model[];
   upstreams: Upstream[];
+  egressProxies: EgressProxy[];
   policies: UpstreamPolicy[];
   keys: DownstreamKey[];
   cores: CoresSnapshot;
@@ -106,6 +114,7 @@ function buildUpstreams(now: number, variant: ShareState["data"]): Upstream[] {
     base_url: "https://upstream-demo-scene.invalid/v1",
     auth_style: "bearer",
     enabled: true,
+    egress_proxy_id: fixtureId("egress", 0),
     connect_timeout_ms: 5000,
     first_byte_timeout_ms: 30000,
     idle_timeout_ms: 60000,
@@ -140,6 +149,7 @@ function buildUpstreams(now: number, variant: ShareState["data"]): Upstream[] {
       base_url: "https://upstream-backup-demo-scene.invalid/v1",
       auth_style: "api_key",
       enabled: false,
+      egress_proxy_id: fixtureId("egress", 1),
       connect_timeout_ms: 8000,
       first_byte_timeout_ms: 45000,
       idle_timeout_ms: 60000,
@@ -168,6 +178,67 @@ function buildPolicies(upstreams: Upstream[], now: number): UpstreamPolicy[] {
     deny_patterns: index === 0 ? [] : ["*preview*"],
     updated_at: iso(now - 6 * HOUR),
   }));
+}
+
+// 每条 fixture 覆盖一种可审阅的运行态：就绪、降级（绑定但不可用）、停用。
+function buildEgressProxies(now: number, variant: ShareState["data"]): EgressProxy[] {
+  const rows: EgressProxy[] = [
+    {
+      id: fixtureId("egress", 0),
+      name: "demo-scene-office-proxy",
+      protocol: "socks5",
+      server: `proxy-${fixturePrefix}.invalid`,
+      port: 1080,
+      transport: { network: "tcp" },
+      tls: { security: "none" },
+      enabled: true,
+      effective_enabled: true,
+      runtime_state: "ready",
+      swap_phase: null,
+      inbound_port: 15001,
+      last_error: null,
+      has_credentials: true,
+      created_at: iso(now - 80 * HOUR),
+      updated_at: iso(now - 4 * HOUR),
+    },
+    {
+      id: fixtureId("egress", 1),
+      name: "demo-scene-vless-proxy",
+      protocol: "vless",
+      server: `edge-${fixturePrefix}.invalid`,
+      port: 443,
+      transport: { network: "ws", path: "/ray" },
+      tls: { security: "tls", server_name: `edge-${fixturePrefix}.invalid` },
+      enabled: true,
+      effective_enabled: false,
+      runtime_state: "degraded",
+      swap_phase: null,
+      inbound_port: 15002,
+      last_error: "Xray 入站与期望状态不一致，对账未修复",
+      has_credentials: true,
+      created_at: iso(now - 50 * HOUR),
+      updated_at: iso(now - 25 * MINUTE),
+    },
+    {
+      id: fixtureId("egress", 2),
+      name: "demo-scene-spare-proxy",
+      protocol: "http",
+      server: `spare-${fixturePrefix}.invalid`,
+      port: 3128,
+      transport: { network: "tcp" },
+      tls: { security: "none" },
+      enabled: false,
+      effective_enabled: false,
+      runtime_state: "disabled",
+      swap_phase: null,
+      inbound_port: 15003,
+      last_error: null,
+      has_credentials: false,
+      created_at: iso(now - 20 * HOUR),
+      updated_at: iso(now - 90 * MINUTE),
+    },
+  ];
+  return variant === "sparse" ? rows.slice(0, 1) : rows;
 }
 
 function buildKeys(now: number, variant: ShareState["data"]): DownstreamKey[] {
@@ -203,6 +274,8 @@ function buildRequests(now: number, variant: ShareState["data"]): RequestSummary
   const count = variant === "sparse" ? 6 : 24;
   const models = ["demo-scene-atlas", "demo-scene-atlas-mini"];
   const upstreams = [fixtureId("upstream", 0), fixtureId("upstream", 1)];
+  // 用量事实保留产生终态那次尝试的出站档案，与上游绑定一致。
+  const egressProxies = [fixtureId("egress", 0), fixtureId("egress", 1)];
   return Array.from({ length: count }, (_, index) => {
     const at = now - Math.round((span * (index + 1)) / (count + 1));
     const failed = index % 4 === 2;
@@ -218,6 +291,8 @@ function buildRequests(now: number, variant: ShareState["data"]): RequestSummary
       requested_model: models[index % models.length],
       upstream_model: models[index % models.length].replace("demo-scene-", ""),
       upstream_id: upstreams[index % upstreams.length],
+      egress_mode: "proxy",
+      egress_proxy_id: egressProxies[index % egressProxies.length],
       stream: index % 2 === 0,
       http_status: httpStatus,
       outcome,
@@ -387,6 +462,7 @@ function buildFixtures(now: number, scene: SceneId, share: ShareState) {
     dataPlane: { stream_usage_injection: true },
     models: buildModels(now, share.data),
     upstreams,
+    egressProxies: buildEgressProxies(now, share.data),
     policies: buildPolicies(upstreams, now),
     keys: buildKeys(now, share.data),
     cores,
@@ -528,6 +604,80 @@ export function removeUpstream(state: DemoState, id: string): boolean {
   state.upstreams = state.upstreams.filter((upstream) => upstream.id !== id);
   state.policies = state.policies.filter((policy) => policy.upstream_id !== id);
   return true;
+}
+
+function egressView(state: DemoState, id: string, input: EgressProxyInput): EgressProxy {
+  const now = new Date().toISOString();
+  const current = state.egressProxies.find((proxy) => proxy.id === id);
+  // 运行态是对账结果，不是表单输入：编辑不清除 degraded，只有启停改变它。
+  const created = current === undefined;
+  const runtime = !input.enabled
+    ? "disabled"
+    : created || !current.enabled
+      ? "pending"
+      : current.runtime_state;
+  return {
+    id,
+    name: input.name,
+    protocol: input.protocol,
+    server: input.server,
+    port: input.port,
+    transport: input.transport ?? {},
+    tls: input.tls ?? {},
+    enabled: input.enabled,
+    effective_enabled: input.enabled && runtime === "ready",
+    runtime_state: runtime,
+    swap_phase: runtime === "swapping" ? (current?.swap_phase ?? null) : null,
+    inbound_port: current?.inbound_port ?? 15000 + state.egressProxies.length + 1,
+    last_error: runtime === "ready" ? null : (current?.last_error ?? null),
+    // 只看是否提交过对象；模拟写入从不保存明文。
+    has_credentials:
+      input.credentials === undefined
+        ? (current?.has_credentials ?? false)
+        : input.credentials !== null,
+    created_at: current?.created_at ?? now,
+    updated_at: now,
+  };
+}
+
+export function createEgressProxy(state: DemoState, input: EgressProxyInput): EgressProxy {
+  const proxy = egressView(state, fixtureId("egress", state.egressProxies.length), input);
+  state.egressProxies = [...state.egressProxies, proxy];
+  return proxy;
+}
+
+export function updateEgressProxy(
+  state: DemoState,
+  id: string,
+  input: EgressProxyInput,
+): EgressProxy | undefined {
+  if (!state.egressProxies.some((proxy) => proxy.id === id)) return undefined;
+  const proxy = egressView(state, id, input);
+  state.egressProxies = state.egressProxies.map((row) => (row.id === id ? proxy : row));
+  return proxy;
+}
+
+/** 被上游引用时删除失败：与真实 API 一样返回带字段路径的 409。 */
+export function egressReferences(state: DemoState, id: string): Upstream[] {
+  return state.upstreams.filter((upstream) => upstream.egress_proxy_id === id);
+}
+
+export function removeEgressProxy(state: DemoState, id: string): boolean {
+  if (!state.egressProxies.some((proxy) => proxy.id === id)) return false;
+  state.egressProxies = state.egressProxies.filter((proxy) => proxy.id !== id);
+  return true;
+}
+
+export function testEgressProxy(state: DemoState, id: string): EgressProxyTestResult | undefined {
+  const proxy = state.egressProxies.find((row) => row.id === id);
+  if (!proxy) return undefined;
+  const available = proxy.enabled && proxy.effective_enabled;
+  return {
+    ok: available,
+    status: available ? 204 : null,
+    duration_ms: available ? 38 : 10000,
+    error_class: available ? null : "proxy_handshake",
+  };
 }
 
 export function updatePolicy(

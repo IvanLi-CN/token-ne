@@ -5,7 +5,7 @@ import { Button, ErrorState, Spinner } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { displayMoney, displayMs, displayNumber, displayTime } from "../overview/usage";
 import { requestsApi } from "./api";
-import { RequestStatus } from "./presentation";
+import { egressLabel, RequestStatus } from "./presentation";
 
 // Only map structured error classes to local text. Upstream messages can contain private data.
 const errorSummaries: Record<string, string> = {
@@ -24,19 +24,6 @@ const errorSummaries: Record<string, string> = {
 function errorSummary(code?: string | null) {
   return code && Object.hasOwn(errorSummaries, code) ? errorSummaries[code] : "—";
 }
-
-// The egress pair records the attempt that produced the terminal state, so an
-// absent value means the event predates the field or never reached an upstream.
-function egressLabel(row: {
-  egress_mode?: "direct" | "proxy" | null;
-  egress_proxy_id?: string | null;
-}) {
-  if (row.egress_mode === "proxy")
-    return row.egress_proxy_id ? `代理 ${row.egress_proxy_id}` : "代理";
-  if (row.egress_mode === "direct") return "直连";
-  return "—";
-}
-
 function Details({ title, rows }: { title: string; rows: [string, ReactNode][] }) {
   return (
     <section className="rounded-xl border border-border p-4">
