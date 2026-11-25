@@ -227,6 +227,8 @@ fn rejects_egress_configuration_with_contract_paths() {
         "socks5h://xray:15001?q=1",
         "socks5h://xray:15001#frag",
         "socks5h://xray:0",
+        "socks5h://xray:1023",
+        "socks5h://xray:80",
         "socks5h://xray:65536",
         "socks5h://:15001",
         "socks5h://::1:15001",
@@ -299,7 +301,7 @@ async fn disabled_profile_yields_no_candidate_and_never_falls_back_to_direct() {
     let target = direct_upstream(hits.clone()).await;
     let mut f = base();
     f["upstreams"][0]["base_url"] = target.clone().into();
-    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:9", false)]);
+    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:15009", false)]);
     f["upstreams"][0]["egress_proxy_id"] = json!(PROXY);
     let config = parse(&f).unwrap();
     assert!(
@@ -431,7 +433,7 @@ async fn retry_across_egress_modes_records_only_the_terminal_attempt() {
     let target = direct_upstream(hits.clone()).await;
     let mut f = base();
     f["upstreams"][0]["base_url"] = target.into();
-    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:9", true)]);
+    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:15009", true)]);
     f["upstreams"][0]["egress_proxy_id"] = json!(PROXY);
     // 第二个直连候选，priority 更低。
     let mut unbound = f["upstreams"][0].clone();
@@ -510,7 +512,7 @@ async fn proxy_connect_failure_is_retryable_connect_error() {
     // 只绑定不可连接的代理：终态必须是 connect_error，不是直连，也不静默成功。
     let mut f = base();
     f["upstreams"][0]["base_url"] = json!("http://upstream.invalid");
-    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:9", true)]);
+    f["egress_proxies"] = json!([proxy(PROXY, "socks5h://127.0.0.1:15009", true)]);
     f["upstreams"][0]["egress_proxy_id"] = json!(PROXY);
     let events = Arc::new(Mutex::new(Vec::new()));
     let recorded = events.clone();

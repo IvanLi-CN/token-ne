@@ -56,7 +56,9 @@ fn socks5h_endpoint(raw: &str, path: &str) -> Result<()> {
         path,
     )?;
     let port: u32 = port.parse().map_err(|_| invalid())?;
-    require((1..=65535).contains(&port), path)?;
+    // The published schema fixes the floor at 1024: an internal SOCKS5 inbound
+    // below that would need a privileged bind, which the singleton never does.
+    require((1024..=65535).contains(&port), path)?;
     if let Some(inner) = host.strip_prefix('[') {
         let inner = inner.strip_suffix(']').ok_or_else(invalid)?;
         require(inner.contains(':') && inner.parse::<IpAddr>().is_ok(), path)?;
