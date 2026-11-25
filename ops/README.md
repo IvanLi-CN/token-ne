@@ -83,6 +83,8 @@ docker compose --env-file ops/.env -f ops/compose.yaml -f ops/compose.egress.yam
 | `XRAY_API_URL` | 可选，默认 `10.42.0.10:10085`；Xray gRPC 地址，只监听 `xray-control`，core 不加入该网络 |
 | `XRAY_PROXY_PORT_MIN`、`XRAY_PROXY_PORT_MAX` | 可选，默认 `15000`–`15999`；每个档案分配的内部 SOCKS5 入站端口范围，闭区间且不可重复 |
 | `XRAY_RECONCILE_INTERVAL_SECONDS` | 可选，默认 `30`；控制面对 Xray 的对账周期 |
+| `XRAY_EGRESS_HOST` | 可选，默认 `xray`；控制面访问档案 SOCKS5 入站的主机名。Compose 内即服务名，改成 `127.0.0.1` 只适用于同命名空间部署 |
+| `EGRESS_PROBE_URL` | 可选，默认 `https://www.gstatic.com/generate_204`；`/api/egress-proxies/{id}/test` 的受控探测目标。返回 2xx 且不下载正文才算成功 |
 
 - `ops/xray/bootstrap.json` 只包含 gRPC API（`HandlerService`/`RoutingService`/`StatsService`）、`stats` app、`policy.system` 统计开关、默认 `blackhole` outbound 与 API 入站路由。**不存在默认直连 outbound**：未匹配流量进入 blackhole，不会泄漏。
 - SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由全部由控制面通过 gRPC 创建，Xray 配置文件不是事实来源。
