@@ -25,6 +25,18 @@ function errorSummary(code?: string | null) {
   return code && Object.hasOwn(errorSummaries, code) ? errorSummaries[code] : "—";
 }
 
+// The egress pair records the attempt that produced the terminal state, so an
+// absent value means the event predates the field or never reached an upstream.
+function egressLabel(row: {
+  egress_mode?: "direct" | "proxy" | null;
+  egress_proxy_id?: string | null;
+}) {
+  if (row.egress_mode === "proxy")
+    return row.egress_proxy_id ? `代理 ${row.egress_proxy_id}` : "代理";
+  if (row.egress_mode === "direct") return "直连";
+  return "—";
+}
+
 function Details({ title, rows }: { title: string; rows: [string, ReactNode][] }) {
   return (
     <section className="rounded-xl border border-border p-4">
@@ -100,6 +112,7 @@ export function RequestDrawer({
                       ["请求模型", row.requested_model],
                       ["上游模型", row.upstream_model],
                       ["上游标识", row.upstream_id],
+                      ["出站方式", egressLabel(row)],
                       ["请求模式", row.stream == null ? "—" : row.stream ? "流式" : "非流式"],
                     ]}
                   />
