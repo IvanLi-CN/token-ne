@@ -1,0 +1,50 @@
+# 第二期出站代理覆盖层。一期部署只用 `ops/compose.yaml`，不包含 Xray、egress 网络、
+# xray-control 网络与 XRAY_* 变量。第二期显式叠加本文件：
+#
+#   docker compose --env-file ops/.env -f ops/compose.yaml -f ops/compose.egress.yaml up -d
+#
+# Xray 是 Compose 声明服务，生命周期由 Compose 管理；控制面不创建、删除或重启它，
+# 只通过 xray-control 上的 gRPC API 管理运行态。它不发布宿主端口，不加入 edge 或 data。
+services:
+  xray:
+    # 固定版本，且必须与 server/go.mod 的 github.com/xtls/xray-core 保持一致：
+    # 控制面用该模块的 proto 类型构造 gRPC 请求。
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:26.3.27}
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./xray/bootstrap.json:/etc/xray/config.json:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/xray", "version"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      egress:
+      xray-control:
+        ipv4_address: 10.42.0.10
+
+  api:
+    depends_on:
+      xray:
+        # 可选依赖：Xray 缺失不阻断 API 启动，代理档案停在 degraded。
+        condition: service_started
+        required: false
+    environment:
+      CORE_NETWORKS: token_ne_edge,token_ne_core_control,token_ne_egress
+      XRAY_API_URL: ${XRAY_API_URL:-10.42.0.10:10085}
+      XRAY_PROXY_PORT_MIN: ${XRAY_PROXY_PORT_MIN:-15000}
+      XRAY_PROXY_PORT_MAX: ${XRAY_PROXY_PORT_MAX:-15999}
+      XRAY_RECONCILE_INTERVAL_SECONDS: ${XRAY_RECONCILE_INTERVAL_SECONDS:-30}
+    networks:
+      - egress
+      - xray-control
+
+networks:
+  egress:
+    name: token_ne_egress
+  xray-control:
+    name: token_ne_xray_control
+    ipam:
+      config:
+        - subnet: 10.42.0.0/24
