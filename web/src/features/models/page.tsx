@@ -13,6 +13,7 @@ import {
   upstreamPolicyApi,
 } from "../../lib/api";
 import { formatTime } from "../../lib/format";
+import { globMatches } from "../../lib/glob";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
 import { type Billing, type Model, type ModelInput, type ModelUpdateInput, modelsApi } from "./api";
@@ -30,13 +31,6 @@ const prices = [
   ["output_usd_per_mtok", "输出价格"],
 ] as const;
 const sourceLabels = { manual: "手工", price_source: "报价源" } as const;
-
-function globMatches(pattern: string, value: string): boolean {
-  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
-    character === "*" ? ".*" : character === "?" ? "." : `\\${character}`,
-  );
-  return new RegExp(`^${escaped}$`).test(value);
-}
 
 function policyAllows(policy: UpstreamPolicy | undefined, modelId: string): boolean {
   if (!policy) return true;

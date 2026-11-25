@@ -1244,6 +1244,8 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1271,6 +1273,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceSourceUnsync"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1278,7 +1284,7 @@ paths:
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "422":
-          $ref: "#/components/responses/AdminBadRequest"
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1305,6 +1311,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceSourceInstall"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1312,7 +1322,7 @@ paths:
         "404":
           $ref: "#/components/responses/AdminNotFound"
         "422":
-          $ref: "#/components/responses/AdminBadRequest"
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -3388,9 +3398,9 @@ components:
       properties:
         source_model_ids:
           type: array
+          description: 保持输入顺序去重后处理；重复的 ID 会被忽略。
           minItems: 1
           maxItems: 200
-          uniqueItems: true
           items:
             type: string
             maxLength: 256
@@ -3953,6 +3963,10 @@ components:
               type: [integer, "null"]
             status_rewritten_from:
               type: [integer, "null"]
+            price_source:
+              type: [string, "null"]
+            price_source_id:
+              type: [string, "null"]
     AuditEvent:
       type: object
       required: [id, actor, action, target_type, created_at]

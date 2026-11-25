@@ -217,8 +217,8 @@ describe("prices surface", () => {
     expect(within(panel).getAllByText("需审核").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("冲突").length).toBeGreaterThan(0);
     expect(within(panel).getByText("标准化建议")).toBeTruthy();
-    expect(within(panel).getAllByText("输入 $1").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("输入 $2").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("输入 $1.00").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("输入 $2.00").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("生成时不存在").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("rev-glob").length).toBeGreaterThan(0);
   });

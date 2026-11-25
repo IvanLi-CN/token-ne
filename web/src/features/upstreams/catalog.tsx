@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
 import { Button, StatusBadge } from "../../components/primitives";
@@ -79,8 +79,16 @@ function ImportDialog({
   onImported: (result: CatalogImportResult) => Promise<void>;
 }) {
   const [mode, setMode] = useState<"create_model" | "bind_existing">("create_model");
+  const [bindModelId, setBindModelId] = useState(models[0]?.model_id ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  // The model list loads asynchronously and can change while the dialog is open;
+  // keep the select on a valid model instead of a stale defaultValue.
+  useEffect(() => {
+    if (!models.some((model) => model.model_id === bindModelId)) {
+      setBindModelId(models[0]?.model_id ?? "");
+    }
+  }, [models, bindModelId]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -157,7 +165,8 @@ function ImportDialog({
               className="input rounded-xl"
               name="target_model_id"
               required
-              defaultValue={models[0]?.model_id ?? ""}
+              value={bindModelId}
+              onChange={(event) => setBindModelId(event.target.value)}
               aria-invalid={fieldInvalid(error, "model_id")}
             >
               {models.map((model) => (

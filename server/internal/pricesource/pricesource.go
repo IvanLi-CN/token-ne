@@ -313,27 +313,6 @@ func validText(s string, max int) bool {
 
 func generateQuotes(d Dataset, targets []Target) []Quote {
 	quotes := make([]Quote, len(targets))
-	ambiguousNormalized := make(map[int]bool, len(d.Models))
-	for i := range d.Models {
-		if d.Models[i].ExplicitModelID != nil {
-			continue
-		}
-		norm := Normalize(d.Models[i].SourceModelID)
-		if norm == "" {
-			continue
-		}
-		counts := map[bool]int{}
-		for _, t := range targets {
-			if normalizedMatches(norm, t) {
-				global := t.UpstreamID == nil
-				counts[global]++
-				if counts[global] > 1 {
-					ambiguousNormalized[i] = true
-				}
-			}
-		}
-	}
-
 	for ti, t := range targets {
 		q := Quote{
 			ModelID:             t.ModelID,
@@ -373,20 +352,12 @@ func generateQuotes(d Dataset, targets []Target) []Quote {
 			sort.Slice(normalized, func(a, b int) bool { return normalized[a].SourceModelID < normalized[b].SourceModelID })
 			q.SourceModelID = new(normalized[0].SourceModelID)
 			q.MatchMethod = MatchNormalized
-			ambiguous := false
-			for _, m := range normalized {
-				for i := range d.Models {
-					if d.Models[i].SourceModelID == m.SourceModelID && ambiguousNormalized[i] {
-						ambiguous = true
-					}
-				}
-			}
 			same := samePrices(normalized)
-			if !ambiguous && same {
+			if same {
 				q.Proposed = new(normalized[0].billing())
 			}
 			switch {
-			case ambiguous || !same:
+			case !same:
 				q.Status = StatusConflict
 			case sameBilling(t.Current, normalized[0].billing()):
 				q.Status = StatusIgnored
@@ -395,8 +366,8 @@ func generateQuotes(d Dataset, targets []Target) []Quote {
 			default:
 				q.Status = StatusNeedsReview
 			}
-			quotes[ti] = q
 		}
+		// Unmatched targets keep the initialized missing quote.
 		quotes[ti] = q
 	}
 	return quotes

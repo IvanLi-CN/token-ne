@@ -481,7 +481,7 @@ export function PriceProfilesSection({
                 header: "操作",
                 cell: (row) =>
                   row.kind === "global" ? (
-                    <Link to="/models">在 Models 中编辑</Link>
+                    <Link to="/system/models">在 Models 中编辑</Link>
                   ) : (
                     <ActionGroup>
                       <Button variant="secondary" onClick={() => setEditor(row.profile)}>

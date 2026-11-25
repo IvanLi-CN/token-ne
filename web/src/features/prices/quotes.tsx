@@ -62,14 +62,21 @@ function PriceRunPanel({
   const appliedRun = useRef("");
   useEffect(() => {
     const data = run.data;
-    const key = data?.id ?? "";
-    if (appliedRun.current !== key) {
-      appliedRun.current = key;
-      // A reloaded run already knows which quotes it consumed; keep those rows
-      // disabled instead of letting the user re-select a stale baseline.
-      setApplied(new Set(data?.applied_quote_ids ?? []));
+    if (!data) return;
+    if (appliedRun.current !== data.id) {
+      appliedRun.current = data.id;
+      // A different run starts from its own consumed set.
+      setApplied(new Set(data.applied_quote_ids));
+    } else if (data.applied_quote_ids.length > 0) {
+      // Another session (or a refetch) may consume quotes while this panel is
+      // open; keep those rows disabled without dropping earlier applies.
+      setApplied((current) => {
+        const next = new Set(current);
+        for (const id of data.applied_quote_ids) next.add(id);
+        return next.size === current.size ? current : next;
+      });
     }
-    if (data?.state !== "ready") return;
+    if (data.state !== "ready") return;
     const resetKey = `${data.id}:${data.price_revision_ids.length}`;
     if (initialized.current === resetKey) return;
     initialized.current = resetKey;

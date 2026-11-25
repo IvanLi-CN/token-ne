@@ -57,17 +57,6 @@ pub fn overlap(a: &str, b: &str) -> bool {
     debug_assert!(validate(a) && validate(b));
     let p: Vec<char> = a.chars().collect();
     let q: Vec<char> = b.chars().collect();
-    let literals: std::collections::HashSet<char> = p
-        .iter()
-        .chain(&q)
-        .copied()
-        .filter(|c| !matches!(c, '*' | '?'))
-        .collect();
-    // 合法模式拒绝 ASCII 控制字符，因此 U+0000 可代表“所有非字面量字符”。
-    let sentinel = '\u{0}';
-    debug_assert!(!literals.contains(&sentinel));
-    let mut alphabet: Vec<char> = literals.into_iter().collect();
-    alphabet.push(sentinel);
     let width = q.len() + 1;
     let mut seen = vec![false; (p.len() + 1) * width];
     let mut stack = vec![(0usize, 0usize)];
@@ -83,10 +72,11 @@ pub fn overlap(a: &str, b: &str) -> bool {
         if q.get(j) == Some(&'*') {
             visit(&mut stack, &mut seen, width, (i, j + 1));
         }
-        for &c in &alphabet {
-            if let (Some(ni), Some(nj)) = (consume(&p, i, c), consume(&q, j, c)) {
-                visit(&mut stack, &mut seen, width, (ni, nj));
-            }
+        // 一条边只在两侧都能消耗同一个字符时存在：一侧是通配符时字符由另一侧
+        // 决定，否则两侧字面量必须相等。与 Go 侧 consume 的组合语义一致，
+        // 每个乘积状态只产生一个消耗边，不再枚举整个字母表。
+        if let Some(next) = pair_step(&p, i, &q, j) {
+            visit(&mut stack, &mut seen, width, next);
         }
     }
     false
@@ -100,13 +90,21 @@ fn visit(stack: &mut Vec<(usize, usize)>, seen: &mut [bool], width: usize, (i, j
     }
 }
 
-/// 在 `index` 处消费字符 `c`：`*` 原地重复，`?`/字面量前进一步。
-fn consume(pattern: &[char], index: usize, c: char) -> Option<usize> {
-    match *pattern.get(index)? {
-        '*' => Some(index),
-        '?' => Some(index + 1),
-        literal if literal == c => Some(index + 1),
-        _ => None,
+/// 两侧同时消耗一个字符后的状态；`lit`/`any` 描述 token 消费的字符。
+fn pair_step(p: &[char], i: usize, q: &[char], j: usize) -> Option<(usize, usize)> {
+    let (a_lit, a_any, a_next, a_ok) = token(p, i);
+    let (b_lit, b_any, b_next, b_ok) = token(q, j);
+    (a_ok && b_ok && (a_any || b_any || a_lit == b_lit)).then_some((a_next, b_next))
+}
+
+/// `index` 处唯一的消耗转移：`*` 原地重复，`?` 与字面量前进一步。
+#[allow(clippy::type_complexity)]
+fn token(pattern: &[char], index: usize) -> (char, bool, usize, bool) {
+    match pattern.get(index) {
+        None => ('\u{0}', false, 0, false),
+        Some('*') => ('\u{0}', true, index, true),
+        Some('?') => ('\u{0}', true, index + 1, true),
+        Some(&lit) => (lit, false, index + 1, true),
     }
 }
 

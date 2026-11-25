@@ -18,9 +18,9 @@ export interface NavigationDestination {
 export const destinations: readonly NavigationDestination[] = [
   { path: "/", label: "总览" },
   { path: "/requests", label: "请求" },
-  { path: "/models", label: "Models" },
+  { path: "/system/models", label: "Models" },
   { path: "/upstreams", label: "Upstreams" },
-  { path: "/prices", label: "Prices", phaseTwo: true },
+  { path: "/system/prices", label: "Prices", phaseTwo: true },
   { path: "/keys", label: "Downstream Keys" },
   { path: "/system", label: "系统" },
   { path: "/system/cores", label: "系统 / Cores" },

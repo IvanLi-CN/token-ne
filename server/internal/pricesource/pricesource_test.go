@@ -49,6 +49,37 @@ func TestNormalizedMatchIsEqualityOnly(t *testing.T) {
 	}
 }
 
+// A single source row may normalize to the same name as more than one target
+// profile (for example two upstream capabilities sharing an upstream model
+// name). The row is not ambiguous about its price: every target still gets a
+// reviewable proposal instead of an inert conflict with no proposed value.
+func TestNormalizedQuoteAppliesToEveryTargetSharingAName(t *testing.T) {
+	now := time.Now().UTC()
+	rev := "00000000-0000-0000-0000-000000000001"
+	upstreamA := "00000000-0000-0000-0000-000000000002"
+	upstreamB := "00000000-0000-0000-0000-000000000003"
+	d := Dataset{
+		Version: "v1", SourceID: "test", Name: "test", FetchedAt: now, Note: "note",
+		Models: []Entry{{SourceModelID: "OpenAI/GPT_4o", Input: new(2.5), Output: new(10.0)}},
+	}
+	quotes, err := Builtin{}.Quotes(d, []Target{
+		{ModelID: "gpt-4o", RevisionID: &rev, UpdatedAt: &now, Names: []string{"gpt-4o"}},
+		{ModelID: "gpt-4o", UpstreamID: &upstreamA, UpdatedAt: &now, Names: []string{"gpt-4o"}},
+		{ModelID: "gpt-4o", UpstreamID: &upstreamB, UpdatedAt: &now, Names: []string{"gpt-4o"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, quote := range quotes {
+		if quote.MatchMethod != MatchNormalized || quote.Status != StatusNeedsReview {
+			t.Fatalf("quote %d = method %s status %s, want normalized/needs_review: %+v", i, quote.MatchMethod, quote.Status, quote)
+		}
+		if quote.Proposed == nil || quote.Proposed.Input == nil || *quote.Proposed.Input != 2.5 {
+			t.Fatalf("quote %d must carry the source price: %+v", i, quote)
+		}
+	}
+}
+
 func TestQuoteGenerationStatuses(t *testing.T) {
 	now := time.Now().UTC()
 	rev := "00000000-0000-0000-0000-000000000001"
@@ -105,7 +136,7 @@ func TestQuoteGenerationStatuses(t *testing.T) {
 		}
 	}
 	if quotes[5].Proposed != nil {
-		t.Fatalf("ambiguous normalized quote must not carry a proposed price: %+v", quotes[5])
+		t.Fatalf("disagreeing source rows must not carry a single proposed price: %+v", quotes[5])
 	}
 	if quotes[6].MatchMethod != MatchNone {
 		t.Fatalf("explicit mapping leaked into normalized suggestions: %+v", quotes[6])

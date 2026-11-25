@@ -22,8 +22,8 @@ func TestTokenUsageReconcilesDetailShapes(t *testing.T) {
 		},
 		{
 			name:  "cache creation reported outside input_tokens is added",
-			event: usage.Event{InputTokens: int64p(100), CachedInputTokens: int64p(800), CacheWriteTokens: int64p(100)},
-			input: int64p(1000),
+			event: usage.Event{InputTokens: int64p(100), CachedInputTokens: int64p(50), CacheWriteTokens: int64p(100)},
+			input: int64p(250),
 		},
 		{
 			name:  "audio and reasoning reported outside output_tokens are added",
@@ -51,11 +51,12 @@ func TestTokenUsageReconcilesDetailShapes(t *testing.T) {
 
 // A provider that reports cache creation outside prompt_tokens must still be
 // billable; before the reconciliation the negative text input rejected the
-// whole usage batch.
-func TestTokenUsageKeepsAnthropicShapedInputBillable(t *testing.T) {
+// whole usage batch. Cache reads above input_tokens stay a subset violation
+// that Decode rejects, so the reconciled shape uses cache writes.
+func TestTokenUsageKeepsCacheWriteOutsideInputBillable(t *testing.T) {
 	event := usage.Event{
 		EventID:     "0193f0c2-7b1a-7c3e-9f00-000000000001",
-		InputTokens: int64p(100), CachedInputTokens: int64p(800), CacheWriteTokens: int64p(100),
+		InputTokens: int64p(100), CachedInputTokens: int64p(50), CacheWriteTokens: int64p(100),
 		OutputTokens: int64p(50),
 	}
 	u := tokenUsage(context.Background(), event)
@@ -64,9 +65,9 @@ func TestTokenUsageKeepsAnthropicShapedInputBillable(t *testing.T) {
 	if !fits || got == nil {
 		t.Fatalf("cost = %v fits=%v", got, fits)
 	}
-	// (100 text + 800 cached + 100 cache write + 50 output) / 1e6 USD at $1/Mtok.
-	if *got != "0.001050" {
-		t.Fatalf("cost = %s, want 0.001050", *got)
+	// (100 text + 50 cached + 100 cache write + 50 output) / 1e6 USD at $1/Mtok.
+	if *got != "0.000300" {
+		t.Fatalf("cost = %s, want 0.000300", *got)
 	}
 }
 

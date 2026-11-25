@@ -8,40 +8,10 @@ import {
   type UpstreamPolicyInput,
   upstreamPolicyApi,
 } from "../../lib/api";
+import { globMatches } from "../../lib/glob";
 import { queryKeys } from "../../lib/query-client";
 import { errorMessage, Field } from "../models/management";
 import type { Upstream } from "./api";
-
-/** 与承接策略同一受限 Glob 语言：整串匹配，区分大小写，只支持 * 与 ?。 */
-function globMatches(pattern: string, value: string): boolean {
-  // Code points, not UTF-16 units: a lone emoji must count as one `?`.
-  const patternChars = [...pattern];
-  const valueChars = [...value];
-  let patternIndex = 0;
-  let valueIndex = 0;
-  let star = -1;
-  let starMatch = 0;
-  while (valueIndex < valueChars.length) {
-    if (patternIndex < patternChars.length && patternChars[patternIndex] === "*") {
-      star = patternIndex;
-      patternIndex += 1;
-      starMatch = valueIndex;
-    } else if (
-      patternIndex < patternChars.length &&
-      (patternChars[patternIndex] === "?" || patternChars[patternIndex] === valueChars[valueIndex])
-    ) {
-      patternIndex += 1;
-      valueIndex += 1;
-    } else if (star >= 0) {
-      patternIndex = star + 1;
-      starMatch += 1;
-      valueIndex = starMatch;
-    } else return false;
-  }
-  while (patternIndex < patternChars.length && patternChars[patternIndex] === "*")
-    patternIndex += 1;
-  return patternIndex === patternChars.length;
-}
 
 function parsePatterns(value: string): string[] {
   return value

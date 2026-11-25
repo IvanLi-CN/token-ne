@@ -1,20 +1,7 @@
 import type { Billing, PriceTier } from "../lib/api";
+import { formatMoney } from "../lib/format";
 
-/** Money keeps at least two and at most four decimals so columns align. */
-export function formatMoney(value: number | null | undefined): string | null {
-  if (value == null) return null;
-  if (value === 0) return "免费";
-  const fixed = value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-  const [whole, fraction = ""] = fixed.split(".");
-  if (Number(fixed) !== 0) {
-    return `$${whole}.${`${fraction}00`.slice(0, Math.max(2, fraction.length))}`;
-  }
-  // Sub-cent prices must not collapse into $0.00; widen until a digit survives.
-  let decimals = 6;
-  while (decimals < 12 && Number(value.toFixed(decimals)) === 0) decimals += 1;
-  const tiny = value.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
-  return `$${tiny}`;
-}
+export { formatMoney };
 
 export function MissingPrice({ label }: { label: string }) {
   return (

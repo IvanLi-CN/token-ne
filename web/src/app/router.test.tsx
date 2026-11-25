@@ -359,7 +359,7 @@ describe("shared boundaries", () => {
     expect(document.activeElement).toBe(search);
     fireEvent.change(search, { target: { value: "Models" } });
     const panel = screen.getByRole("region", { name: "命令面板" });
-    expect(panel.querySelector('a[href="/models"]')).toBeTruthy();
+    expect(panel.querySelector('a[href="/system/models"]')).toBeTruthy();
     expect(panel.querySelector('a[href="/upstreams"]')).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "固定 Models" }));
     fireEvent.click(screen.getByRole("button", { name: "重置固定与最近" }));
