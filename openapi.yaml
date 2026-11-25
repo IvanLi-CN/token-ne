@@ -4211,6 +4211,14 @@ components:
         upstream_id:
           type: [string, "null"]
           format: uuid
+        egress_mode:
+          type: [string, "null"]
+          enum: [direct, proxy, null]
+          description: 产生终态的那一次尝试的出站方式；第一期事件与未发起上游尝试的本地错误事件为 null。
+        egress_proxy_id:
+          type: [string, "null"]
+          format: uuid
+          description: 代理出站时的档案 ID；历史归因，不要求档案当前仍存在。
         stream:
           type: boolean
         http_status:
