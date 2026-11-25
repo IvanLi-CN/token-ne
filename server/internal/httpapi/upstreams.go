@@ -251,12 +251,12 @@ func (a *API) testUpstream(w http.ResponseWriter, r *http.Request) {
 	} else {
 		req.Header.Set("x-api-key", key)
 	}
-	dial := safeDial(a.cfg.AllowPrivateUpstreams)
-	tr := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
-		ctx, c := context.WithTimeout(ctx, time.Duration(u.Connect)*time.Millisecond)
-		defer c()
-		return dial(ctx, n, addr)
-	}, TLSHandshakeTimeout: time.Duration(u.Connect) * time.Millisecond, ResponseHeaderTimeout: time.Duration(u.FirstByte) * time.Millisecond}
+	// The test must exercise the same egress the request path would use.
+	tr, trErr := a.upstreamTransport(r.Context(), u)
+	if trErr != nil {
+		fail(w, r, 503, "no_upstream_available", "bound egress proxy is unavailable", nil)
+		return
+	}
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	start := time.Now()

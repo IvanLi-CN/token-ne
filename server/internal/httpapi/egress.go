@@ -519,6 +519,50 @@ func (a *API) egressProxyHost() string {
 	return egressProxyHostDefault
 }
 
+// upstreamTransport builds the HTTP transport for one upstream. A bound
+// upstream goes through its profile's internal SOCKS5 inbound with socks5h
+// semantics; an unbound one keeps the pinned-address direct dial. There is no
+// third branch: when the profile is unavailable this returns an error instead
+// of silently falling back to direct egress, which is what the contract
+// forbids. Both the catalog sync and the connection test use this, so neither
+// can bypass the binding.
+func (a *API) upstreamTransport(ctx context.Context, u store.Upstream) (*http.Transport, error) {
+	direct := func() *http.Transport {
+		dial := safeDial(a.cfg.AllowPrivateUpstreams)
+		return &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			ctx, cancel := context.WithTimeout(ctx, time.Duration(u.Connect)*time.Millisecond)
+			defer cancel()
+			return dial(ctx, network, address)
+		}, TLSHandshakeTimeout: time.Duration(u.Connect) * time.Millisecond,
+			ResponseHeaderTimeout: time.Duration(u.FirstByte) * time.Millisecond}
+	}
+	if u.EgressProxyID == nil {
+		return direct(), nil
+	}
+	p, e := a.repo.EgressProxy(ctx, *u.EgressProxyID)
+	if e != nil {
+		return nil, errEgressUnavailable
+	}
+	// Effective enablement is the routing qualification: an admin-enabled
+	// profile whose runtime still has a live outbound. Anything else means the
+	// bound upstream has no candidate, so the probe fails rather than going
+	// direct.
+	if !p.Effective || p.InboundPort < 1 {
+		return nil, errEgressUnavailable
+	}
+	proxyURL := &url.URL{Scheme: "socks5h", Host: net.JoinHostPort(a.egressProxyHost(), fmt.Sprint(p.InboundPort))}
+	// The proxy host is our own deployment endpoint, so it dials directly while
+	// the upstream hostname travels inside the SOCKS5 tunnel and is resolved by
+	// the third-party proxy, never here.
+	return &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSHandshakeTimeout: time.Duration(u.Connect) * time.Millisecond,
+		ResponseHeaderTimeout: time.Duration(u.FirstByte) * time.Millisecond}, nil
+}
+
+// errEgressUnavailable reports that a bound upstream cannot reach its profile.
+// Distinct from a transport error so callers can say "no candidate" rather
+// than pretending the third-party proxy timed out.
+var errEgressUnavailable = errors.New("bound egress proxy is unavailable")
+
 // egressTransport routes the probe through the profile's internal SOCKS5
 // inbound port: Xray resolves the target hostname, not the control plane.
 func (a *API) egressTransport(p store.EgressProxy) (http.RoundTripper, error) {
