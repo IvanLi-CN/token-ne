@@ -169,7 +169,27 @@ function upstreamName(upstreams: Upstream[], id: string): string {
   return upstreams.find((upstream) => upstream.id === id)?.name ?? id;
 }
 
-function PreviewResult({ preview, upstreams }: { preview: RoutePreview; upstreams: Upstream[] }) {
+function MatchedRule({ preview, routes }: { preview: RoutePreview; routes: ModelRoute[] }) {
+  const rule = preview.matched_rule
+    ? routes.find((candidate) => candidate.id === preview.matched_rule)
+    : undefined;
+  const kind = rule?.match_type ?? preview.rule_kind;
+  return (
+    <>
+      <code>{rule?.pattern ?? preview.matched_rule}</code>（{kind ? matchLabel[kind] : "未知"}）
+    </>
+  );
+}
+
+function PreviewResult({
+  preview,
+  upstreams,
+  routes,
+}: {
+  preview: RoutePreview;
+  upstreams: Upstream[];
+  routes: ModelRoute[];
+}) {
   if (!preview.resolved_model)
     return (
       <div className="flex flex-col gap-3">
@@ -194,9 +214,7 @@ function PreviewResult({ preview, upstreams }: { preview: RoutePreview; upstream
           <span className="muted">命中规则</span>
           <p>
             {preview.matched_rule ? (
-              <>
-                <code>{preview.matched_rule}</code>（{preview.rule_kind ?? "未知"}）
-              </>
+              <MatchedRule preview={preview} routes={routes} />
             ) : (
               "全局模型 ID 直接匹配"
             )}
@@ -253,7 +271,7 @@ function PreviewResult({ preview, upstreams }: { preview: RoutePreview; upstream
   );
 }
 
-function RoutePreviewPanel({ upstreams }: { upstreams: Upstream[] }) {
+function RoutePreviewPanel({ upstreams, routes }: { upstreams: Upstream[]; routes: ModelRoute[] }) {
   const [name, setName] = useState("");
   const preview = useMutation({
     mutationFn: (requested: string) => modelRoutesApi.preview(requested),
@@ -296,7 +314,9 @@ function RoutePreviewPanel({ upstreams }: { upstreams: Upstream[] }) {
         {!preview.data && !preview.isPending && !preview.error && (
           <p className="muted">尚未预览；结果只反映当前已保存的规则。</p>
         )}
-        {preview.data && <PreviewResult preview={preview.data} upstreams={upstreams} />}
+        {preview.data && (
+          <PreviewResult preview={preview.data} upstreams={upstreams} routes={routes} />
+        )}
       </div>
     </section>
   );
@@ -421,7 +441,7 @@ export function ModelRoutesSection({
           )}
         </div>
       </section>
-      <RoutePreviewPanel upstreams={availableUpstreams} />
+      <RoutePreviewPanel upstreams={availableUpstreams} routes={routes.data ?? []} />
       {editor !== undefined && (
         <RouteEditor
           route={editor}

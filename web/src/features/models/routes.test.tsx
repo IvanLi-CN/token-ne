@@ -151,10 +151,34 @@ describe("models route rules", () => {
     fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
     expect(await screen.findByText("已解析")).toBeTruthy();
     expect(screen.getAllByText("example", { selector: "code" }).length).toBeGreaterThan(1);
-    expect(screen.getByText(/route-1/)).toBeTruthy();
+    const resolved = within(screen.getByRole("region", { name: "路由预览" }));
+    expect(resolved.getByText("gpt-*")).toBeTruthy();
+    expect(resolved.getByText(/（Glob）/)).toBeTruthy();
     expect(screen.getByText("Primary")).toBeTruthy();
     expect(screen.getByText("provider-example")).toBeTruthy();
     expect(screen.getByText("可承接")).toBeTruthy();
+  });
+
+  it("falls back to the raw rule id when the matched rule is not loaded", async () => {
+    mock((url, init) => {
+      if (url === "/api/model-routes/preview" && init.method === "POST")
+        return response({
+          requested_model: "gpt-4o-mini",
+          resolved_model: "example",
+          matched_rule: "route-gone",
+          rule_kind: null,
+          candidates: [],
+        });
+      if (url === "/api/model-routes") return response({ data: [] });
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由" });
+    fireEvent.change(screen.getByLabelText("请求模型名"), { target: { value: "gpt-4o-mini" } });
+    fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
+    const resolved = within(await screen.findByRole("region", { name: "路由预览" }));
+    expect(await resolved.findAllByText("route-gone")).toBeTruthy();
+    expect(resolved.getByText(/（未知）/)).toBeTruthy();
   });
 
   it("renders an unresolved preview as an empty result instead of an error", async () => {
@@ -222,6 +246,44 @@ describe("models route rules", () => {
     await waitFor(() =>
       expect(fetch.mock.calls.some(([url]) => String(url) === "/api/version")).toBe(true),
     );
+  });
+
+  it("falls back to the lock confirmation when the server rejects a stale unlocked snapshot", async () => {
+    let putCount = 0;
+    const fetch = mock((url, init) => {
+      if (url === "/api/version") return response(phase(true));
+      if (url === `/api/models/${model.model_id}` && init.method === "PUT") {
+        putCount += 1;
+        if (putCount === 1)
+          return response(
+            {
+              error: {
+                code: "price_profile_locked",
+                message: "价格档案已锁定",
+                request_id: "req-locked",
+                details: [],
+              },
+            },
+            409,
+          );
+        return response({ ...model, billing: { ...model.billing, input_usd_per_mtok: 9 } });
+      }
+      return base(true)(url, init);
+    });
+    mount();
+    await screen.findAllByText("example");
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.change(await screen.findByLabelText("输入价格"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+    const dialog = await screen.findByRole("dialog", { name: "修改已锁定的全局价格？" });
+    expect(screen.queryByText("价格档案已锁定")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认修改锁定价格" }));
+    await waitFor(() => expect(putCount).toBe(2));
+    const confirmed = fetch.mock.calls.filter(([, init]) => init?.method === "PUT")[1];
+    expect(JSON.parse(String(confirmed?.[1]?.body))).toMatchObject({
+      billing: { input_usd_per_mtok: 9 },
+      confirm_locked: true,
+    });
   });
 
   it("shows the billing revision and requires confirmation before changing a locked global price", async () => {

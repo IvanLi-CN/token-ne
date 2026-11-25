@@ -63,15 +63,22 @@ func Calculate(base Prices, tiers []Tier, u Usage) (*string, bool) {
 		return nil, false
 	}
 
+	// Apply only the highest threshold at or below the prompt size. Stored
+	// tiers are normally ascending, but the manual write path does not
+	// guarantee it, and applying several tiers in array order would charge a
+	// lower threshold last.
 	prices := base
+	applied := int64(-1)
 	for _, tier := range tiers {
-		if input >= tier.ThresholdTokens {
-			prices = overlay(prices, Prices{
-				Input: tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
-				AudioIn: tier.AudioIn, AudioOut: tier.AudioOut,
-				Reasoning: tier.Reasoning, Output: tier.Output,
-			})
+		if input < tier.ThresholdTokens || tier.ThresholdTokens <= applied {
+			continue
 		}
+		applied = tier.ThresholdTokens
+		prices = overlay(base, Prices{
+			Input: tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
+			AudioIn: tier.AudioIn, AudioOut: tier.AudioOut,
+			Reasoning: tier.Reasoning, Output: tier.Output,
+		})
 	}
 
 	// Providers without a separate reasoning rate bill reasoning as output.

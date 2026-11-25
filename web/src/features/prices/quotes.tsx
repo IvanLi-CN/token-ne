@@ -51,6 +51,7 @@ function PriceRunPanel({
     refetchInterval: (query) => (query.state.data?.state === "running" ? 2000 : false),
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [applied, setApplied] = useState<Set<string>>(new Set());
   const [reviewed, setReviewed] = useState<Set<string>>(new Set());
   const [forceLocked, setForceLocked] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -58,12 +59,18 @@ function PriceRunPanel({
   const [applyError, setApplyError] = useState<unknown>();
   const [receipt, setReceipt] = useState<PriceSyncRun>();
   const initialized = useRef("");
+  const appliedRun = useRef("");
   useEffect(() => {
     const data = run.data;
+    const key = data?.id ?? "";
+    if (appliedRun.current !== key) {
+      appliedRun.current = key;
+      setApplied(new Set());
+    }
     if (data?.state !== "ready") return;
-    const key = `${data.id}:${data.price_revision_ids.length}`;
-    if (initialized.current === key) return;
-    initialized.current = key;
+    const resetKey = `${data.id}:${data.price_revision_ids.length}`;
+    if (initialized.current === resetKey) return;
+    initialized.current = resetKey;
     setSelected(
       new Set(
         data.items
@@ -89,7 +96,10 @@ function PriceRunPanel({
   const sourceName = sources.find((source) => source.id === data.source_id)?.name ?? data.source_id;
   const editable = data.state === "ready" || data.state === "applied";
   const selectable = (quote: PriceQuote) =>
-    editable && quoteStatusMeta[quote.status].selectable && quote.proposed != null;
+    editable &&
+    quoteStatusMeta[quote.status].selectable &&
+    quote.proposed != null &&
+    !applied.has(quote.id);
   const selectedQuotes = data.items.filter((quote) => selected.has(quote.id));
   const selectedNonSafe = selectedQuotes.filter((quote) => quote.status !== "safe");
   const unreviewed = selectedNonSafe.filter((quote) => !reviewed.has(quote.id));
@@ -145,14 +155,16 @@ function PriceRunPanel({
   }
   async function apply() {
     if (pending || !selectedQuotes.length) return;
+    const applyingIds = selectedQuotes.map((quote) => quote.id);
     setPending(true);
     setApplyError(undefined);
     try {
       const result = await pricesApi.apply(data.id, {
-        quote_ids: selectedQuotes.map((quote) => quote.id),
+        quote_ids: applyingIds,
         reviewed_quote_ids: selectedNonSafe.map((quote) => quote.id),
         force_locked: lockedSelected.length > 0 ? forceLocked : undefined,
       });
+      setApplied((current) => new Set([...current, ...applyingIds]));
       setReceipt(result);
       setSelected(new Set());
       setReviewed(new Set());
@@ -371,7 +383,16 @@ function PriceRunPanel({
                     return (
                       <div>
                         <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
-                        <p className="muted max-w-48 text-xs whitespace-normal">{meta.hint}</p>
+                        {applied.has(quote.id) && (
+                          <div>
+                            <StatusBadge tone="success">已应用</StatusBadge>
+                          </div>
+                        )}
+                        <p className="muted max-w-48 text-xs whitespace-normal">
+                          {quote.status === "conflict" && quote.proposed == null
+                            ? "多个来源价格不一致，无法自动应用；请手工维护价格。"
+                            : meta.hint}
+                        </p>
                       </div>
                     );
                   },

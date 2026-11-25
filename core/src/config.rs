@@ -347,7 +347,16 @@ impl Config {
         let value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| ConfigError("json".into()))?;
         reject_unknown_fields(&value)?;
-        let config: Self = serde_json::from_value(value).map_err(|_| ConfigError("json".into()))?;
+        // Shape errors carry the field path so the publisher gets a locatable
+        // 422 instead of a path-free 400 meant for malformed JSON.
+        let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
+            let path = error.path().to_string();
+            if path.is_empty() || path == "." {
+                ConfigError("json".into())
+            } else {
+                ConfigError(path)
+            }
+        })?;
         config.validate(instance, options)?;
         Ok(config)
     }
@@ -718,11 +727,11 @@ impl Config {
         }
         // 同优先级 Glob 重叠时目标与上游限制必须一致，否则会静默改变路由含义。
         for (i, a) in self.model_routes.iter().enumerate() {
-            if a.match_type != MatchType::Glob {
+            if !a.enabled || a.match_type != MatchType::Glob {
                 continue;
             }
             for (j, b) in self.model_routes.iter().enumerate().skip(i + 1) {
-                if b.match_type != MatchType::Glob || a.priority != b.priority {
+                if !b.enabled || b.match_type != MatchType::Glob || a.priority != b.priority {
                     continue;
                 }
                 require(

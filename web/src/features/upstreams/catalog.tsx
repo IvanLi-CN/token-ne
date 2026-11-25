@@ -217,7 +217,6 @@ export function UpstreamCatalogDialog({
   const [importReceipt, setImportReceipt] = useState<CatalogImportResult>();
   const [policyDirty, setPolicyDirty] = useState(false);
   const run = catalog.data?.latest_run ?? null;
-  const running = run?.state === "running" || syncPending;
   async function sync() {
     if (syncPending) return;
     setSyncPending(true);
@@ -265,12 +264,8 @@ export function UpstreamCatalogDialog({
                   : upstream.capabilities_revision}
               </p>
             </div>
-            <Button
-              variant="secondary"
-              disabled={syncPending || running}
-              onClick={() => void sync()}
-            >
-              {syncPending || running ? "同步进行中…" : "同步目录"}
+            <Button variant="secondary" disabled={syncPending} onClick={() => void sync()}>
+              {syncPending ? "同步中…" : "同步目录"}
             </Button>
           </div>
           <div className="flex flex-col gap-4 px-5 pb-5">

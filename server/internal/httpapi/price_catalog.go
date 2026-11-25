@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -26,6 +27,10 @@ type priceCatalogAPI struct {
 func registerPriceCatalog(m *http.ServeMux, a *API) {
 	repo, ok := a.repo.(priceCatalogRepository)
 	if !ok {
+		registerUnavailable(m, a,
+			"GET /api/price-sources/{source_id}/models",
+			"POST /api/price-sources/{source_id}/models/install",
+			"POST /api/price-sources/{source_id}/models/unsync")
 		return
 	}
 	p := priceCatalogAPI{repo: repo}
@@ -64,11 +69,14 @@ func (p priceCatalogAPI) list(w http.ResponseWriter, r *http.Request) {
 	field := query.Get("sort")
 	descending := query.Get("order") == "desc"
 	sort.SliceStable(rows, func(i, j int) bool {
-		less := compareSourceModel(rows[i], rows[j], field)
-		if descending {
-			return less > 0
+		order, missing := compareSourceModel(rows[i], rows[j], field)
+		if missing != 0 {
+			return missing < 0
 		}
-		return less < 0
+		if descending {
+			return order > 0
+		}
+		return order < 0
 	})
 	writeJSON(w, 200, map[string]any{
 		"source_id":  catalog.SourceID,
@@ -80,7 +88,9 @@ func (p priceCatalogAPI) list(w http.ResponseWriter, r *http.Request) {
 
 // compareSourceModel orders by the requested field with a stable tie-break.
 // Missing dates always sort last so an unknown release never leads the list.
-func compareSourceModel(a, b store.SourceModel, field string) int {
+// The second result is a missing-date bias that callers apply before the
+// direction, so `desc` cannot move undated rows to the front.
+func compareSourceModel(a, b store.SourceModel, field string) (order, missing int) {
 	var av, bv *time.Time
 	switch field {
 	case "released":
@@ -88,23 +98,23 @@ func compareSourceModel(a, b store.SourceModel, field string) int {
 	case "deprecated":
 		av, bv = a.DeprecatedAt, b.DeprecatedAt
 	default:
-		return strings.Compare(a.SourceModelID, b.SourceModelID)
+		return strings.Compare(a.SourceModelID, b.SourceModelID), 0
 	}
 	switch {
 	case av == nil && bv == nil:
 	case av == nil:
-		return 1
+		return 0, 1
 	case bv == nil:
-		return -1
+		return 0, -1
 	default:
 		if !av.Equal(*bv) {
 			if av.Before(*bv) {
-				return -1
+				return -1, 0
 			}
-			return 1
+			return 1, 0
 		}
 	}
-	return strings.Compare(a.SourceModelID, b.SourceModelID)
+	return strings.Compare(a.SourceModelID, b.SourceModelID), 0
 }
 
 // install creates the selected source rows as global models. The response names
@@ -138,8 +148,9 @@ func (p priceCatalogAPI) install(w http.ResponseWriter, r *http.Request) {
 		seen[id] = true
 		unique = append(unique, id)
 	}
-	result, e := p.repo.InstallPriceSourceModels(r.Context(), sourceID, unique,
-		auditFor(r, "price.source.install", "price_source", sourceID))
+	audit := auditFor(r, "price.source.install", "price_source", sourceID)
+	audit.Payload, _ = json.Marshal(map[string]any{"source_model_ids": unique})
+	result, e := p.repo.InstallPriceSourceModels(r.Context(), sourceID, unique, audit)
 	if e != nil {
 		storageError(w, r, e, "source_model_ids")
 		return
@@ -178,8 +189,9 @@ func (p priceCatalogAPI) unsync(w http.ResponseWriter, r *http.Request) {
 		seen[id] = true
 		unique = append(unique, id)
 	}
-	cleared, e := p.repo.ClearPriceSourceSyncMarks(r.Context(), sourceID, unique,
-		auditFor(r, "price.source.unsync", "price_source", sourceID))
+	audit := auditFor(r, "price.source.unsync", "price_source", sourceID)
+	audit.Payload, _ = json.Marshal(map[string]any{"source_model_ids": unique})
+	cleared, e := p.repo.ClearPriceSourceSyncMarks(r.Context(), sourceID, unique, audit)
 	if e != nil {
 		storageError(w, r, e, "source_model_ids")
 		return

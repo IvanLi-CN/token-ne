@@ -234,25 +234,25 @@ export function PriceSourceCatalogSection() {
                 拖动开关可连续切换多行；停止同步只清除标记，不删除全局模型、不改价格与接受状态。
               </span>
             </div>
-            <FieldFailure error={installError} />
-            {result && (
-              <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
-                已创建 {created} 个，已存在 {existed} 个
-                {conflicts.length ? `，冲突 ${conflicts.length} 个` : ""}
-                。新建的模型默认不启用，价格取快照值。
-                {conflicts.length > 0 && (
-                  <ul className="mt-2 list-disc pl-5">
-                    {conflicts.map((row) => (
-                      <li key={row.source_model_id}>
-                        <code title={row.source_model_id}>{row.source_model_id}</code>：
-                        {row.reason ?? "无法添加"}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
           </div>
+          <FieldFailure error={installError} />
+          {result && (
+            <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
+              已创建 {created} 个，已存在 {existed} 个
+              {conflicts.length ? `，冲突 ${conflicts.length} 个` : ""}
+              。新建的模型默认不启用，价格取快照值。
+              {conflicts.length > 0 && (
+                <ul className="mt-2 list-disc pl-5">
+                  {conflicts.map((row) => (
+                    <li key={row.source_model_id}>
+                      <code title={row.source_model_id}>{row.source_model_id}</code>：
+                      {row.reason ?? "无法添加"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       </section>
 

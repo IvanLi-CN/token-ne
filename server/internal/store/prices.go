@@ -144,27 +144,32 @@ func saveModel(ctx context.Context, tx pgx.Tx, m Model, create bool) (Model, err
 		if err != nil {
 			return Model{}, err
 		}
+		r := roundedBilling(m.Billing)
 		_, err = tx.Exec(ctx, `
 insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
 values($1,$2,$3,$4::text::date,$5,$6,$7,$8,'global')`,
-			m.ID, m.Enabled, m.Mapping, m.Shutdown, m.Billing.Input, m.Billing.Cached, m.Billing.Output, revision)
+			m.ID, m.Enabled, m.Mapping, m.Shutdown, r.input, r.cached, r.output, revision)
 		if err != nil {
 			return Model{}, normalize(err)
 		}
 	} else {
 		var current Billing
-		var revisionID string
+		var revisionID, tiersJSON string
 		var locked bool
 		err := tx.QueryRow(ctx, `
-select m.input_usd_per_mtok::float8,m.cached_input_usd_per_mtok::float8,m.output_usd_per_mtok::float8,m.billing_revision_id::text,r.locked
+select r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,r.cache_write_usd_per_mtok::float8,
+       r.audio_input_usd_per_mtok::float8,r.audio_output_usd_per_mtok::float8,r.reasoning_usd_per_mtok::float8,
+       r.output_usd_per_mtok::float8,r.tiers::text,m.billing_revision_id::text,r.locked
 from models m join price_revisions r on r.id=m.billing_revision_id
-where m.model_id=$1 for update of m`, m.ID).Scan(&current.Input, &current.Cached, &current.Output, &revisionID, &locked)
+where m.model_id=$1 for update of m`, m.ID).Scan(&current.Input, &current.Cached, &current.CacheWrite,
+			&current.AudioIn, &current.AudioOut, &current.Reasoning, &current.Output, &tiersJSON, &revisionID, &locked)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Model{}, ErrNotFound
 		}
 		if err != nil {
 			return Model{}, err
 		}
+		current.Tiers = unmarshalTiers([]byte(tiersJSON))
 		desiredLocked := locked
 		if m.BillingLocked != nil {
 			desiredLocked = *m.BillingLocked
@@ -179,13 +184,14 @@ where m.model_id=$1 for update of m`, m.ID).Scan(&current.Input, &current.Cached
 				return Model{}, err
 			}
 		}
+		r := roundedBilling(m.Billing)
 		tag, err := tx.Exec(ctx, `
 update models
 set enabled=$2,default_upstream_model=$3,shutdown_date=$4::text::date,
     input_usd_per_mtok=$5,cached_input_usd_per_mtok=$6,output_usd_per_mtok=$7,
     billing_revision_id=$8,billing_revision_scope='global',updated_at=now()
 where model_id=$1`,
-			m.ID, m.Enabled, m.Mapping, m.Shutdown, m.Billing.Input, m.Billing.Cached, m.Billing.Output, revisionID)
+			m.ID, m.Enabled, m.Mapping, m.Shutdown, r.input, r.cached, r.output, revisionID)
 		if err != nil {
 			return Model{}, normalize(err)
 		}

@@ -67,8 +67,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、可选 `upstream_id`、`priority`、`enabled` 和描述。`exact` 的 `pattern` 是全局 Model ID 或精确别名；`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。
 - `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
-- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；目录导入新建 Model 时若已有同 `pattern` 规则，同样拒绝并返回字段路径。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
-- 路由规则写入和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。新建 Model 目前只校验模型 ID 唯一性，不校验同名路由规则占用。
+- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有规则使用同一 `pattern`，同样拒绝并返回 `409` 和字段路径 `model_id`。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
+- 路由规则写入、Model 创建和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。
 
 ## 价格 API
 
@@ -83,7 +83,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 价格源模型目录
 
-- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单、`installed` 状态和 `synced` 同步标记。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；缺失日期固定排在最后。目录开关显示为开当且仅当 `synced` 为真且 `installed` 为真。
+- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单、`installed` 状态和 `synced` 同步标记。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；无论排序方向，缺失日期固定排在最后。目录开关显示为开当且仅当 `synced` 为真且 `installed` 为真。
 - `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），写入同步标记并在同一事务内为缺失的行创建 `enabled=false` 的全局模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created`、`exists` 或 `conflict`。已存在的模型、被路由规则占用的名称和未知的来源行都不会被覆盖；冲突行不写标记。
 - `POST /api/price-sources/{source_id}/models/unsync` 接收 `source_model_ids`（1–200 个，去重），只清除同步标记并返回 `cleared` 数量：不删除全局模型，不修改价格修订，不改变 `enabled`。
 - 全局模型的接受状态由 `PUT /api/models/{model_id}` 的 `enabled` 控制，与目录同步标记互相独立；`DELETE /api/models/{model_id}` 删除模型后，对应目录行因为模型缺失而显示为关闭，目录刷新不会按标记重建。

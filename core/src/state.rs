@@ -158,7 +158,10 @@ impl CoreState {
         }
         Ok(applied)
     }
-    fn check_signature(
+    /// Verifies a pushed body without applying it. The push handler reports this
+    /// state in its ack even when the bytes are identical to the applied
+    /// revision, so a rotated key cannot keep claiming `valid`.
+    pub fn check_signature(
         &self,
         bytes: &[u8],
         source: ConfigSource,

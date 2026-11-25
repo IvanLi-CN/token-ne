@@ -60,7 +60,15 @@ const NEGATIVE: &[(&str, &str)] = &[
 ];
 
 fn parse(bytes: &[u8]) -> Result<Config, token_ne_core::config::ConfigError> {
-    Config::parse(bytes, INSTANCE, &ValidationOptions::default())
+    // 与 push 路径保持同一组选项，否则带私有上游的 fixture 会先在 base_url
+    // 报错，掩盖真正要验证的字段路径。
+    Config::parse(
+        bytes,
+        INSTANCE,
+        &ValidationOptions {
+            allow_private_upstreams: true,
+        },
+    )
 }
 
 fn fixture(body: &str) -> (String, Vec<u8>) {
@@ -133,7 +141,7 @@ async fn push_endpoint_reports_422_with_details_path() {
             ..StateOptions::default()
         },
     );
-    let app = router(ServerState::new(state, "control-secret".into()));
+    let app = router(ServerState::new(state.clone(), "control-secret".into()));
     for (name, body) in NEGATIVE {
         let (expected, snapshot) = fixture(body);
         let value: Value = serde_json::from_slice(&snapshot).unwrap();
@@ -164,6 +172,39 @@ async fn push_endpoint_reports_422_with_details_path() {
             "{name}"
         );
     }
+    assert!(
+        state.snapshot().is_none(),
+        "a rejected push must not install a snapshot"
+    );
+}
+
+#[test]
+fn negative_fixtures_cover_the_directory() {
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/e2e/fixtures/negative");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .expect("negative fixture directory")
+        .map(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    on_disk.sort();
+    let mut compiled: Vec<String> = NEGATIVE
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    compiled.sort();
+    assert_eq!(
+        on_disk, compiled,
+        "NEGATIVE must list every fixture on disk"
+    );
 }
 
 #[tokio::test]

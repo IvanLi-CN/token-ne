@@ -34,6 +34,11 @@ export function FieldFailure({ error }: { error: unknown }) {
 export function fieldInvalid(error: unknown, path: string): boolean {
   return (
     error instanceof ApiError &&
-    error.details.some((detail) => detail.path === path || detail.path.startsWith(`${path}.`))
+    error.details.some(
+      (detail) =>
+        detail.path === path ||
+        detail.path.startsWith(`${path}.`) ||
+        detail.path.startsWith(`${path}[`),
+    )
   );
 }

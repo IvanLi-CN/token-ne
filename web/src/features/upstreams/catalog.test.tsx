@@ -188,6 +188,33 @@ describe("upstream model catalog", () => {
     expect(section.textContent).toContain("deny 命中优先于 allow");
   });
 
+  it("matches a glob ? against one astral code point in the preview", async () => {
+    const rocket = {
+      model_id: "gpt-🚀",
+      upstream_model_name: null,
+      enabled: true,
+      priority: 0,
+      weight: 1,
+    };
+    const rocketLong = { ...rocket, model_id: "gpt-🚀x" };
+    mock((url, init) =>
+      url === "/api/upstreams"
+        ? response({ data: [{ ...upstream, models: [rocket, rocketLong] }, secondary] })
+        : base({ policy: { ...policy, default_action: "deny" } })(url, init),
+    );
+    const dialog = await openCatalog();
+    const section = await within(dialog).findByRole("region", { name: "承接策略" });
+    fireEvent.change(within(section).getByLabelText("Glob 白名单"), {
+      target: { value: "gpt-?" },
+    });
+    const preview = await within(section).findByRole("table", {
+      name: "承接策略影响预览",
+    });
+    await waitFor(() => expect(within(preview).getByText("allow")).toBeTruthy());
+    expect(preview.textContent).toContain("命中白名单");
+    expect(preview.textContent).toContain("默认动作");
+  });
+
   it("starts a single sync and shows the running state", async () => {
     const started: CatalogSyncRun = {
       ...run,
@@ -210,6 +237,22 @@ describe("upstream model catalog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "同步目录" }));
     expect((await within(dialog).findAllByText(/同步进行中/)).length).toBeGreaterThan(0);
     expect(dialog.textContent).toContain("完成后目录与 stale 标记会自动刷新");
+  });
+
+  it("lets a stale running run be retried while the server still holds one", async () => {
+    const fetch = mock(base({ catalog: { ...catalog, latest_run: { ...run, state: "running" } } }));
+    const dialog = await openCatalog();
+    const button = within(dialog).getByRole("button", { name: "同步目录" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url, init]) =>
+            url === `/api/upstreams/${upstream.id}/models/sync` && init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
   });
 
   it("reports catalog_sync_running for a duplicate single sync", async () => {
@@ -354,7 +397,7 @@ describe("upstream model catalog", () => {
                 code: "validation_failed",
                 message: "策略无效",
                 request_id: "req-policy",
-                details: [{ path: "allow_patterns.0", reason: "非法 Glob" }],
+                details: [{ path: "allow_patterns[0]", reason: "非法 Glob" }],
               },
             },
             422,
@@ -368,8 +411,9 @@ describe("upstream model catalog", () => {
     });
     fireEvent.click(within(section).getByRole("button", { name: "保存承接策略" }));
     const alert = await within(section).findByRole("alert");
-    expect(alert.textContent).toContain("allow_patterns.0");
+    expect(alert.textContent).toContain("allow_patterns[0]");
     expect(alert.textContent).toContain("非法 Glob");
+    expect(within(section).getByLabelText("Glob 白名单").getAttribute("aria-invalid")).toBe("true");
   });
 
   it("reloads the server capability collection after a revision conflict", async () => {

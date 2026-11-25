@@ -132,6 +132,15 @@ describe("price source catalog switches", () => {
 
     toggle(deleted);
     await waitFor(() => expect(calls.install).toEqual([["acme/deleted"]]));
+    // The install summary stays visible even when the filter body is collapsed.
+    const summary = await waitFor(() => {
+      const node = Array.from(document.querySelectorAll('[role="status"]')).find((element) =>
+        element.textContent?.includes("已创建"),
+      );
+      expect(node).toBeTruthy();
+      return node;
+    });
+    expect(document.getElementById("price-filters")?.contains(summary as Node)).toBe(false);
     // Turning a stale mark back on recreates the model through install; the
     // catalog never deletes a global model on its own.
     expect(fetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(

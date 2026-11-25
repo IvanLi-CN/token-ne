@@ -702,6 +702,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelRoute"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -740,6 +744,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoutePreview"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -772,6 +780,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelRoute"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -795,6 +807,8 @@ paths:
       responses:
         "204":
           description: 已删除
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -956,6 +970,10 @@ paths:
                   capabilities_revision:
                     type: integer
                     minimum: 1
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1015,6 +1033,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpstreamModelPolicy"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1050,6 +1072,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceProfile"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1077,6 +1103,8 @@ paths:
       responses:
         "204":
           description: 已移除覆盖
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1085,6 +1113,8 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "409":
           $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1336,6 +1366,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceSyncRun"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -3326,6 +3360,14 @@ components:
         synced:
           type: boolean
           description: 该来源行是否记录了“保持为全局模型”的同步标记；目录开关显示为开还要求目标模型存在。
+        web_search_usd_per_call:
+          type: [number, "null"]
+          minimum: 0
+          description: 按次搜索费用；仅展示，不进入 token 计费
+        cache_write_1h_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 1 小时缓存写入单价
     PriceSourceUnsync:
       type: object
       required: [source_id, cleared]

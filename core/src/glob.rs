@@ -29,13 +29,15 @@ pub fn matches(pattern: &str, text: &str) -> bool {
     let mut star: Option<usize> = None;
     let mut resume = 0;
     while t < text.len() {
-        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
-            p += 1;
-            t += 1;
-        } else if p < pattern.len() && pattern[p] == '*' {
+        // 先判通配符再做字面比较：名字本身可能含 `*`，先按字面消费会让 `*`
+        // 永久吞掉回溯点，与 Go 侧 modelglob 的行为不一致。
+        if p < pattern.len() && pattern[p] == '*' {
             star = Some(p);
             resume = t;
             p += 1;
+        } else if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
+            p += 1;
+            t += 1;
         } else if let Some(s) = star {
             // 让上一个 `*` 多吃一个字符后重试。
             resume += 1;
@@ -126,6 +128,11 @@ mod tests {
         assert!(!matches("a*b*c", "aXXbYY"));
         assert!(matches("*gpt*", "my-gpt-5"));
         assert!(!matches("gpt-5", "gpt-5.1"));
+        // 名字本身可以含 `*`：字面比较不能先把通配符当普通字符吃掉。
+        assert!(matches("a*", "a*b"));
+        assert!(matches("*", "**"));
+        assert!(matches("*o", "*-o"));
+        assert!(matches("a*b", "a**b"));
     }
 
     #[test]

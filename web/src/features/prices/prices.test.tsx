@@ -282,6 +282,21 @@ describe("prices surface", () => {
     });
   });
 
+  it("returns focus to the first price input after cancelling the lock confirmation", async () => {
+    mock(base());
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    const price = await screen.findByLabelText("输入价格");
+    fireEvent.change(price, { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存价格" }));
+    const dialog = await screen.findByRole("dialog", { name: "修改已锁定的上游价格？" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "修改已锁定的上游价格？" })).toBeNull(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(price));
+  });
+
   it("removes a locked override only after confirmation and sends confirm_locked", async () => {
     const fetchMock = mock((url, init) =>
       url.startsWith(`/api/upstreams/${upstream.id}/models/${profile.model_id}/price`) &&
@@ -324,6 +339,76 @@ describe("prices surface", () => {
       quote_ids: [safe.id],
       reviewed_quote_ids: [],
     });
+  });
+
+  it("keeps an already applied quote unselectable and marks it", async () => {
+    mock((url, init) =>
+      init.method === "POST" && url === `/api/price-sync-runs/${run.id}/apply`
+        ? response(appliedRun)
+        : syncHandler(base())(url, init),
+    );
+    mount();
+    await screen.findAllByText("内置价目表");
+    fireEvent.click(screen.getByRole("button", { name: "获取报价" }));
+    const panel = await screen.findByRole("region", { name: "报价批次" });
+    fireEvent.click(await within(panel).findByRole("button", { name: /应用选中报价（1）/ }));
+    const dialog = await screen.findByRole("dialog", { name: "应用价格报价？" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "应用报价" }));
+    await waitFor(() => expect(within(panel).getByText(/批次修订 ID 共 1 个/)).toBeTruthy());
+    expect(within(panel).getAllByText("已应用").length).toBeGreaterThan(0);
+    const checkbox = within(panel).getByLabelText(`选择报价 ${safe.id}`) as HTMLInputElement;
+    expect(checkbox.disabled).toBe(true);
+    expect(checkbox.checked).toBe(false);
+    fireEvent.click(within(panel).getByRole("button", { name: "选择全部安全报价" }));
+    expect((within(panel).getByLabelText(`选择报价 ${safe.id}`) as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+
+  it("marks a conflict without a proposal as manual-only", async () => {
+    mock((url, init) => {
+      if (url === `/api/price-sync-runs/${run.id}`)
+        return response({
+          ...run,
+          items: [{ ...conflict, proposed: null, current: conflict.current }],
+        });
+      if (init.method === "POST" && url === `/api/price-sources/${source.id}/sync`)
+        return response(run, 202);
+      return base()(url, init);
+    });
+    mount();
+    await screen.findAllByText("内置价目表");
+    fireEvent.click(screen.getByRole("button", { name: "获取报价" }));
+    const panel = await screen.findByRole("region", { name: "报价批次" });
+    expect(
+      await within(panel).findByText("多个来源价格不一致，无法自动应用；请手工维护价格。"),
+    ).toBeTruthy();
+    expect(
+      (within(panel).getByLabelText(`选择报价 ${conflict.id}`) as HTMLInputElement).disabled,
+    ).toBe(true);
+  });
+
+  it("renders a single page heading and surfaces upstream failures with a retry", async () => {
+    mock((url, init) =>
+      url === "/api/upstreams"
+        ? response(
+            {
+              error: {
+                code: "internal_error",
+                message: "上游加载失败",
+                request_id: "req-upstream",
+                details: [],
+              },
+            },
+            500,
+          )
+        : base()(url, init),
+    );
+    mount();
+    await screen.findAllByText("内置价目表");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(await screen.findByText(/上游加载失败/)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "重试" }).length).toBeGreaterThan(0);
   });
 
   it("keeps the surface closed when the deployment feature is off", async () => {

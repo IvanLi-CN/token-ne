@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -495,6 +496,16 @@ where model_id=$1 and upstream_id=$2`,
 		return "", normalize(err)
 	}
 	if tag.RowsAffected() == 0 {
+		if !c.exists {
+			if _, err = tx.Exec(ctx, `
+insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
+  audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'price_source',$12,$13)`,
+				uuid.NewString(), q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned); err != nil {
+				return "", normalize(err)
+			}
+			return returned, nil
+		}
 		return "", ErrStalePriceQuote
 	}
 	return returned, nil
@@ -653,10 +664,34 @@ func storeQuote(q pricesource.Quote) PriceQuote {
 		BaseUpdatedAt:       q.BaseUpdatedAt,
 	}
 	if q.Current != nil {
-		out.Current = &Billing{Input: q.Current.Input, Cached: q.Current.Cached, Output: q.Current.Output}
+		out.Current = quotedBilling(q.Current)
 	}
 	if q.Proposed != nil {
-		out.Proposed = &Billing{Input: q.Proposed.Input, Cached: q.Proposed.Cached, Output: q.Proposed.Output}
+		out.Proposed = quotedBilling(q.Proposed)
+	}
+	return out
+}
+
+// quotedBilling keeps every dimension and the tier array so applying a stored
+// quote never erases a rate the source supplied.
+func quotedBilling(b *pricesource.Billing) *Billing {
+	if b == nil {
+		return nil
+	}
+	out := &Billing{
+		Input: b.Input, Cached: b.Cached, CacheWrite: b.CacheWrite,
+		AudioIn: b.AudioIn, AudioOut: b.AudioOut, Reasoning: b.Reasoning, Output: b.Output,
+	}
+	if len(b.Tiers) > 0 {
+		out.Tiers = make([]PriceTier, len(b.Tiers))
+		for i, tier := range b.Tiers {
+			out.Tiers[i] = PriceTier{
+				ThresholdTokens: tier.ThresholdTokens,
+				Input:           tier.Input, Cached: tier.Cached, CacheWrite: tier.CacheWrite,
+				AudioIn: tier.AudioIn, AudioOut: tier.AudioOut,
+				Reasoning: tier.Reasoning, Output: tier.Output,
+			}
+		}
 	}
 	return out
 }
@@ -705,13 +740,44 @@ func uniqueStrings(items []string) []string {
 }
 
 func validateQuoteBilling(b Billing) string {
-	for name, v := range map[string]*float64{
-		"input_usd_per_mtok":        b.Input,
-		"cached_input_usd_per_mtok": b.Cached,
-		"output_usd_per_mtok":       b.Output,
+	for _, f := range []struct {
+		name string
+		v    *float64
+	}{
+		{"input_usd_per_mtok", b.Input},
+		{"cached_input_usd_per_mtok", b.Cached},
+		{"cache_write_usd_per_mtok", b.CacheWrite},
+		{"audio_input_usd_per_mtok", b.AudioIn},
+		{"audio_output_usd_per_mtok", b.AudioOut},
+		{"reasoning_usd_per_mtok", b.Reasoning},
+		{"output_usd_per_mtok", b.Output},
 	} {
-		if v != nil && (*v < 0 || *v >= 1e8 || math.IsNaN(*v) || math.IsInf(*v, 0)) {
-			return name
+		if f.v != nil && (*f.v < 0 || *f.v >= 1e8 || math.IsNaN(*f.v) || math.IsInf(*f.v, 0)) {
+			return f.name
+		}
+	}
+	for i, tier := range b.Tiers {
+		if tier.ThresholdTokens <= 0 {
+			return fmt.Sprintf("tiers[%d].threshold_tokens", i)
+		}
+		if i > 0 && tier.ThresholdTokens <= b.Tiers[i-1].ThresholdTokens {
+			return fmt.Sprintf("tiers[%d].threshold_tokens", i)
+		}
+		for _, f := range []struct {
+			name string
+			v    *float64
+		}{
+			{"input_usd_per_mtok", tier.Input},
+			{"cached_input_usd_per_mtok", tier.Cached},
+			{"cache_write_usd_per_mtok", tier.CacheWrite},
+			{"audio_input_usd_per_mtok", tier.AudioIn},
+			{"audio_output_usd_per_mtok", tier.AudioOut},
+			{"reasoning_usd_per_mtok", tier.Reasoning},
+			{"output_usd_per_mtok", tier.Output},
+		} {
+			if f.v != nil && (*f.v < 0 || *f.v >= 1e8 || math.IsNaN(*f.v) || math.IsInf(*f.v, 0)) {
+				return fmt.Sprintf("tiers[%d].%s", i, f.name)
+			}
 		}
 	}
 	return ""

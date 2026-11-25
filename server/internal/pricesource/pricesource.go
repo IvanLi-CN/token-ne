@@ -4,6 +4,7 @@
 package pricesource
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -205,7 +206,9 @@ func loadBuiltin() (Dataset, error) {
 			return
 		}
 		var d Dataset
-		if err = json.Unmarshal(raw, &d); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&d); err != nil {
 			builtinErr = err
 			return
 		}
@@ -278,7 +281,8 @@ func validateDataset(d Dataset) error {
 		if m.ExplicitModelID != nil && !validText(*m.ExplicitModelID, 256) {
 			return errors.New("price source explicit_model_id must be 1 to 256 characters")
 		}
-		if m.Input == nil && m.Cached == nil && m.Output == nil && m.CacheWrite == nil && m.AudioIn == nil && m.AudioOut == nil {
+		if m.Input == nil && m.Cached == nil && m.Output == nil && m.CacheWrite == nil &&
+			m.AudioIn == nil && m.AudioOut == nil && m.Reasoning == nil {
 			return errors.New("price source model has no prices: " + m.SourceModelID)
 		}
 		for _, p := range []*float64{m.Input, m.Cached, m.CacheWrite, m.AudioIn, m.AudioOut, m.Reasoning, m.Output, m.WebSearch, m.CacheWrite1h} {
@@ -484,7 +488,25 @@ func sameBilling(a *Billing, b Billing) bool {
 	if a == nil {
 		return false
 	}
-	return samePrice(a.Input, b.Input) && samePrice(a.Cached, b.Cached) && samePrice(a.Output, b.Output)
+	if !samePrice(a.Input, b.Input) || !samePrice(a.Cached, b.Cached) ||
+		!samePrice(a.CacheWrite, b.CacheWrite) || !samePrice(a.AudioIn, b.AudioIn) ||
+		!samePrice(a.AudioOut, b.AudioOut) || !samePrice(a.Reasoning, b.Reasoning) ||
+		!samePrice(a.Output, b.Output) || len(a.Tiers) != len(b.Tiers) {
+		return false
+	}
+	for i := range a.Tiers {
+		if a.Tiers[i].ThresholdTokens != b.Tiers[i].ThresholdTokens ||
+			!samePrice(a.Tiers[i].Input, b.Tiers[i].Input) ||
+			!samePrice(a.Tiers[i].Cached, b.Tiers[i].Cached) ||
+			!samePrice(a.Tiers[i].CacheWrite, b.Tiers[i].CacheWrite) ||
+			!samePrice(a.Tiers[i].AudioIn, b.Tiers[i].AudioIn) ||
+			!samePrice(a.Tiers[i].AudioOut, b.Tiers[i].AudioOut) ||
+			!samePrice(a.Tiers[i].Reasoning, b.Tiers[i].Reasoning) ||
+			!samePrice(a.Tiers[i].Output, b.Tiers[i].Output) {
+			return false
+		}
+	}
+	return true
 }
 
 func samePrice(a, b *float64) bool {

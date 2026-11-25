@@ -288,6 +288,17 @@ fn policy_deny_wins_and_filters_only_existing_capabilities() {
     // 没有策略行等价于 allow + 空列表。
     let plain = parse(&base()).unwrap();
     assert!(routing::policy_allows(&plain, UPSTREAM, "anything"));
+    // `?` 恰好匹配一个标量，且匹配是完整字符串而不是子串。
+    let mut f = base();
+    f["upstream_policies"] = json!([policy(UPSTREAM, "allow", &[], &["gpt-?"])]);
+    let config = parse(&f).unwrap();
+    assert!(!routing::policy_allows(&config, UPSTREAM, "gpt-6"));
+    assert!(routing::policy_allows(&config, UPSTREAM, "gpt-66"));
+    let mut f = base();
+    f["upstream_policies"] = json!([policy(UPSTREAM, "allow", &[], &["gpt-6"])]);
+    let config = parse(&f).unwrap();
+    assert!(routing::policy_allows(&config, UPSTREAM, "xgpt-6"));
+    assert!(routing::policy_allows(&config, UPSTREAM, "gpt-6.1"));
 
     let mut f = base();
     f["upstream_policies"] = json!([policy(UPSTREAM, "deny", &["gpt-*"], &[])]);
@@ -545,8 +556,16 @@ async fn catalog_lists_only_models_with_policy_passing_candidates() {
 #[test]
 fn telemetry_declares_phase_two_features() {
     let features = token_ne_core::telemetry::FEATURES;
-    assert_eq!(features.len(), 7);
-    for name in ["model_name_routing", "upstream_model_policy"] {
-        assert!(features.contains(&name), "missing {name}");
-    }
+    assert_eq!(
+        features,
+        [
+            "chat_completions",
+            "responses",
+            "embeddings",
+            "stream_usage_injection",
+            "status_rewrite",
+            "model_name_routing",
+            "upstream_model_policy"
+        ]
+    );
 }

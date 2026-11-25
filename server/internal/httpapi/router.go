@@ -234,6 +234,18 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string)
 	return decodeWithNullable(w, r, dst, required, nil)
 }
 
+// registerUnavailable keeps a phase-two surface addressable when the configured
+// repository does not implement it. A silent 404 would look like a client bug
+// instead of a server capability gap.
+func registerUnavailable(m *http.ServeMux, a *API, patterns ...string) {
+	handler := a.protect(func(w http.ResponseWriter, r *http.Request) {
+		fail(w, r, 503, "storage_unavailable", "storage operation unavailable", nil)
+	})
+	for _, pattern := range patterns {
+		m.HandleFunc(pattern, handler)
+	}
+}
+
 func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, required []string, nullable map[string]bool) bool {
 	ct, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || ct != "application/json" {

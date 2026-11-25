@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import { DataTable } from "../../components/data-table";
@@ -104,6 +104,7 @@ function PriceProfileEditor({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [confirmation, setConfirmation] = useState<PriceProfileInput | null>(null);
+  const firstPrice = useRef<HTMLInputElement>(null);
   const candidates = models.filter(
     (model) =>
       profile?.model_id === model.model_id ||
@@ -198,6 +199,7 @@ function PriceProfileEditor({
           {prices.map(([key, label]) => (
             <Field key={key} label={label}>
               <input
+                ref={key === prices[0][0] ? firstPrice : undefined}
                 className="input rounded-xl"
                 type="number"
                 step="any"
@@ -241,28 +243,33 @@ function PriceProfileEditor({
           </Button>
         </div>
       </form>
-      {confirmation && (
-        <ConfirmDialog
-          trigger={
-            <button type="button" tabIndex={-1} className="visually-hidden">
-              继续
-            </button>
+      <ConfirmDialog
+        trigger={
+          <button
+            type="button"
+            tabIndex={-1}
+            className="visually-hidden"
+            onFocus={() => firstPrice.current?.focus()}
+          >
+            继续
+          </button>
+        }
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !pending) {
+            setConfirmation(null);
+            setError(undefined);
           }
-          open
-          onOpenChange={(open) => {
-            if (!open && !pending) {
-              setConfirmation(null);
-              setError(undefined);
-            }
-          }}
-          title="修改已锁定的上游价格？"
-          description={`${upstreamName} / ${modelId} 的价格档案已锁定。确认后会追加新的不可变价格修订并写入审计；后续用量按新价格计费，历史费用不重算。`}
-          pending={pending}
-          error={errorMessage(error)}
-          confirmLabel="确认修改锁定价格"
-          onConfirm={() => void send(upstreamId, modelId, confirmation)}
-        />
-      )}
+        }}
+        title="修改已锁定的上游价格？"
+        description={`${upstreamName} / ${modelId} 的价格档案已锁定。确认后会追加新的不可变价格修订并写入审计；后续用量按新价格计费，历史费用不重算。`}
+        pending={pending}
+        error={errorMessage(error)}
+        confirmLabel="确认修改锁定价格"
+        onConfirm={() => {
+          if (confirmation) void send(upstreamId, modelId, confirmation);
+        }}
+      />
     </Editor>
   );
 }

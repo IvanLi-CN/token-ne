@@ -54,7 +54,7 @@ func (a *API) saveUpstreamModelPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("upstream_id")
-	p := store.UpstreamPolicy{DefaultAction: body.DefaultAction, AllowPatterns: body.AllowPatterns, DenyPatterns: body.DenyPatterns}
+	p := store.UpstreamPolicy{UpstreamID: id, DefaultAction: body.DefaultAction, AllowPatterns: body.AllowPatterns, DenyPatterns: body.DenyPatterns}
 	audi := auditFor(r, "upstream_policy.replace", "upstream", id)
 	audi.Payload = mutationPayload(map[string]any{"policy": p})
 	saved, e := repo.SavePolicy(r.Context(), id, p, audi)

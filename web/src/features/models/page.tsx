@@ -6,7 +6,12 @@ import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
 import { Button, PageTitle, StatusBadge } from "../../components/primitives";
-import { type PriceRevisionState, type UpstreamPolicy, upstreamPolicyApi } from "../../lib/api";
+import {
+  ApiError,
+  type PriceRevisionState,
+  type UpstreamPolicy,
+  upstreamPolicyApi,
+} from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { queryKeys } from "../../lib/query-client";
 import { upstreamsApi } from "../upstreams/api";
@@ -207,6 +212,16 @@ function ModelEditor({
       await onSaved();
       onClose();
     } catch (failure) {
+      // The server locks the profile independently of the loaded snapshot: a
+      // stale client only learns at write time, so fall back to confirmation.
+      if (
+        failure instanceof ApiError &&
+        failure.code === "price_profile_locked" &&
+        !update.confirm_locked
+      ) {
+        setConfirmation({ ...update, confirm_locked: true });
+        return;
+      }
       setError(failure);
     } finally {
       setPending(false);
@@ -553,7 +568,7 @@ export default function ModelsPage() {
                     aria-checked={model.enabled}
                     aria-label={`${model.enabled ? "停用" : "启用"} ${model.model_id}`}
                     className={`switch${model.enabled ? " is-on" : ""}`}
-                    disabled={toggling === model.model_id}
+                    disabled={toggling !== undefined}
                     onClick={() => void toggleEnabled(model)}
                   >
                     <span className="switch-thumb" aria-hidden="true" />

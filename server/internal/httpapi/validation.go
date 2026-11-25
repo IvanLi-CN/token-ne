@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -57,10 +56,8 @@ func ValidateModel(m store.Model) []Detail {
 			return detail("shutdown_date", "must be YYYY-MM-DD")
 		}
 	}
-	for p, v := range map[string]*float64{"input_usd_per_mtok": m.Billing.Input, "cached_input_usd_per_mtok": m.Billing.Cached, "output_usd_per_mtok": m.Billing.Output} {
-		if v != nil && (*v < 0 || *v >= 100000000 || math.IsNaN(*v) || math.IsInf(*v, 0)) {
-			return detail("billing."+p, "must be a nonnegative numeric(14,6) value")
-		}
+	if d := validateBillingFields("billing.", m.Billing); len(d) > 0 {
+		return d
 	}
 	return nil
 }

@@ -160,6 +160,7 @@ func (a *API) syncUpstreamCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = a.repo.RecordAudit(r.Context(), auditFor(r, "catalog.sync", "upstream", id)); err != nil {
+		_, _ = repo.FailCatalogSync(r.Context(), id, run.ID, "audit write failed before the catalog fetch")
 		storageError(w, r, err, "")
 		return
 	}
@@ -190,9 +191,11 @@ func (a *API) syncAllUpstreamCatalogs(w http.ResponseWriter, r *http.Request) {
 		}
 		u, err := a.repo.Upstream(r.Context(), items[i].UpstreamID)
 		if err != nil {
+			_, _ = repo.FailCatalogSync(r.Context(), items[i].UpstreamID, *items[i].RunID, "upstream could not be read before the catalog fetch")
 			continue
 		}
 		if _, err = a.applyCatalogSync(r.Context(), repo, u, *items[i].RunID); err != nil {
+			_, _ = repo.FailCatalogSync(r.Context(), items[i].UpstreamID, *items[i].RunID, "catalog sync could not be applied")
 			continue
 		}
 	}

@@ -27,6 +27,10 @@ type priceAPI struct {
 func registerPrices(m *http.ServeMux, a *API) {
 	repo, ok := a.repo.(priceRepository)
 	if !ok {
+		registerUnavailable(m, a,
+			"GET /api/prices",
+			"PUT /api/upstreams/{upstream_id}/models/{model_id}/price",
+			"DELETE /api/upstreams/{upstream_id}/models/{model_id}/price")
 		return
 	}
 	p := priceAPI{api: a, repo: repo}
@@ -45,18 +49,56 @@ func (p priceAPI) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateBilling(b store.Billing) []Detail {
-	for path, v := range map[string]*float64{
-		"input_usd_per_mtok":        b.Input,
-		"cached_input_usd_per_mtok": b.Cached,
-		"output_usd_per_mtok":       b.Output,
+	return validateBillingFields("", b)
+}
+
+// validateBillingFields checks every stored dimension and the tier ladder.
+// The slice order is fixed so a request with several bad values always reports
+// the same field first.
+func validateBillingFields(prefix string, b store.Billing) []Detail {
+	for _, f := range []struct {
+		name string
+		v    *float64
+	}{
+		{"input_usd_per_mtok", b.Input},
+		{"cached_input_usd_per_mtok", b.Cached},
+		{"cache_write_usd_per_mtok", b.CacheWrite},
+		{"audio_input_usd_per_mtok", b.AudioIn},
+		{"audio_output_usd_per_mtok", b.AudioOut},
+		{"reasoning_usd_per_mtok", b.Reasoning},
+		{"output_usd_per_mtok", b.Output},
 	} {
-		if v != nil && (*v < 0 || *v >= 100000000 || math.IsNaN(*v) || math.IsInf(*v, 0)) {
-			return detail(path, "must be a nonnegative numeric(14,6) value")
+		if f.v != nil && (*f.v < 0 || *f.v >= 100000000 || math.IsNaN(*f.v) || math.IsInf(*f.v, 0)) {
+			return detail(prefix+f.name, "must be a nonnegative numeric(14,6) value")
+		}
+	}
+	for i, tier := range b.Tiers {
+		path := prefix + "tiers[" + strconv.Itoa(i) + "]"
+		if tier.ThresholdTokens < 1 {
+			return detail(path+".threshold_tokens", "must be at least 1")
+		}
+		if i > 0 && tier.ThresholdTokens <= b.Tiers[i-1].ThresholdTokens {
+			return detail(path+".threshold_tokens", "must be greater than the previous tier")
+		}
+		for _, f := range []struct {
+			name string
+			v    *float64
+		}{
+			{"input_usd_per_mtok", tier.Input},
+			{"cached_input_usd_per_mtok", tier.Cached},
+			{"cache_write_usd_per_mtok", tier.CacheWrite},
+			{"audio_input_usd_per_mtok", tier.AudioIn},
+			{"audio_output_usd_per_mtok", tier.AudioOut},
+			{"reasoning_usd_per_mtok", tier.Reasoning},
+			{"output_usd_per_mtok", tier.Output},
+		} {
+			if f.v != nil && (*f.v < 0 || *f.v >= 100000000 || math.IsNaN(*f.v) || math.IsInf(*f.v, 0)) {
+				return detail(path+"."+f.name, "must be a nonnegative numeric(14,6) value")
+			}
 		}
 	}
 	return nil
 }
-
 func (p priceAPI) put(w http.ResponseWriter, r *http.Request) {
 	upstreamID := r.PathValue("upstream_id")
 	modelID := r.PathValue("model_id")

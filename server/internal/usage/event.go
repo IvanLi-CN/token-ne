@@ -223,8 +223,11 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 		name  string
 		value *int64
 	}{
-		{"input_tokens", e.InputTokens}, {"cached_input_tokens", e.CachedInputTokens}, {"output_tokens", e.OutputTokens},
-		{"reasoning_tokens", e.ReasoningTokens}, {"total_tokens", e.TotalTokens}, {"request_bytes", e.RequestBytes}, {"response_bytes", e.ResponseBytes},
+		{"input_tokens", e.InputTokens}, {"cached_input_tokens", e.CachedInputTokens},
+		{"cache_write_tokens", e.CacheWriteTokens}, {"audio_input_tokens", e.AudioInputTokens},
+		{"audio_output_tokens", e.AudioOutputTokens}, {"output_tokens", e.OutputTokens},
+		{"reasoning_tokens", e.ReasoningTokens}, {"total_tokens", e.TotalTokens},
+		{"request_bytes", e.RequestBytes}, {"response_bytes", e.ResponseBytes},
 	} {
 		if v.value != nil && *v.value < 0 {
 			return v.name, "must be non-negative"

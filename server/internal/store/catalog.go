@@ -212,6 +212,9 @@ func (s *Store) StartCatalogSyncBatch(ctx context.Context) ([]CatalogSyncBatchIt
 		case errors.Is(err, ErrCatalogSyncRunning):
 			reason := "catalog_sync_running"
 			out = append(out, CatalogSyncBatchItem{UpstreamID: id, State: "skipped", Reason: &reason})
+		case errors.Is(err, ErrNotFound):
+			reason := "upstream_deleted"
+			out = append(out, CatalogSyncBatchItem{UpstreamID: id, State: "skipped", Reason: &reason})
 		default:
 			return nil, err
 		}

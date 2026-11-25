@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SecondPhaseSurface } from "../../app/phase";
-import { PageHeader, PageTitle } from "../../components/primitives";
+import { PageHeader } from "../../components/primitives";
 import { pricesApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
@@ -32,9 +32,11 @@ function PricesContent() {
   };
   const error = models.isError
     ? errorMessage(models.error)
-    : profiles.isError
-      ? errorMessage(profiles.error)
-      : undefined;
+    : upstreams.isError
+      ? errorMessage(upstreams.error)
+      : profiles.isError
+        ? errorMessage(profiles.error)
+        : undefined;
   return (
     <>
       <PageHeader
@@ -51,6 +53,7 @@ function PricesContent() {
         onRetry={() => {
           void models.refetch();
           void profiles.refetch();
+          void upstreams.refetch();
         }}
         onChanged={refresh}
       />
@@ -61,11 +64,8 @@ function PricesContent() {
 
 export default function PricesPage() {
   return (
-    <>
-      <PageTitle title="价格" />
-      <SecondPhaseSurface>
-        <PricesContent />
-      </SecondPhaseSurface>
-    </>
+    <SecondPhaseSurface>
+      <PricesContent />
+    </SecondPhaseSurface>
   );
 }

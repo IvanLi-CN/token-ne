@@ -26,6 +26,11 @@ type priceSyncAPI struct {
 func registerPriceSync(m *http.ServeMux, a *API) {
 	repo, ok := a.repo.(priceSyncRepository)
 	if !ok {
+		registerUnavailable(m, a,
+			"GET /api/price-sources",
+			"POST /api/price-sources/{source_id}/sync",
+			"GET /api/price-sync-runs/{run_id}",
+			"POST /api/price-sync-runs/{run_id}/apply")
 		return
 	}
 	p := priceSyncAPI{repo: repo}

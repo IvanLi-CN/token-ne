@@ -137,6 +137,10 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		}
 		v, revision, e := saver.SaveUpstreamPhaseTwo(r.Context(), u, *body.CapabilitiesRevision, audi)
 		if e != nil {
+			if errors.Is(e, store.ErrConflict) {
+				fail(w, r, 422, "validation_failed", "upstream name is already in use", detail("name", "must be unique"))
+				return
+			}
 			catalogError(w, r, e)
 			return
 		}

@@ -187,7 +187,19 @@ async fn status(State(s): State<ServerState>) -> Json<Value> {
 }
 const MAX_CONFIG_BODY: usize = 8 << 20;
 
+fn canonical_uuid_v7(value: &str) -> bool {
+    match uuid::Uuid::parse_str(value) {
+        Ok(parsed) => {
+            parsed.get_version_num() == 7
+                && parsed.get_variant() == uuid::Variant::RFC4122
+                && parsed.to_string() == value
+        }
+        Err(_) => false,
+    }
+}
+
 fn control_json_error(
+    request_id: &str,
     status: StatusCode,
     code: &str,
     message: &str,
@@ -195,7 +207,7 @@ fn control_json_error(
 ) -> Response {
     (
         status,
-        Json(json!({"protocol_version":1,"error":{"code":code,"message":message,"retryable":false,"details":details}})),
+      		Json(json!({"protocol_version":1,"error":{"code":code,"message":message,"request_id":request_id,"retryable":false,"details":details}})),
     )
         .into_response()
 }
@@ -203,39 +215,45 @@ fn control_json_error(
 /// Maps the shared configuration error to the protocol envelope. Semantic
 /// failures keep the exact field path the publisher used, so both sides point
 /// at the same array element and field.
-fn config_error_response(error: crate::config::ConfigError) -> Response {
+fn config_error_response(error: crate::config::ConfigError, request_id: &str) -> Response {
     match error.0.as_str() {
         "json" => control_json_error(
+            request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "configuration is not a valid object",
             Vec::new(),
         ),
         "instance_id" => control_json_error(
+            request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "configuration instance does not match this core",
             vec![json!({"path":"instance_id","reason":"must match the target core"})],
         ),
         "override_active" => control_json_error(
+            request_id,
             StatusCode::CONFLICT,
             "override_active",
             "manual configuration override is active",
             Vec::new(),
         ),
         "stale_revision" => control_json_error(
+            request_id,
             StatusCode::CONFLICT,
             "stale_revision",
             "configuration revision is stale",
             Vec::new(),
         ),
         "signature" => control_json_error(
+            request_id,
             StatusCode::UNPROCESSABLE_ENTITY,
             "validation_failed",
             "configuration signature is missing or invalid",
             vec![json!({"path":"signature","reason":"signature verification failed"})],
         ),
         path => control_json_error(
+            request_id,
             StatusCode::UNPROCESSABLE_ENTITY,
             "validation_failed",
             "configuration validation failed",
@@ -248,6 +266,21 @@ fn config_error_response(error: crate::config::ConfigError) -> Response {
 /// path shares the same parser, so a snapshot accepted here and one accepted
 /// there have identical semantics.
 async fn apply_config(State(state): State<ServerState>, req: Request) -> Response {
+    let request_id = req
+        .headers()
+        .get("x-token-ne-request-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    if !canonical_uuid_v7(&request_id) {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "request ID must be a UUIDv7",
+            Vec::new(),
+        );
+    }
     if req
         .headers()
         .get("x-token-ne-protocol-version")
@@ -255,6 +288,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         != Some("1")
     {
         return control_json_error(
+            &request_id,
             StatusCode::CONFLICT,
             "incompatible_version",
             "protocol version must be 1",
@@ -272,6 +306,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
     {
         return control_json_error(
+            &request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "Content-Type must be application/json",
@@ -297,6 +332,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         Ok(body) => body,
         Err(_) => {
             return control_json_error(
+                &request_id,
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
                 "configuration body exceeds 8 MiB",
@@ -308,6 +344,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         Ok(value) if value.is_object() => value,
         _ => {
             return control_json_error(
+                &request_id,
                 StatusCode::BAD_REQUEST,
                 "malformed_request",
                 "configuration must be a JSON object",
@@ -319,6 +356,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
     let body_revision = value.get("revision").and_then(Value::as_u64);
     let (Some(body_instance), Some(body_revision)) = (body_instance, body_revision) else {
         return control_json_error(
+            &request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "configuration envelope is incomplete",
@@ -327,6 +365,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
     };
     if header_instance.as_deref() != Some(body_instance) || header_revision != Some(body_revision) {
         return control_json_error(
+            &request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "configuration envelope headers do not match the body",
@@ -337,6 +376,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         || value.get("config_schema_version").and_then(Value::as_u64) != Some(1)
     {
         return control_json_error(
+            &request_id,
             StatusCode::CONFLICT,
             "incompatible_version",
             "configuration protocol or schema is incompatible",
@@ -348,7 +388,12 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         .apply(&body, ConfigSource::ControlPlane, signature.as_deref())
     {
         Ok(applied) => {
-            let signature_state = match applied.signature_state {
+            // 幂等重推返回的是首次应用时的快照；ack 仍要反映本次校验结果。
+            let signature_state = state
+                .core
+                .check_signature(&body, ConfigSource::ControlPlane, signature.as_deref())
+                .unwrap_or(applied.signature_state);
+            let signature_state = match signature_state {
                 SignatureState::Valid => "valid",
                 SignatureState::Invalid => "invalid",
                 SignatureState::Missing => "missing",
@@ -363,7 +408,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
             }))
             .into_response()
         }
-        Err(error) => config_error_response(error),
+        Err(error) => config_error_response(error, &request_id),
     }
 }
 fn catalog(m: &crate::config::Model) -> Value {

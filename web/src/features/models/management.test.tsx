@@ -208,6 +208,25 @@ describe("models management", () => {
       },
     });
   });
+  it("disables every row switch while one toggle is in flight", async () => {
+    let finish: (value: Response) => void = () => {};
+    const second = { ...model, model_id: "second" };
+    mock((url, init) => {
+      if (url === "/api/models") return response({ data: [model, second] });
+      if (init?.method === "PUT")
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return undefined;
+    });
+    mount(ModelsPage);
+    const switches = await screen.findAllByRole("switch");
+    fireEvent.click(switches[0]);
+    await waitFor(() => expect((switches[1] as HTMLButtonElement).disabled).toBe(true));
+    finish(response({ ...model, enabled: false }));
+    await waitFor(() => expect((switches[1] as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it("toggles model acceptance in place without a confirmation dialog", async () => {
     const fetch = mock((url, init) =>
       url === "/api/models"

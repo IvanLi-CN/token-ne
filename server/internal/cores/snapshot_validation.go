@@ -3,6 +3,7 @@ package cores
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 )
@@ -85,17 +86,13 @@ func ValidateSnapshot(body []byte) error {
 	// Unknown fields are rejected first: a misspelled routing field must not
 	// become a silent no-op in a newer core.
 	for i, item := range envelope.ModelRoutes {
-		for field := range item {
-			if !routeFieldSet[field] {
-				return snapshotReject(fmt.Sprintf("model_routes[%d].%s", i, field), "unknown route field")
-			}
+		if field, ok := firstUnknownField(item, routeFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("model_routes[%d].%s", i, field), "unknown route field")
 		}
 	}
 	for i, item := range envelope.UpstreamPolicies {
-		for field := range item {
-			if !policyFieldSet[field] {
-				return snapshotReject(fmt.Sprintf("upstream_policies[%d].%s", i, field), "unknown policy field")
-			}
+		if field, ok := firstUnknownField(item, policyFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("upstream_policies[%d].%s", i, field), "unknown policy field")
 		}
 	}
 
@@ -219,7 +216,52 @@ func ValidateSnapshot(body []byte) error {
 			exact[route.Pattern] = true
 		}
 	}
+	// Two enabled glob rules at the same priority must agree on their target,
+	// or which one wins depends on iteration order. The core enforces this too,
+	// so publishing such a snapshot would fail every instance.
+	for i, a := range routes {
+		if !a.Enabled || a.MatchType != "glob" {
+			continue
+		}
+		for j := i + 1; j < len(routes); j++ {
+			b := routes[j]
+			if !b.Enabled || b.MatchType != "glob" || a.Priority == nil || b.Priority == nil || *a.Priority != *b.Priority {
+				continue
+			}
+			overlap, err := modelglob.Overlaps(a.Pattern, b.Pattern)
+			if err != nil {
+				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), err.Error())
+			}
+			if overlap && (a.TargetModelID != b.TargetModelID || !sameOptional(a.UpstreamID, b.UpstreamID)) {
+				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), "overlaps a same-priority glob rule with a different target or upstream")
+			}
+		}
+	}
 	return nil
+}
+
+// firstUnknownField returns the alphabetically first key outside allowed so the
+// reported path is stable; the core reports unknown fields in map order, which
+// serde keeps sorted.
+func firstUnknownField(item map[string]json.RawMessage, allowed map[string]bool) (string, bool) {
+	unknown := make([]string, 0, len(item))
+	for field := range item {
+		if !allowed[field] {
+			unknown = append(unknown, field)
+		}
+	}
+	if len(unknown) == 0 {
+		return "", false
+	}
+	sort.Strings(unknown)
+	return unknown[0], true
+}
+
+func sameOptional(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func requireFeatureTrue(features map[string]json.RawMessage, name, path string) error {
