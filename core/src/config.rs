@@ -45,6 +45,39 @@ fn unique<'a>(items: impl Iterator<Item = &'a str>, path: &str) -> Result<()> {
 fn canonical_uuid(id: &str, path: &str) -> Result<()> {
     require(Uuid::parse_str(id).is_ok_and(|u| u.to_string() == id), path)
 }
+/// 出站端点只能是 `socks5h://<host>:<port>`：不解析本地域名、不带凭据、路径、查询或片段。
+fn socks5h_endpoint(raw: &str, path: &str) -> Result<()> {
+    let invalid = || ConfigError(path.into());
+    let authority = raw.strip_prefix("socks5h://").ok_or_else(invalid)?;
+    require(raw.chars().count() <= 256, path)?;
+    let (host, port) = authority.rsplit_once(':').ok_or_else(invalid)?;
+    require(
+        !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()),
+        path,
+    )?;
+    let port: u32 = port.parse().map_err(|_| invalid())?;
+    require((1..=65535).contains(&port), path)?;
+    if let Some(inner) = host.strip_prefix('[') {
+        let inner = inner.strip_suffix(']').ok_or_else(invalid)?;
+        require(inner.contains(':') && inner.parse::<IpAddr>().is_ok(), path)?;
+    } else {
+        // 未加方括号的 IPv4 也走 DNS 名校验；字符集拒绝凭据、路径、查询、片段与裸 IPv6。
+        require(
+            host.bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_alphanumeric())
+                && host
+                    .bytes()
+                    .last()
+                    .is_some_and(|b| b.is_ascii_alphanumeric())
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-'),
+            path,
+        )?;
+    }
+    Ok(())
+}
 const DAY_MS: u64 = 86_400_000;
 
 const MODEL_ROUTE_FIELDS: [&str; 8] = [
@@ -63,12 +96,14 @@ const UPSTREAM_POLICY_FIELDS: [&str; 4] = [
     "allow_patterns",
     "deny_patterns",
 ];
+const EGRESS_PROXY_FIELDS: [&str; 3] = ["id", "endpoint", "enabled"];
 
 /// 路由与策略对象拒绝未知字段；serde 只能报告“json”，这里补上字段路径。
 fn reject_unknown_fields(value: &serde_json::Value) -> Result<()> {
     for (array, known) in [
         ("model_routes", &MODEL_ROUTE_FIELDS[..]),
         ("upstream_policies", &UPSTREAM_POLICY_FIELDS[..]),
+        ("egress_proxies", &EGRESS_PROXY_FIELDS[..]),
     ] {
         let Some(items) = value.get(array).and_then(serde_json::Value::as_array) else {
             continue;
@@ -128,6 +163,8 @@ pub struct Config {
     pub downstream_keys: Vec<DownstreamKey>,
     pub models: Vec<Model>,
     pub upstreams: Vec<Upstream>,
+    #[serde(default)]
+    pub egress_proxies: Vec<EgressProxy>,
     pub upstream_models: Vec<UpstreamModel>,
     #[serde(default)]
     pub model_routes: Vec<ModelRoute>,
@@ -149,6 +186,8 @@ pub struct Features {
     pub model_name_routing: bool,
     #[serde(default)]
     pub upstream_model_policy: bool,
+    #[serde(default)]
+    pub egress_proxy: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DownstreamKey {
@@ -201,6 +240,17 @@ pub struct Upstream {
     pub connect_timeout_ms: Option<u64>,
     pub first_byte_timeout_ms: Option<u64>,
     pub idle_timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub egress_proxy_id: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+/// 出站代理绑定。冻结为封闭字段集：拼错的出站安全字段不能被静默忽略。
+#[serde(deny_unknown_fields)]
+pub struct EgressProxy {
+    pub id: String,
+    pub endpoint: String,
+    /// 控制面计算后的有效路由资格；`false` 时不产生候选。
+    pub enabled: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UpstreamModel {
@@ -459,6 +509,7 @@ impl Config {
                 range(t, 100, DAY_MS, "upstreams.timeout_ms")?;
             }
         }
+        self.validate_egress_proxies()?;
         let mut relations = HashSet::new();
         for r in &self.upstream_models {
             require(
@@ -644,6 +695,32 @@ impl Config {
             DAY_MS,
             "limits.shutdown_grace_ms",
         )?;
+        Ok(())
+    }
+
+    /// 出站代理是安全语义：能力标记必须守护字段，id 必须唯一且规范，绑定不能悬空。
+    fn validate_egress_proxies(&self) -> Result<()> {
+        // 控制面在能力关闭时省略这些字段；收到即拒绝，不能按直连路由。
+        require(
+            self.features.egress_proxy || self.egress_proxies.is_empty(),
+            "egress_proxies",
+        )?;
+        unique(
+            self.egress_proxies.iter().map(|p| p.id.as_str()),
+            "egress_proxies",
+        )?;
+        for (i, proxy) in self.egress_proxies.iter().enumerate() {
+            canonical_uuid(&proxy.id, &format!("egress_proxies[{i}].id"))?;
+            socks5h_endpoint(&proxy.endpoint, &format!("egress_proxies[{i}].endpoint"))?;
+        }
+        for (i, upstream) in self.upstreams.iter().enumerate() {
+            let Some(id) = &upstream.egress_proxy_id else {
+                continue;
+            };
+            let path = format!("upstreams[{i}].egress_proxy_id");
+            require(self.features.egress_proxy, &path)?;
+            require(self.egress_proxies.iter().any(|p| p.id == *id), &path)?;
+        }
         Ok(())
     }
 

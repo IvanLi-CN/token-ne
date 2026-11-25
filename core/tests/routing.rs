@@ -568,7 +568,8 @@ fn telemetry_declares_phase_two_features() {
             "stream_usage_injection",
             "status_rewrite",
             "model_name_routing",
-            "upstream_model_policy"
+            "upstream_model_policy",
+            "egress_proxy"
         ]
     );
 }

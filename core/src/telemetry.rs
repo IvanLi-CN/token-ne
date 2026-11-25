@@ -11,7 +11,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const FEATURES: [&str; 7] = [
+pub const FEATURES: [&str; 8] = [
     "chat_completions",
     "responses",
     "embeddings",
@@ -19,6 +19,7 @@ pub const FEATURES: [&str; 7] = [
     "status_rewrite",
     "model_name_routing",
     "upstream_model_policy",
+    "egress_proxy",
 ];
 pub fn meta() -> Value {
     json!({"protocol_version":1,"config_schema_min":1,"config_schema_max":1,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})

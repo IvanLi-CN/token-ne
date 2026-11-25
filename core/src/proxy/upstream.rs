@@ -1,6 +1,8 @@
 //! 单次尝试、重试、SSE 和提交策略由后续 forwarding 模块使用这些基础函数。
+use super::egress;
 use crate::config::{
-    AuthStyle, ConfigError, Upstream, ValidationOptions, public_ip, validate_upstream_url,
+    AuthStyle, ConfigError, EgressProxy, Upstream, ValidationOptions, public_ip,
+    validate_upstream_url,
 };
 use axum::http::{HeaderMap, header};
 use std::{net::SocketAddr, time::Duration};
@@ -44,8 +46,15 @@ pub fn target_url(
 /// 每次尝试先解析、检查全部地址，再把结果固定到此客户端，避免 DNS rebinding。
 pub async fn client_for(
     upstream: &Upstream,
+    proxy: Option<&EgressProxy>,
     options: &ValidationOptions,
 ) -> Result<reqwest::Client, ConfigError> {
+    let connect = Duration::from_millis(upstream.connect_timeout_ms.unwrap_or(10000));
+    // 代理尝试走远端 DNS：不解析上游域名，主机名经 SOCKS5h 交给 Xray 后再解析。
+    if let Some(proxy) = proxy {
+        return egress::proxied_client(&proxy.endpoint, connect)
+            .map_err(|_| ConfigError("upstreams.client".into()));
+    }
     let url = validate_upstream_url(&upstream.base_url, options)?;
     let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']);
     let port = url
@@ -63,9 +72,7 @@ pub async fn client_for(
     reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_millis(
-            upstream.connect_timeout_ms.unwrap_or(10000),
-        ))
+        .connect_timeout(connect)
         .resolve_to_addrs(host, &addresses)
         .build()
         .map_err(|_| ConfigError("upstreams.client".into()))
