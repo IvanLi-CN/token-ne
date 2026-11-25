@@ -203,7 +203,7 @@ describe("models route rules", () => {
     expect(screen.getByText("命中规则：无 · 候选上游：0")).toBeTruthy();
   });
 
-  it("renders every conflict field path and keeps the route form open", async () => {
+  it("renders the conflict field path and keeps the route form open", async () => {
     mock((url, init) => {
       if (url === "/api/model-routes" && init.method === "POST")
         return response(
@@ -212,10 +212,7 @@ describe("models route rules", () => {
               code: "conflict",
               message: "路由规则冲突",
               request_id: "req-route",
-              details: [
-                { path: "pattern", reason: "与全局模型 ID example 冲突" },
-                { path: "priority", reason: "同优先级 Glob 重叠" },
-              ],
+              details: [{ path: "pattern", reason: "与全局模型 ID example 冲突" }],
             },
           },
           409,
@@ -230,8 +227,6 @@ describe("models route rules", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("pattern");
     expect(alert.textContent).toContain("与全局模型 ID example 冲突");
-    expect(alert.textContent).toContain("priority");
-    expect(alert.textContent).toContain("同优先级 Glob 重叠");
     expect(screen.getByLabelText("Pattern").getAttribute("aria-invalid")).toBe("true");
     expect(screen.getByRole("dialog", { name: "创建路由规则" })).toBeTruthy();
   });

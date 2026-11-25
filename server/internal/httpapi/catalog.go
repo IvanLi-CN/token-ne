@@ -23,6 +23,7 @@ import (
 type catalogRepository interface {
 	StartCatalogSync(context.Context, string) (store.CatalogSyncRun, error)
 	StartCatalogSyncBatch(context.Context) ([]store.CatalogSyncBatchItem, error)
+	TouchCatalogSync(context.Context, string, string) error
 	CompleteCatalogSync(context.Context, string, string, []store.CatalogModel) (store.CatalogSyncRun, error)
 	FailCatalogSync(context.Context, string, string, string) (store.CatalogSyncRun, error)
 	UpstreamCatalog(context.Context, string) (store.CatalogSnapshot, error)
@@ -159,12 +160,14 @@ func (a *API) syncUpstreamCatalog(w http.ResponseWriter, r *http.Request) {
 		catalogError(w, r, err)
 		return
 	}
+	execCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Minute)
+	defer cancel()
 	if err = a.repo.RecordAudit(r.Context(), auditFor(r, "catalog.sync", "upstream", id)); err != nil {
-		_, _ = repo.FailCatalogSync(r.Context(), id, run.ID, "audit write failed before the catalog fetch")
+		_, _ = repo.FailCatalogSync(execCtx, id, run.ID, "audit write failed before the catalog fetch")
 		storageError(w, r, err, "")
 		return
 	}
-	run, err = a.applyCatalogSync(r.Context(), repo, u, run.ID)
+	run, err = a.applyCatalogSync(execCtx, repo, u, run.ID)
 	if err != nil {
 		catalogError(w, r, err)
 		return
@@ -185,17 +188,19 @@ func (a *API) syncAllUpstreamCatalogs(w http.ResponseWriter, r *http.Request) {
 		catalogError(w, r, err)
 		return
 	}
+	execCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
+	defer cancel()
 	for i := range items {
 		if items[i].State != "started" || items[i].RunID == nil {
 			continue
 		}
-		u, err := a.repo.Upstream(r.Context(), items[i].UpstreamID)
+		u, err := a.repo.Upstream(execCtx, items[i].UpstreamID)
 		if err != nil {
-			_, _ = repo.FailCatalogSync(r.Context(), items[i].UpstreamID, *items[i].RunID, "upstream could not be read before the catalog fetch")
+			_, _ = repo.FailCatalogSync(execCtx, items[i].UpstreamID, *items[i].RunID, "upstream could not be read before the catalog fetch")
 			continue
 		}
-		if _, err = a.applyCatalogSync(r.Context(), repo, u, *items[i].RunID); err != nil {
-			_, _ = repo.FailCatalogSync(r.Context(), items[i].UpstreamID, *items[i].RunID, "catalog sync could not be applied")
+		if _, err = a.applyCatalogSync(execCtx, repo, u, *items[i].RunID); err != nil {
+			_, _ = repo.FailCatalogSync(execCtx, items[i].UpstreamID, *items[i].RunID, "catalog sync could not be applied")
 			continue
 		}
 	}
@@ -209,6 +214,9 @@ func (a *API) syncAllUpstreamCatalogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) applyCatalogSync(ctx context.Context, repo catalogRepository, u store.Upstream, runID string) (store.CatalogSyncRun, error) {
+	if err := repo.TouchCatalogSync(ctx, u.ID, runID); err != nil {
+		return store.CatalogSyncRun{}, err
+	}
 	models, err := a.fetchUpstreamModels(ctx, u)
 	if err != nil {
 		return repo.FailCatalogSync(ctx, u.ID, runID, err.Error())

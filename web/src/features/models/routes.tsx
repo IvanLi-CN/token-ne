@@ -80,7 +80,10 @@ function RouteEditor({
             <Select
               label="匹配方式"
               value={matchType}
-              onValueChange={(next) => setMatchType(next === "glob" ? "glob" : "exact")}
+              onValueChange={(next) => {
+                setMatchType(next === "glob" ? "glob" : "exact");
+                setDirty(true);
+              }}
               options={[
                 { value: "exact", label: "精确" },
                 { value: "glob", label: "Glob" },
@@ -106,7 +109,10 @@ function RouteEditor({
             <Select
               label="目标全局模型"
               value={targetModelId}
-              onValueChange={setTargetModelId}
+              onValueChange={(next) => {
+                setTargetModelId(next);
+                setDirty(true);
+              }}
               options={models.map((model) => ({
                 value: model.model_id,
                 label: model.model_id,
@@ -118,7 +124,10 @@ function RouteEditor({
             <Select
               label="上游限制"
               value={upstreamId}
-              onValueChange={setUpstreamId}
+              onValueChange={(next) => {
+                setUpstreamId(next);
+                setDirty(true);
+              }}
               options={[
                 { value: "", label: "不限制上游" },
                 ...upstreams.map((upstream) => ({ value: upstream.id, label: upstream.name })),
@@ -335,7 +344,12 @@ export function ModelRoutesSection({
     queryFn: ({ signal }) => modelRoutesApi.list(signal),
   });
   const [editor, setEditor] = useState<ModelRoute | null | undefined>();
-  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+  const [rulesVersion, setRulesVersion] = useState(0);
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+    // A saved or deleted rule invalidates any preview derived from the old set.
+    setRulesVersion((version) => version + 1);
+  };
   const availableModels = models ?? [];
   const availableUpstreams = upstreams ?? [];
   return (
@@ -441,7 +455,11 @@ export function ModelRoutesSection({
           )}
         </div>
       </section>
-      <RoutePreviewPanel upstreams={availableUpstreams} routes={routes.data ?? []} />
+      <RoutePreviewPanel
+        key={rulesVersion}
+        upstreams={availableUpstreams}
+        routes={routes.data ?? []}
+      />
       {editor !== undefined && (
         <RouteEditor
           route={editor}

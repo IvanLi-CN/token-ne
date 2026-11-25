@@ -2050,7 +2050,7 @@ token-ne/
 
 ## 阶段边界
 
-第一期能力与第二期模型管理能力都已实现，由 `SECOND_PHASE_MODEL_MANAGEMENT` 控制第二期是否对外暴露。以下能力在 schema 和接口上预留扩展点，但不实现：
+第一期能力与第二期模型管理能力都已实现。`SECOND_PHASE_MODEL_MANAGEMENT` 控制严格的 `capabilities_revision` 校验、`billing_state`/`capabilities_revision` 响应字段和 Web 入口，不隐藏已注册的第二期端点；路由、策略和报价接口在开关关闭时仍可调用。以下能力在 schema 和接口上预留扩展点，但不实现：
 
 - 上游 `kind` 从 `api_key` 扩展到 `oauth_account`；上游能力关系仍指向 `model_id`。
 - 核心能力协商和配置 schema 版本已经存在，可支持不同版本并行。

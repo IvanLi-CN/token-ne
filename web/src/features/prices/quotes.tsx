@@ -70,9 +70,20 @@ function PriceRunPanel({
     } else if (data.applied_quote_ids.length > 0) {
       // Another session (or a refetch) may consume quotes while this panel is
       // open; keep those rows disabled without dropping earlier applies.
+      const consumed = new Set(data.applied_quote_ids);
       setApplied((current) => {
         const next = new Set(current);
         for (const id of data.applied_quote_ids) next.add(id);
+        return next.size === current.size ? current : next;
+      });
+      // Applied rows are not selectable anymore. Leaving them in the payload
+      // would make the whole batch fail the baseline recheck as stale.
+      setSelected((current) => {
+        const next = new Set([...current].filter((id) => !consumed.has(id)));
+        return next.size === current.size ? current : next;
+      });
+      setReviewed((current) => {
+        const next = new Set([...current].filter((id) => !consumed.has(id)));
         return next.size === current.size ? current : next;
       });
     }
@@ -80,10 +91,13 @@ function PriceRunPanel({
     const resetKey = `${data.id}:${data.price_revision_ids.length}`;
     if (initialized.current === resetKey) return;
     initialized.current = resetKey;
+    const consumed = new Set(data.applied_quote_ids);
     setSelected(
       new Set(
         data.items
-          .filter((quote) => quote.status === "safe" && quote.proposed != null)
+          .filter(
+            (quote) => quote.status === "safe" && quote.proposed != null && !consumed.has(quote.id),
+          )
           .map((quote) => quote.id),
       ),
     );
@@ -238,6 +252,13 @@ function PriceRunPanel({
                 <strong>{rejection.title}</strong>
                 <p>{rejection.nextAction}</p>
                 {rejection.action === "resync" && (
+                  <div>
+                    <Button variant="secondary" onClick={() => onResync(data.source_id)}>
+                      重新获取报价
+                    </Button>
+                  </div>
+                )}
+                {rejection.action === "locked" && (
                   <div>
                     <Button variant="secondary" onClick={() => onResync(data.source_id)}>
                       重新获取报价

@@ -204,6 +204,14 @@ func (s *Snapshots) upstreamPolicies(ctx context.Context, tx pgx.Tx) ([]upstream
 		if e = json.Unmarshal(deny, &p.DenyPatterns); e != nil {
 			return nil, e
 		}
+		// A JSON null resets the slice to nil; the core's Vec<String> rejects
+		// null, so normalize it back to the empty array the schema promises.
+		if p.AllowPatterns == nil {
+			p.AllowPatterns = []string{}
+		}
+		if p.DenyPatterns == nil {
+			p.DenyPatterns = []string{}
+		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
