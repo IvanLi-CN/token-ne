@@ -50,12 +50,12 @@ type Runtime struct {
 	// EgressInterval is the reconcile period; zero uses the contract default.
 	EgressInterval time.Duration
 	// Master decrypts proxy credentials for the reconciler. Never logged.
-	Master                []byte
-	mu                    sync.Mutex
-	lifecycle             sync.Mutex
-	deployMu              sync.Mutex
-	currentMu             sync.Mutex
-	currentRetryAfter     time.Time
+	Master            []byte
+	mu                sync.Mutex
+	lifecycle         sync.Mutex
+	deployMu          sync.Mutex
+	currentMu         sync.Mutex
+	currentRetryAfter time.Time
 }
 
 // Target is the client-supplied part of a core version registration. The image
@@ -366,7 +366,7 @@ func declaresFeature(declared []string, name string) bool {
 	for _, f := range declared {
 		if f == name {
 			return true
-	}
+		}
 	}
 	return false
 }
@@ -719,7 +719,13 @@ func (r *Runtime) ReconcileEgress(ctx context.Context) error {
 		// One alerting line, not one per profile: Xray being down says nothing
 		// about any individual profile, and nothing here may restart it.
 		slog.Warn("xray api unreachable; egress profiles keep their previous state", "error", summary.Error)
+		if r.Metrics != nil {
+			r.Metrics.ObserveXrayReconcile("unreachable")
+		}
 		return errors.Join(failures...)
+	}
+	if r.Metrics != nil {
+		r.Metrics.ObserveXrayReconcile(xrayReconcileOutcome(summary))
 	}
 	for _, result := range summary.Results {
 		state := store.EgressProxyState{RuntimeState: result.RuntimeState(), LastError: optionalString(result.Error)}
@@ -732,6 +738,15 @@ func (r *Runtime) ReconcileEgress(ctx context.Context) error {
 			failures = append(failures, e)
 		}
 	}
+	// The gauge mirrors the persisted projection, not the desired state: Xray
+	// exposes no trustworthy per-profile counters, so reconcile is the source.
+	if r.Metrics != nil {
+		states := make(map[string]int, len(summary.Results))
+		for _, result := range summary.Results {
+			states[result.RuntimeState()]++
+		}
+		r.Metrics.ObserveEgressProxyStates(states)
+	}
 	if summary.Degraded() {
 		slog.Warn("egress proxy reconciliation degraded at least one profile", "profiles", len(summary.Results))
 	}
@@ -743,12 +758,12 @@ func (r *Runtime) ReconcileEgress(ctx context.Context) error {
 // text that never contains a credential.
 func egressAuditPayload(result xray.Result) json.RawMessage {
 	payload, _ := json.Marshal(struct {
-		Status   string `json:"status"`
-		Phase    string `json:"phase,omitempty"`
-		Written  bool   `json:"written"`
-		Enabled  bool   `json:"effective_enabled"`
-		Changed  bool   `json:"effective_enabled_changed"`
-		Error    string `json:"error,omitempty"`
+		Status  string `json:"status"`
+		Phase   string `json:"phase,omitempty"`
+		Written bool   `json:"written"`
+		Enabled bool   `json:"effective_enabled"`
+		Changed bool   `json:"effective_enabled_changed"`
+		Error   string `json:"error,omitempty"`
 	}{string(result.Status), result.Phase, result.Written, result.EffectiveEnabled, result.EffectiveEnabledChanged, result.Error})
 	return payload
 }
@@ -758,6 +773,15 @@ func optionalString(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// xrayReconcileOutcome folds one pass into the bounded result labels the metric
+// declares: a degraded profile is a rejection, everything else succeeded.
+func xrayReconcileOutcome(summary xray.Summary) string {
+	if summary.Degraded() {
+		return "rejected"
+	}
+	return "success"
 }
 
 func currentCoreAttemptContext(parent context.Context) (context.Context, context.CancelFunc) {

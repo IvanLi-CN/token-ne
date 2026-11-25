@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
+	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 	"github.com/google/uuid"
@@ -463,7 +465,8 @@ func TestReconcileEgressPersistsProjection(t *testing.T) {
 
 // egressStoreDB is the minimal store.DB the reconcile test needs: it serves the
 // profile rows and records the state writes and audit rows.
-type egressStoreDB struct{ store.DB
+type egressStoreDB struct {
+	store.DB
 	profiles []store.EgressProxy
 	writes   []string
 }
@@ -755,5 +758,50 @@ func TestSnapshotEgressProjectionIntegration(t *testing.T) {
 	}
 	if len(caps) != 1 || caps[0].UpstreamID != egressOtherID {
 		t.Fatalf("non-declaring relations = %+v", caps)
+	}
+}
+
+// The reconcile pass is the only place that knows both the outcome and the
+// persisted projection, so it must publish the metrics the PRD asks for. A
+// missing call would leave the Grafana panels empty with no failing test.
+func TestReconcileEgressPublishesMetrics(t *testing.T) {
+	profile := store.EgressProxy{ID: egressProfileID, Protocol: "vmess", Server: "proxy.example.test", Port: 443,
+		Transport: json.RawMessage(`{}`), TLS: json.RawMessage(`{"mode":"tls"}`), Enabled: true, Effective: true,
+		RuntimeState: "ready", InboundPort: egressInboundPort}
+	repo := &store.Store{Pool: &egressStoreDB{profiles: []store.EgressProxy{profile}}}
+	engine := &egressFakeReconciler{summary: xray.Summary{Results: []xray.Result{
+		{ProfileID: egressProfileID, Status: xray.StatusDegraded, Error: "rejected", EffectiveEnabled: false},
+	}}}
+	registry := metrics.New()
+	r := Runtime{DB: repo, Egress: engine, Master: make([]byte, 32), Metrics: registry}
+	if err := r.ReconcileEgress(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	registry.Handler("token", nil)(page, req)
+	body := page.Body.String()
+	for _, want := range []string{
+		`token_ne_xray_reconcile_total{result="rejected"} 1`,
+		`token_ne_egress_proxy_state{state="degraded"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in %s", want, body)
+		}
+	}
+
+	// An unreachable Xray is its own outcome and must not be counted as a
+	// per-profile rejection.
+	unreachableRegistry := metrics.New()
+	r.Metrics = unreachableRegistry
+	r.Egress = &egressFakeReconciler{summary: xray.Summary{Unreachable: true, Error: "down"}}
+	if err := r.ReconcileEgress(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	page = httptest.NewRecorder()
+	unreachableRegistry.Handler("token", nil)(page, req)
+	if !strings.Contains(page.Body.String(), `token_ne_xray_reconcile_total{result="unreachable"} 1`) {
+		t.Fatalf("unreachable outcome missing: %s", page.Body.String())
 	}
 }
