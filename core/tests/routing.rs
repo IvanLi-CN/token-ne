@@ -276,6 +276,9 @@ fn resolve_prefers_global_id_then_exact_then_priority() {
     assert!(routing::resolve(&config, "gpt-4o-mini-retired").is_none());
     assert!(routing::resolve(&config, "Chat-fast").is_none());
     assert!(routing::resolve(&config, "missing").is_none());
+    // 空/纯空白请求名不能被 catch-all Glob 接管，必须与预览一致返回 404。
+    assert!(routing::resolve(&config, "").is_none());
+    assert!(routing::resolve(&config, "   ").is_none());
     // 规则的上游限制随解析结果返回，只缩小候选范围。
     assert_eq!(
         routing::resolve(&config, "restricted").unwrap().upstream_id,

@@ -217,10 +217,35 @@ func (s *Store) StartCatalogSyncBatch(ctx context.Context) ([]CatalogSyncBatchIt
 			reason := "upstream_deleted"
 			out = append(out, CatalogSyncBatchItem{UpstreamID: id, State: "skipped", Reason: &reason})
 		default:
+			// The claims already committed must not outlive this failed call with a
+			// live lease and no worker. Fail them before propagating the error.
+			for i := range out {
+				if out[i].RunID != nil {
+					_, _ = s.FailCatalogSync(ctx, out[i].UpstreamID, *out[i].RunID, "batch claim aborted before execution")
+				}
+			}
 			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// TouchCatalogSync extends a running run's lease before its fetch starts. The
+// batch endpoint claims every upstream up front but fetches sequentially, so a
+// fixed lease from claim time would expire before later fetches begin.
+func (s *Store) TouchCatalogSync(ctx context.Context, upstreamID, runID string) error {
+	tag, err := s.Pool.Exec(ctx, `
+update upstream_model_sync_runs r
+set lease_until = now() + (greatest(900000, u.connect_timeout_ms + u.first_byte_timeout_ms + 120000)) * interval '1 millisecond'
+from upstreams u
+where r.upstream_id = u.id and r.upstream_id = $1 and r.id = $2 and r.state = 'running'`, upstreamID, runID)
+	if err != nil {
+		return normalize(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCatalogSyncExpired
+	}
+	return nil
 }
 
 // CompleteCatalogSync applies the snapshot and the terminal state in one

@@ -29,20 +29,39 @@ pub struct UsageTokens {
 
 impl UsageTokens {
     pub(super) fn from_json(usage: &Value) -> Option<Self> {
+        // Anthropic reports input_tokens without the cache read/write counters,
+        // while OpenAI-compatible totals include their cached/audio details.
+        // Normalize the Anthropic shape into the inclusive shape the control
+        // plane's subset arithmetic expects; otherwise a 1000-token prompt with
+        // 200 cache-write tokens is billed as 800 input + 200 write.
+        let anthropic = usage.get("input_tokens").is_some();
+        let mut input = usage["input_tokens"]
+            .as_u64()
+            .or_else(|| usage["prompt_tokens"].as_u64());
+        let cached_input = usage["input_tokens_details"]["cached_tokens"]
+            .as_u64()
+            .or_else(|| usage["prompt_tokens_details"]["cached_tokens"].as_u64())
+            .or_else(|| usage["cache_read_input_tokens"].as_u64());
+        let cache_write = usage["cache_creation_input_tokens"]
+            .as_u64()
+            .or_else(|| usage["input_tokens_details"]["cache_creation_tokens"].as_u64())
+            .or_else(|| usage["prompt_tokens_details"]["cache_write_tokens"].as_u64());
+        let output = usage["output_tokens"]
+            .as_u64()
+            .or_else(|| usage["completion_tokens"].as_u64());
+        if anthropic && let Some(base) = input {
+            input = Some(base + cached_input.unwrap_or(0) + cache_write.unwrap_or(0));
+        }
+        let total = if anthropic {
+            input.zip(output).map(|(i, o)| i + o)
+        } else {
+            usage["total_tokens"].as_u64()
+        };
         let tokens = Self {
-            input: usage["input_tokens"]
-                .as_u64()
-                .or_else(|| usage["prompt_tokens"].as_u64()),
-            cached_input: usage["input_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .or_else(|| usage["prompt_tokens_details"]["cached_tokens"].as_u64()),
-            output: usage["output_tokens"]
-                .as_u64()
-                .or_else(|| usage["completion_tokens"].as_u64()),
-            cache_write: usage["cache_creation_input_tokens"]
-                .as_u64()
-                .or_else(|| usage["input_tokens_details"]["cache_creation_tokens"].as_u64())
-                .or_else(|| usage["prompt_tokens_details"]["cache_write_tokens"].as_u64()),
+            input,
+            cached_input,
+            output,
+            cache_write,
             audio_input: usage["input_tokens_details"]["audio_tokens"]
                 .as_u64()
                 .or_else(|| usage["prompt_tokens_details"]["audio_tokens"].as_u64()),
@@ -52,7 +71,7 @@ impl UsageTokens {
             reasoning: usage["output_tokens_details"]["reasoning_tokens"]
                 .as_u64()
                 .or_else(|| usage["completion_tokens_details"]["reasoning_tokens"].as_u64()),
-            total: usage["total_tokens"].as_u64(),
+            total,
         };
         (tokens != Self::default()).then_some(tokens)
     }
@@ -483,4 +502,40 @@ pub(super) fn response_headers(incoming: &HeaderMap) -> HeaderMap {
         })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UsageTokens;
+    use serde_json::json;
+
+    #[test]
+    fn anthropic_counters_become_inclusive_input() {
+        let tokens = UsageTokens::from_json(&json!({
+            "input_tokens": 1000,
+            "cache_creation_input_tokens": 200,
+            "cache_read_input_tokens": 300,
+            "output_tokens": 50
+        }))
+        .unwrap();
+        assert_eq!(tokens.input, Some(1500));
+        assert_eq!(tokens.cached_input, Some(300));
+        assert_eq!(tokens.cache_write, Some(200));
+        assert_eq!(tokens.output, Some(50));
+        assert_eq!(tokens.total, Some(1550));
+    }
+
+    #[test]
+    fn openai_details_stay_inclusive() {
+        let tokens = UsageTokens::from_json(&json!({
+            "prompt_tokens": 1000,
+            "prompt_tokens_details": {"cached_tokens": 200},
+            "completion_tokens": 50,
+            "total_tokens": 1050
+        }))
+        .unwrap();
+        assert_eq!(tokens.input, Some(1000));
+        assert_eq!(tokens.cached_input, Some(200));
+        assert_eq!(tokens.total, Some(1050));
+    }
 }

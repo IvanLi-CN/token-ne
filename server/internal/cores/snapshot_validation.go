@@ -55,7 +55,7 @@ type snapshotRoute struct {
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
 	Priority      *int    `json:"priority"`
-	Enabled       bool    `json:"enabled"`
+	Enabled       *bool   `json:"enabled"`
 	Description   *string `json:"description"`
 }
 
@@ -93,10 +93,31 @@ func ValidateSnapshot(body []byte) error {
 		if field, ok := firstUnknownField(item, routeFieldSet); ok {
 			return snapshotReject(fmt.Sprintf("model_routes[%d].%s", i, field), "unknown route field")
 		}
+		// Enum checks run before the feature gate so a combined violation reports
+		// the same field path the core's schema pass reports.
+		if raw, ok := item["match_type"]; ok {
+			var matchType string
+			if json.Unmarshal(raw, &matchType) != nil || (matchType != "exact" && matchType != "glob") {
+				return snapshotReject(fmt.Sprintf("model_routes[%d].match_type", i), "must be exact or glob")
+			}
+		}
 	}
 	for i, item := range envelope.UpstreamPolicies {
 		if field, ok := firstUnknownField(item, policyFieldSet); ok {
 			return snapshotReject(fmt.Sprintf("upstream_policies[%d].%s", i, field), "unknown policy field")
+		}
+		if raw, ok := item["default_action"]; ok {
+			var action string
+			if json.Unmarshal(raw, &action) != nil || (action != "allow" && action != "deny") {
+				return snapshotReject(fmt.Sprintf("upstream_policies[%d].default_action", i), "must be allow or deny")
+			}
+		}
+		// An explicit JSON null is not an empty pattern list; the core's Vec
+		// rejects it, so the publisher must reject it too.
+		for _, field := range []string{"allow_patterns", "deny_patterns"} {
+			if raw, ok := item[field]; ok && string(raw) == "null" {
+				return snapshotReject(fmt.Sprintf("upstream_policies[%d].%s", i, field), "must be an array")
+			}
 		}
 	}
 
@@ -213,10 +234,13 @@ func ValidateSnapshot(body []byte) error {
 		if route.Priority == nil || *route.Priority < 0 || *route.Priority > 100000 {
 			return snapshotReject(base+".priority", "must be between 0 and 100000")
 		}
+		if route.Enabled == nil {
+			return snapshotReject(base+".enabled", "is required")
+		}
 		if route.Description != nil && utf8.RuneCountInString(*route.Description) > 1024 {
 			return snapshotReject(base+".description", "maximum length is 1024")
 		}
-		if route.Enabled && route.MatchType == "exact" {
+		if *route.Enabled && route.MatchType == "exact" {
 			if exact[route.Pattern] {
 				return snapshotReject(base+".pattern", "duplicate enabled exact rule")
 			}
@@ -227,12 +251,12 @@ func ValidateSnapshot(body []byte) error {
 	// or which one wins depends on iteration order. The core enforces this too,
 	// so publishing such a snapshot would fail every instance.
 	for i, a := range routes {
-		if !a.Enabled || a.MatchType != "glob" {
+		if a.Enabled == nil || !*a.Enabled || a.MatchType != "glob" {
 			continue
 		}
 		for j := i + 1; j < len(routes); j++ {
 			b := routes[j]
-			if !b.Enabled || b.MatchType != "glob" || a.Priority == nil || b.Priority == nil || *a.Priority != *b.Priority {
+			if b.Enabled == nil || !*b.Enabled || b.MatchType != "glob" || a.Priority == nil || b.Priority == nil || *a.Priority != *b.Priority {
 				continue
 			}
 			overlap, err := modelglob.Overlaps(a.Pattern, b.Pattern)

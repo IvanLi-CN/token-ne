@@ -156,3 +156,32 @@ func scratchDatabase(t *testing.T, ctx context.Context, base string) (*sql.DB, f
 		admin.Close()
 	}
 }
+
+func TestLegacyWriterAfterTighten(t *testing.T) {
+	base := envDatabaseURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	db, cleanup := scratchDatabase(t, ctx, base)
+	defer cleanup()
+	provider := migrationProvider(t, db)
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	modelID := "p7-late-" + uuid.NewString()[:8]
+	if _, err := db.ExecContext(ctx, `
+insert into models(model_id,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok)
+values($1,1.5,null,2.5)`, modelID); err != nil {
+		t.Fatalf("phase-one insert must still work after 00007: %v", err)
+	}
+	var revision, scope, source, output string
+	if err := db.QueryRowContext(ctx, `
+select m.billing_revision_id::text,r.scope,r.source,r.output_usd_per_mtok::text
+from models m join price_revisions r on r.id=m.billing_revision_id where m.model_id=$1`, modelID).
+		Scan(&revision, &scope, &source, &output); err != nil {
+		t.Fatalf("trigger-created revision: %v", err)
+	}
+	if revision == "" || scope != "global" || source != "manual" || output != "2.500000" {
+		t.Fatalf("revision=%q scope=%s source=%s output=%s", revision, scope, source, output)
+	}
+}

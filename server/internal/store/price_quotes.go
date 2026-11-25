@@ -107,7 +107,7 @@ func (s *Store) PriceSources(ctx context.Context) ([]PriceSource, error) {
 	}
 	rows, err := s.Pool.Query(ctx, `
 select source_id,max(fetched_at) from price_sync_runs
-where fetched_at is not null group by source_id`)
+where fetched_at is not null and state in ('ready','applied') group by source_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +152,15 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return run, err
+	}
+	// A crashed request can leave a running row with no worker. The sync is
+	// synchronous, so anything older than the upper request bound is stale and
+	// must not block a fresh fetch forever.
+	if _, err = tx.Exec(ctx, `update price_sync_runs
+set state='failed', fetched_at=now(), error=coalesce(error, 'stale running run reaped')
+where source_id=$1 and state='running' and created_at < now() - interval '30 minutes'`, sourceID); err != nil {
+		_ = tx.Rollback(ctx)
+		return run, normalize(err)
 	}
 	if _, err = tx.Exec(ctx, "insert into price_sync_runs(id,source_id,state) values($1,$2,'running')", runID, sourceID); err != nil {
 		_ = tx.Rollback(ctx)
@@ -227,6 +236,9 @@ func (s *Store) PriceSyncRun(ctx context.Context, runID string) (PriceSyncRun, e
 // ApplyPriceSyncRun applies an explicitly selected subset atomically. It locks
 // the run row plus every target profile before rechecking every baseline.
 func (s *Store) ApplyPriceSyncRun(ctx context.Context, runID string, in PriceSyncApplyInput, a Audit) (PriceSyncRun, error) {
+	if _, err := uuid.Parse(runID); err != nil {
+		return PriceSyncRun{}, ErrNotFound
+	}
 	if a.Action == "" {
 		a.Action = "price.quote_apply"
 	}
@@ -410,6 +422,34 @@ type priceCurrent struct {
 	exists   bool
 	revision string
 	locked   bool
+	billing  Billing
+}
+
+// mergePreservingBilling keeps a configured rate when a stored quote (including
+// one generated before this rule existed) leaves that dimension unknown. An
+// explicit source value, including zero, still wins; only an absent dimension
+// falls back to the current profile.
+func mergePreservingBilling(current Billing, proposed Billing) Billing {
+	pick := func(next, cur *float64) *float64 {
+		if next != nil {
+			return next
+		}
+		return cur
+	}
+	out := Billing{
+		Input:      pick(proposed.Input, current.Input),
+		Cached:     pick(proposed.Cached, current.Cached),
+		CacheWrite: pick(proposed.CacheWrite, current.CacheWrite),
+		AudioIn:    pick(proposed.AudioIn, current.AudioIn),
+		AudioOut:   pick(proposed.AudioOut, current.AudioOut),
+		Reasoning:  pick(proposed.Reasoning, current.Reasoning),
+		Output:     pick(proposed.Output, current.Output),
+		Tiers:      proposed.Tiers,
+	}
+	if len(out.Tiers) == 0 && len(current.Tiers) > 0 {
+		out.Tiers = current.Tiers
+	}
+	return out
 }
 
 func lockModel(ctx context.Context, tx pgx.Tx, modelID string) error {
@@ -434,16 +474,23 @@ func readTargetRevision(ctx context.Context, tx pgx.Tx, modelID string, upstream
 	var c priceCurrent
 	var err error
 	if upstreamID == nil {
+		var tiers string
 		err = tx.QueryRow(ctx, `
-select m.billing_revision_id::text,r.locked
+select r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,
+       r.cache_write_usd_per_mtok::float8,r.audio_input_usd_per_mtok::float8,
+       r.audio_output_usd_per_mtok::float8,r.reasoning_usd_per_mtok::float8,
+       r.output_usd_per_mtok::float8,r.tiers::text,m.billing_revision_id::text,r.locked
 from models m join price_revisions r on r.id=m.billing_revision_id
-where m.model_id=$1`, modelID).Scan(&c.revision, &c.locked)
+where m.model_id=$1`, modelID).Scan(&c.billing.Input, &c.billing.Cached, &c.billing.CacheWrite,
+			&c.billing.AudioIn, &c.billing.AudioOut, &c.billing.Reasoning, &c.billing.Output,
+			&tiers, &c.revision, &c.locked)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c, ErrQuoteNotApplicable
 		}
 		if err != nil {
 			return c, normalize(err)
 		}
+		c.billing.Tiers = unmarshalTiers([]byte(tiers))
 		c.exists = true
 		return c, nil
 	}
@@ -451,21 +498,27 @@ where m.model_id=$1`, modelID).Scan(&c.revision, &c.locked)
 	// SaveUpstreamPrice blocks here and commits first, so this transaction
 	// observes the new revision and rejects the stale quote instead of
 	// overwriting the manual edit.
+	var tiers string
 	err = tx.QueryRow(ctx, `
-select price_revision_id::text,locked from model_prices
-where model_id=$1 and upstream_id=$2 for update`, modelID, *upstreamID).Scan(&c.revision, &c.locked)
+select input_usd_per_mtok::float8,cached_input_usd_per_mtok::float8,cache_write_usd_per_mtok::float8,
+       audio_input_usd_per_mtok::float8,audio_output_usd_per_mtok::float8,reasoning_usd_per_mtok::float8,
+       output_usd_per_mtok::float8,tiers::text,price_revision_id::text,locked from model_prices
+where model_id=$1 and upstream_id=$2 for update`, modelID, *upstreamID).Scan(&c.billing.Input, &c.billing.Cached,
+		&c.billing.CacheWrite, &c.billing.AudioIn, &c.billing.AudioOut, &c.billing.Reasoning, &c.billing.Output,
+		&tiers, &c.revision, &c.locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, nil
 	}
 	if err != nil {
 		return c, normalize(err)
 	}
+	c.billing.Tiers = unmarshalTiers([]byte(tiers))
 	c.exists = true
 	return c, nil
 }
 
 func appendQuotedRevision(ctx context.Context, tx pgx.Tx, sourceID string, q PriceQuote, c priceCurrent) (string, error) {
-	b := *q.Proposed
+	b := mergePreservingBilling(c.billing, *q.Proposed)
 	if q.UpstreamID == nil {
 		revision, err := AppendGlobalRevision(ctx, tx, q.ModelID, b, "price_source", &sourceID, c.locked)
 		if err != nil {

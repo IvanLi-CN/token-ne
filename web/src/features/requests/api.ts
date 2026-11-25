@@ -23,6 +23,9 @@ export type RequestDetail = RequestSummary & {
   error_class?: string | null;
   error_code?: string | null;
   input_tokens?: number | null;
+  cache_write_tokens?: number | null;
+  audio_input_tokens?: number | null;
+  audio_output_tokens?: number | null;
   cached_input_tokens?: number | null;
   output_tokens?: number | null;
   reasoning_tokens?: number | null;

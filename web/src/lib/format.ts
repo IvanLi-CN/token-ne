@@ -9,12 +9,12 @@ export function formatMoney(value: number | null | undefined): string | null {
   if (value === 0) return "免费";
   const fixed = value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   const [whole, fraction = ""] = fixed.split(".");
-  if (Number(fixed) !== 0) {
+  if (Math.abs(value) >= 0.0001) {
     return `$${whole}.${`${fraction}00`.slice(0, Math.max(2, fraction.length))}`;
   }
   // Sub-cent prices must not collapse into $0.00; widen until a digit survives.
   let decimals = 6;
-  while (decimals < 12 && Number(value.toFixed(decimals)) === 0) decimals += 1;
+  while (decimals < 12 && Number(Math.abs(value).toFixed(decimals)) === 0) decimals += 1;
   const tiny = value.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
   return `$${tiny}`;
 }

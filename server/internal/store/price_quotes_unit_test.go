@@ -59,4 +59,19 @@ func TestQuoteBillingValidationCoversDimensionsAndTiers(t *testing.T) {
 	}
 }
 
+
+func TestMergePreservingBillingKeepsKnownDimensions(t *testing.T) {
+	current := Billing{CacheWrite: fp(1.25), AudioIn: fp(3), Tiers: []PriceTier{{ThresholdTokens: 128000, Input: fp(2)}}}
+	proposed := Billing{Input: fp(0.5), Output: fp(1)}
+	got := mergePreservingBilling(current, proposed)
+	if got.CacheWrite == nil || *got.CacheWrite != 1.25 || got.AudioIn == nil || *got.AudioIn != 3 {
+		t.Fatalf("known dimensions dropped: %+v", got)
+	}
+	if len(got.Tiers) != 1 || got.Tiers[0].ThresholdTokens != 128000 {
+		t.Fatalf("tier ladder dropped: %+v", got)
+	}
+	if got.Input == nil || *got.Input != 0.5 || got.Output == nil || *got.Output != 1 {
+		t.Fatalf("source values lost: %+v", got)
+	}
+}
 func fp(v float64) *float64 { return &v }

@@ -31,7 +31,7 @@ pub struct Resolution<'a> {
 pub fn resolve<'a>(config: &'a Config, requested: &str) -> Option<Resolution<'a>> {
     // 请求名与配置 schema、预览接口一致按 256 标量封顶；超长名字若被 Glob
     // 路由接受，用量事件会被 ingest 以 422 拒绝并丢弃，等于无声漏计费。
-    if requested.chars().count() > glob::MAX_CHARS {
+    if requested.trim().is_empty() || requested.chars().count() > glob::MAX_CHARS {
         return None;
     }
     // 全局 Model ID 优先，且保留名称：命中但目标未启用时直接 404，不再落入 Glob。

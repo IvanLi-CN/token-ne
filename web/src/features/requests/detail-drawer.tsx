@@ -116,6 +116,9 @@ export function RequestDrawer({
                     title="用量"
                     rows={[
                       ["输入 Token", displayNumber(row.input_tokens)],
+                      ["缓存写入 Token", displayNumber(row.cache_write_tokens)],
+                      ["音频输入 Token", displayNumber(row.audio_input_tokens)],
+                      ["音频输出 Token", displayNumber(row.audio_output_tokens)],
                       ["缓存输入 Token", displayNumber(row.cached_input_tokens)],
                       ["输出 Token", displayNumber(row.output_tokens)],
                       ["推理 Token", displayNumber(row.reasoning_tokens)],

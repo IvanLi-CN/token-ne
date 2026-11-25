@@ -10,6 +10,7 @@ EVIDENCE_DIR="${T9_EVIDENCE_DIR:-/tmp/token-ne-p2-t9-evidence}"
 SERVER_PID=""
 MOCK_PID=""
 DIST_SAVED=0
+DIST_DIR="$ROOT/server/internal/web/dist"
 
 cleanup() {
   local status=$?
@@ -22,9 +23,8 @@ cleanup() {
   done
   wait 2>/dev/null || true
   if [[ "$DIST_SAVED" == "1" ]]; then
-    rm -rf "$ROOT/server/internal/web/dist"
-    mkdir -p "$ROOT/server/internal/web/dist"
-    cp "$TMP/placeholder-index.html" "$ROOT/server/internal/web/dist/index.html"
+    rm -rf "$DIST_DIR"
+    mv "$TMP/placeholder-dist" "$DIST_DIR"
   fi
   if [[ "$status" -ne 0 ]]; then
     for log in server.log mock.log; do
@@ -39,6 +39,8 @@ trap cleanup EXIT
 fail() { echo "evidence: FAIL: $*" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 2; }
 command -v bun >/dev/null 2>&1 || { echo "bun is required" >&2; exit 2; }
+command -v psql >/dev/null 2>&1 || { echo "psql is required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 [[ -n "${TEST_DATABASE_URL:-}" ]] || { echo "TEST_DATABASE_URL is required" >&2; exit 2; }
 
 free_port() {
@@ -55,22 +57,25 @@ DB_NAME="$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc 'select current_dat
 case "$DB_NAME" in
   postgres | template0 | template1) fail "refusing to reset maintenance database $DB_NAME" ;;
 esac
+DB_HOST="$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select coalesce(host(inet_server_addr()), current_setting('listen_addresses'))")"
+case "$DB_HOST" in
+  "" | localhost | 127.0.0.1 | ::1 | '*') ;;
+  *) [[ "${CLOSURE_ALLOW_REMOTE_DB:-0}" == "1" ]] || fail "refusing to reset remote database on $DB_HOST" ;;
+esac
 
 echo "evidence: resetting schema in database $DB_NAME"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop schema public cascade; create schema public;'
 
 echo "evidence: building the Web bundle and binaries"
 (cd "$ROOT/web" && bun run build >/dev/null)
-cp "$ROOT/server/internal/web/dist/index.html" "$TMP/placeholder-index.html"
+mv "$DIST_DIR" "$TMP/placeholder-dist"
 DIST_SAVED=1
-rm -rf "$ROOT/server/internal/web/dist"
-mkdir -p "$ROOT/server/internal/web/dist"
-cp -R "$ROOT/web/dist/." "$ROOT/server/internal/web/dist/"
+mkdir -p "$DIST_DIR"
+cp -R "$ROOT/web/dist/." "$DIST_DIR/"
 (cd "$ROOT/server" && go build -o "$TMP/api" ./cmd/api)
 # The binary embeds the SPA; restore the committed placeholder immediately.
-rm -rf "$ROOT/server/internal/web/dist"
-mkdir -p "$ROOT/server/internal/web/dist"
-cp "$TMP/placeholder-index.html" "$ROOT/server/internal/web/dist/index.html"
+rm -rf "$DIST_DIR"
+mv "$TMP/placeholder-dist" "$DIST_DIR"
 DIST_SAVED=0
 (cd "$ROOT/tests/e2e/mock-upstream" && go build -o "$TMP/mock-upstream" .)
 
