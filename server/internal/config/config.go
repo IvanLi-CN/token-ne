@@ -33,6 +33,11 @@ type Config struct {
 	OIDCClientSecret string
 	OIDCScopes       []string
 	OIDCCaFile       string
+	// XrayProxyPortMin and XrayProxyPortMax bound the internal SOCKS5 inbound
+	// ports the control plane allocates to egress proxy profiles. A profile keeps
+	// its port until it is deleted, so enable/disable never reallocates.
+	XrayProxyPortMin int
+	XrayProxyPortMax int
 
 	LocalLoginEnabled bool
 	SessionTTLHours   int
@@ -60,6 +65,8 @@ func Load() (Config, error) {
 		OIDCScopes:        []string{"openid", "profile", "email"},
 		LocalLoginEnabled: true,
 		SessionTTLHours:   720,
+		XrayProxyPortMin:  15000,
+		XrayProxyPortMax:  15999,
 	}
 	var e error
 	c.MasterKey, e = base64.StdEncoding.DecodeString(os.Getenv("MASTER_KEY"))
@@ -110,6 +117,16 @@ func Load() (Config, error) {
 		}
 	}
 	c.OIDCCaFile = os.Getenv("OIDC_CA_FILE")
+	if v, ok := lookup("XRAY_PROXY_PORT_MIN"); ok {
+		if c.XrayProxyPortMin, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_PROXY_PORT_MIN must be an integer")
+		}
+	}
+	if v, ok := lookup("XRAY_PROXY_PORT_MAX"); ok {
+		if c.XrayProxyPortMax, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_PROXY_PORT_MAX must be an integer")
+		}
+	}
 	c.StreamUsageInjection = true
 	if s := os.Getenv("STREAM_USAGE_INJECTION"); s != "" {
 		c.StreamUsageInjection, e = strconv.ParseBool(s)
@@ -208,6 +225,9 @@ func (c Config) Validate() error {
 		if _, err := os.ReadFile(c.OIDCCaFile); err != nil {
 			return errors.New("OIDC_CA_FILE must be readable")
 		}
+	}
+	if c.XrayProxyPortMin < 1024 || c.XrayProxyPortMax > 65535 || c.XrayProxyPortMin > c.XrayProxyPortMax {
+		return errors.New("XRAY_PROXY_PORT_MIN and XRAY_PROXY_PORT_MAX must define a range inside 1024 to 65535")
 	}
 	return nil
 }

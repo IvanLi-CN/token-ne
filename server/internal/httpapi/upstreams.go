@@ -75,6 +75,15 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, 422, "validation_failed", "models must be an array", detail("models", "must be an array"))
 		return
 	}
+	// An absent or null egress_proxy_id is direct egress; a present value must be
+	// a UUID. Existence is checked in the same transaction as the upsert so a
+	// profile deleted concurrently cannot be bound.
+	if u.EgressProxyID != nil {
+		if _, e := uuid.Parse(*u.EgressProxyID); e != nil {
+			fail(w, r, 422, "validation_failed", "invalid egress proxy reference", detail("egress_proxy_id", "must be a UUID"))
+			return
+		}
+	}
 	if d := ValidateUpstream(u, a.cfg.AllowPrivateUpstreams); len(d) > 0 {
 		fail(w, r, 422, "validation_failed", "invalid upstream", d)
 		return
@@ -137,6 +146,11 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		}
 		v, revision, e := saver.SaveUpstreamPhaseTwo(r.Context(), u, *body.CapabilitiesRevision, audi)
 		if e != nil {
+			var field *store.FieldError
+			if errors.As(e, &field) {
+				writeFieldFailure(w, r, e)
+				return
+			}
 			if errors.Is(e, store.ErrUpstreamNameTaken) {
 				fail(w, r, 422, "validation_failed", "upstream name is already in use", detail("name", "must be unique"))
 				return
@@ -149,6 +163,11 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	v, e := a.repo.SaveUpstream(r.Context(), u, create, audi)
 	if e != nil {
+		var field *store.FieldError
+		if errors.As(e, &field) {
+			writeFieldFailure(w, r, e)
+			return
+		}
 		if errors.Is(e, store.ErrConflict) {
 			fail(w, r, 422, "validation_failed", "upstream name is already in use", detail("name", "must be unique"))
 			return
