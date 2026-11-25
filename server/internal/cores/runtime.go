@@ -90,6 +90,9 @@ type DrainRequest struct {
 }
 type PruneRequest struct {
 	Instances []string `json:"instance_ids"`
+	// Force deletes only the container and keeps the state directory until a
+	// zero observation confirms the spool is empty.
+	Force bool `json:"force"`
 }
 
 func (r *Runtime) Audit(ctx context.Context, actor, action, kind, id string, payload any) error {
@@ -412,7 +415,10 @@ func (r *Runtime) Heartbeat(ctx context.Context, id string, h Heartbeat) error {
 	}
 	var desired *int64
 	var expected *string
-	if e = tx.QueryRow(ctx, `select config_revision_desired,config_hash_desired from core_instances where id=$1`, id).Scan(&desired, &expected); e != nil {
+	var drainStarted *time.Time
+	var zeroAt, blockedAt *time.Time
+	if e = tx.QueryRow(ctx, `select config_revision_desired,config_hash_desired,draining_started_at,spool_zero_at,cleanup_blocked_at from core_instances where id=$1`, id).
+		Scan(&desired, &expected, &drainStarted, &zeroAt, &blockedAt); e != nil {
 		return e
 	}
 	var applied any
@@ -428,10 +434,26 @@ func (r *Runtime) Heartbeat(ctx context.Context, id string, h Heartbeat) error {
 	if draining {
 		state = "draining"
 	}
+	// A zero only proves the spool empty when the core reports it while draining
+	// with nothing in flight; a numeric zero from a serving instance says nothing
+	// about unflushed history. The first draining heartbeat establishes the drain
+	// anchor, and this observation necessarily post-dates it. Any later nonzero
+	// report invalidates an earlier proof, and a fresh proof lifts a cleanup
+	// block because that block is not terminal.
+	observedAt := time.Now().UTC()
+	if drainStarted == nil && draining {
+		drainStarted = &observedAt
+	}
+	if proof := spoolProof(drainStarted, h.Status, observedAt); proof != nil {
+		zeroAt, blockedAt = proof, nil
+	} else if h.Status.Spool.Unacked != nil && *h.Status.Spool.Unacked > 0 {
+		zeroAt = nil
+	}
 	_, e = tx.Exec(ctx, `update core_instances set state=case when state in ('draining','stopping','stopped','pruning','pruned','failed') then state else $2 end,inflight=$3,config_revision_applied=coalesce($4,config_revision_applied),last_controlled_at=coalesce($5,last_controlled_at),
  control_status=$6,observed_at=now(),heartbeat_sent_at=$7,last_heartbeat_at=now(),spool_bytes=$8,spool_unacked=$9,
- zero_samples=case when $3=0 then zero_samples+1 else 0 end,draining_started_at=case when state='draining' or $2='draining' then coalesce(draining_started_at,now()) else null end,
- lifecycle_error=case when lifecycle_error='reload Caddy DNS' then lifecycle_error else null end where id=$1`, id, state, inflight, applied, controlled, raw, h.SentAt, *h.Status.Spool.Bytes, *h.Status.Spool.Unacked)
+ zero_samples=case when $3=0 then zero_samples+1 else 0 end,draining_started_at=case when state='draining' or $2='draining' then coalesce(draining_started_at,now()) else draining_started_at end,
+ spool_zero_at=$10,cleanup_blocked_at=$11,
+ lifecycle_error=case when lifecycle_error in ('reload Caddy DNS',$12) then lifecycle_error else null end where id=$1`, id, state, inflight, applied, controlled, raw, h.SentAt, *h.Status.Spool.Bytes, *h.Status.Spool.Unacked, zeroAt, blockedAt, pruneLabelsError)
 	if e != nil {
 		return e
 	}
@@ -548,8 +570,14 @@ func (r *Runtime) Run(ctx context.Context) {
 					slog.Warn("core control reconciliation failed", "operation", op.name, "error", e)
 				}
 			}
-
 			cancel()
+			// Destruction deletes a state directory through a Docker helper, so it
+			// gets a budget independent of the read-only reconciliation above.
+			pruneCtx, cancelPrune := context.WithTimeout(ctx, 2*time.Minute)
+			if e := r.autoPrune(pruneCtx); e != nil {
+				slog.Warn("core control reconciliation failed", "operation", "prune", "error", e)
+			}
+			cancelPrune()
 		}
 	}
 }
@@ -624,7 +652,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		}
 		byInstance[id] = c
 	}
-	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state,i.weight,i.deployment_id::text from core_instances i join core_versions v on v.id=i.version_id for update of i`)
+	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state,i.weight,i.deployment_id::text,i.cleanup_blocked_at is not null from core_instances i join core_versions v on v.id=i.version_id for update of i`)
 	if e != nil {
 		return e
 	}
@@ -633,11 +661,12 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		containerID                         *string
 		weight                              int
 		deploymentID                        *string
+		blocked                             bool
 	}
 	existingRows := []existing{}
 	for rows.Next() {
 		var v existing
-		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state, &v.weight, &v.deploymentID); e != nil {
+		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state, &v.weight, &v.deploymentID, &v.blocked); e != nil {
 			rows.Close()
 			return e
 		}
@@ -758,7 +787,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		if c.Labels[VersionLabel] != version {
 			return ErrConflict
 		}
-		if shouldRestart(state, c.State) {
+		if shouldRestart(state, c.State, row.blocked) {
 			if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 				return e
 			}
@@ -771,7 +800,11 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		if c.State == "running" {
 			desired = "running"
 		}
-		if _, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state=case when state in ('draining','stopping','pruning','pruned','failed') then state else $4 end,updated_at=now(),lifecycle_error=case when lifecycle_error='reload Caddy DNS' then lifecycle_error else nullif($5,'') end where id=$1`, id, containerID, name, desired, c.Status); e != nil {
+		// Reconciliation owns lifecycle_error for container state, but must not
+		// erase two markers it did not produce: the pending Caddy DNS reload and
+		// the alertable labels-incomplete retention.
+		if _, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state=case when state in ('draining','stopping','pruning','pruned','failed') then state else $4 end,updated_at=now(),
+ lifecycle_error=case when lifecycle_error in ('reload Caddy DNS',$5) then lifecycle_error else nullif($6,'') end where id=$1`, id, containerID, name, desired, pruneLabelsError, c.Status); e != nil {
 			rows.Close()
 			return e
 		}

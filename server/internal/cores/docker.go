@@ -115,10 +115,53 @@ func NewEngine(dockerHost string) (*Engine, error) {
 // Docker creates missing bind-mount directories as root, which the non-root core
 // cannot write. A short-lived helper runs with the parent directory mounted.
 func (e *Engine) EnsureStateDir(ctx context.Context, hostDir, instance string) error {
-	if !filepath.IsAbs(hostDir) || !UUID(instance, false) || e.StateInitImage == "" {
-		return ErrInvalid
+	status, err := e.stateHelper(ctx, hostDir, instance, "mkdir -p /state/"+instance+
+		" && chown 10001:10001 /state/"+instance+" && chmod 700 /state/"+instance)
+	if err != nil {
+		return err
 	}
-	name := "token-ne-state-init-" + uuid.NewString()
+	if status != 0 {
+		return fmt.Errorf("state directory helper exited with status %d", status)
+	}
+	return nil
+}
+
+// RemoveStateDir deletes a per-instance host state directory with the same
+// one-shot helper pattern: the parent directory is mounted at /state and root
+// runs `rm -rf /state/<instance>`. A crafted instance id can never escape the
+// parent because only a canonical UUID is accepted.
+func (e *Engine) RemoveStateDir(ctx context.Context, hostDir, instance string) error {
+	status, err := e.stateHelper(ctx, hostDir, instance, "rm -rf /state/"+instance)
+	if err != nil {
+		return err
+	}
+	if status != 0 {
+		return fmt.Errorf("state directory removal helper exited with status %d", status)
+	}
+	return nil
+}
+
+// StateDirExists reports whether the per-instance state directory is still on
+// disk. Rollback branches on this answer, not on container existence: a retained
+// directory is replayed by a compatible core, while a fresh directory is created
+// only after the original was confirmed destroyed.
+func (e *Engine) StateDirExists(ctx context.Context, hostDir, instance string) (bool, error) {
+	status, err := e.stateHelper(ctx, hostDir, instance, "test -d /state/"+instance)
+	if err != nil {
+		return false, err
+	}
+	return status == 0, nil
+}
+
+// stateHelper runs one shell fragment in the state-init image with the host
+// parent directory mounted at /state and returns the exit status. The helper
+// container is always force-removed, even when the caller's context is already
+// canceled, so cleanup never leaks a stopped container.
+func (e *Engine) stateHelper(ctx context.Context, hostDir, instance, command string) (int, error) {
+	if !filepath.IsAbs(hostDir) || !UUID(instance, false) || e.StateInitImage == "" {
+		return 0, ErrInvalid
+	}
+	name := "token-ne-state-" + uuid.NewString()
 	spec := struct {
 		Image      string            `json:"Image"`
 		Cmd        []string          `json:"Cmd"`
@@ -126,31 +169,26 @@ func (e *Engine) EnsureStateDir(ctx context.Context, hostDir, instance string) e
 		HostConfig struct {
 			Binds       []string `json:"Binds"`
 			NetworkMode string   `json:"NetworkMode"`
-			AutoRemove  bool     `json:"AutoRemove"`
 		} `json:"HostConfig"`
-	}{Image: e.StateInitImage, Cmd: []string{"sh", "-c",
-		"mkdir -p /state/" + instance + " && chown 10001:10001 /state/" + instance + " && chmod 700 /state/" + instance},
+	}{Image: e.StateInitImage, Cmd: []string{"sh", "-c", command},
 		Labels: map[string]string{"com.token-ne.role": "state-init"}}
 	spec.HostConfig.Binds = []string{filepath.Clean(hostDir) + ":/state"}
 	spec.HostConfig.NetworkMode = "none"
 	var created Container
 	if err := e.call(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(name), spec, &created); err != nil {
-		return err
+		return 0, err
 	}
 	defer e.Remove(context.WithoutCancel(ctx), created.ID, true)
 	if err := e.Start(ctx, created.ID); err != nil {
-		return err
+		return 0, err
 	}
 	var result struct {
 		StatusCode int `json:"StatusCode"`
 	}
 	if err := e.call(ctx, http.MethodPost, "/containers/"+url.PathEscape(created.ID)+"/wait", nil, &result); err != nil {
-		return err
+		return 0, err
 	}
-	if result.StatusCode != 0 {
-		return fmt.Errorf("state directory helper exited with status %d", result.StatusCode)
-	}
-	return nil
+	return result.StatusCode, nil
 }
 
 func (e *Engine) call(ctx context.Context, method, path string, body any, dst any, allowed ...int) error {

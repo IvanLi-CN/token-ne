@@ -77,3 +77,30 @@ type staticSource struct{ cores []Core }
 
 func (s *staticSource) UsageMetricCores(context.Context) ([]Core, error) { return s.cores, nil }
 func (s *staticSource) UsageMetricPool() map[string]int32                { return nil }
+
+func TestCoreAutoPruneMetricHasBoundedResults(t *testing.T) {
+	r := New()
+	for _, result := range []string{"success", "failed", "blocked", "labels_incomplete", "instance-0193f0c2", ""} {
+		r.ObserveCoreAutoPrune(result)
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	r.Handler("secret", nil)(page, req)
+	body := page.Body.String()
+	for _, want := range []string{
+		`token_ne_core_auto_prune_total{result="success"} 1`,
+		// An unrecognised value is folded into the bounded failure bucket rather
+		// than becoming its own label.
+		`token_ne_core_auto_prune_total{result="failed"} 3`,
+		`token_ne_core_auto_prune_total{result="blocked"} 1`,
+		`token_ne_core_auto_prune_total{result="labels_incomplete"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in %s", want, body)
+		}
+	}
+	if strings.Contains(body, "0193f0c2") || strings.Count(body, "core_auto_prune_total{") != 4 {
+		t.Fatalf("unbounded auto-prune labels: %s", body)
+	}
+}
