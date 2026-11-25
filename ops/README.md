@@ -50,6 +50,9 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `CONTROL_PLANE_URL` | 可选，默认 `http://api:8080`；控制面在编排网络内对 core 暴露的地址，裸金属 core 改成实际可达地址。该值也用于已存在实例的用量上报地址，修改后需要重建 core 才与创建时环境一致 |
 | `CORE_SPOOL_DIR` | 可选；按实例覆盖 usage spool 目录，留空使用容器默认 `/var/lib/token-ne/state/spool` |
 | `STREAM_USAGE_INJECTION` | 数据面开关的默认值，默认 `true`；Cores 页保存的选择写入 `system_state` 并优先于此变量 |
+| `CORE_AUTO_PRUNE` | 可选，默认 `true`；`false` 关闭淘汰实例的自动销毁。开关不是门禁公式的一部分：门禁是「部署 `completed`、权重 0、已排水并停止、排水后的 `status` 观测为 spool 清零、且自实例停止与 `completed` 中较晚者起经过宽限期」 |
+| `CORE_AUTO_PRUNE_GRACE_SECONDS` | 可选，默认 `300`；销毁前的宽限期。回滚窗口从淘汰部署 `completed` 起算，到实例容器与状态目录实际删除为止 |
+| `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | 可选，默认 `86400`；自实例停止起算。超时仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，停止自动重启与自动重试；事后清零则清除标记并重新进入删除候选 |
 
 Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS` 与 `STATUS_REWRITE_CONFIG`，不声明 core service。动态 core 由控制面按发布版本创建，每个实例独占 `CORE_STATE_HOST_DIR/<instance_id>`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。
 
@@ -65,6 +68,26 @@ API 镜像不负责下载前端依赖。发布前先在 `web/` 执行 `bun insta
 - 控制面启动：API 使用自身运行时版本登记同版本 core；如果该版本没有运行中或预热中的实例，就自动创建一个精确版本的动态 core。API 重启或 Dockrev 更新到新 release 后，会重复这一检查并自动触发新版本部署，不能把 `latest` 用作 core 镜像。
 - 旧版本或手动刷新：显式调用 `POST /api/cores/versions/{version_id}/pull`。
 - 回滚：不自动拉取镜像；宿主机上缺少该镜像时回滚失败，必须先恢复镜像或先显式拉取。
+
+## 第二期出站代理（可选覆盖层）
+
+一期部署只用 `ops/compose.yaml`，不声明 Xray、`egress`/`xray-control` 网络和 `XRAY_*` 变量。第二期叠加 `ops/compose.egress.yaml`：
+
+```sh
+docker compose --env-file ops/.env -f ops/compose.yaml -f ops/compose.egress.yaml up -d
+```
+
+| 变量 | 要求与用途 |
+| --- | --- |
+| `XRAY_IMAGE` | 可选，默认固定版本 `ghcr.io/xtls/xray-core:26.3.27`；必须与控制面 `server/go.mod` 的 `github.com/xtls/xray-core` 版本一致，因为控制面用该模块的 proto 类型构造 gRPC 请求 |
+| `XRAY_API_URL` | 可选，默认 `10.42.0.10:10085`；Xray gRPC 地址，只监听 `xray-control`，core 不加入该网络 |
+| `XRAY_PROXY_PORT_MIN`、`XRAY_PROXY_PORT_MAX` | 可选，默认 `15000`–`15999`；每个档案分配的内部 SOCKS5 入站端口范围，闭区间且不可重复 |
+| `XRAY_RECONCILE_INTERVAL_SECONDS` | 可选，默认 `30`；控制面对 Xray 的对账周期 |
+
+- `ops/xray/bootstrap.json` 只包含 gRPC API（`HandlerService`/`RoutingService`/`StatsService`）、`stats` app、`policy.system` 统计开关、默认 `blackhole` outbound 与 API 入站路由。**不存在默认直连 outbound**：未匹配流量进入 blackhole，不会泄漏。
+- SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由全部由控制面通过 gRPC 创建，Xray 配置文件不是事实来源。
+- 叠加后 `CORE_NETWORKS` 必须包含 `token_ne_egress`，动态 core 才会加入该网络；控制面在启用档案前同时校验 `CORE_NETWORKS` 与运行中容器的网络列表。
+- Xray 是 Compose 声明的单例，控制面不创建、删除或重启它，只通过对账管理运行态。
 
 ## 离线检查
 
