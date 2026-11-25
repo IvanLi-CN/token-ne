@@ -37,6 +37,14 @@ const egressCoreLabel = "com.token-ne.role=core"
 // third-party proxy is unreachable.
 const egressProbeTimeout = 10 * time.Second
 
+// egressProxyHostEnv is the host the API dials for a profile's SOCKS5 inbound.
+// In the composed deployment the API reaches Xray over the egress network by
+// service name; loopback would only work when both run in the same namespace.
+const egressProxyHostEnv = "XRAY_EGRESS_HOST"
+
+// egressProxyHostDefault is the Compose service name of the Xray singleton.
+const egressProxyHostDefault = "xray"
+
 // egressProbeTargetEnv overrides the controlled probe target. The default is a
 // no-content endpoint: a successful probe proves the whole path without
 // downloading a body.
@@ -501,6 +509,16 @@ func (a *API) egressProbeURL() string {
 	return egressDefaultProbeTarget
 }
 
+// egressProxyHost is where the API dials a profile's SOCKS5 inbound. Inside the
+// Compose project that is the Xray service on the egress network; loopback would
+// only work if the API and Xray shared a network namespace, which they do not.
+func (a *API) egressProxyHost() string {
+	if v := strings.TrimSpace(os.Getenv(egressProxyHostEnv)); v != "" {
+		return v
+	}
+	return egressProxyHostDefault
+}
+
 // egressTransport routes the probe through the profile's internal SOCKS5
 // inbound port: Xray resolves the target hostname, not the control plane.
 func (a *API) egressTransport(p store.EgressProxy) (http.RoundTripper, error) {
@@ -510,7 +528,7 @@ func (a *API) egressTransport(p store.EgressProxy) (http.RoundTripper, error) {
 	if p.InboundPort < 1 {
 		return nil, errors.New("profile has no inbound port")
 	}
-	proxyURL := &url.URL{Scheme: "socks5h", Host: net.JoinHostPort("127.0.0.1", fmt.Sprint(p.InboundPort))}
+	proxyURL := &url.URL{Scheme: "socks5h", Host: net.JoinHostPort(a.egressProxyHost(), fmt.Sprint(p.InboundPort))}
 	return &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSHandshakeTimeout: egressProbeTimeout,
 		ResponseHeaderTimeout: egressProbeTimeout, DisableKeepAlives: true}, nil
 }

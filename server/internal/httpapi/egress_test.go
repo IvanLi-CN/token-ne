@@ -176,6 +176,12 @@ type egressHarness struct {
 	cookie *http.Cookie
 }
 
+// apiHost reports the host the probe dials, so a test can prove the default is
+// not loopback without opening a socket.
+func (e egressHarness) apiHost() string {
+	return newAPI(e.cfg, e.repo).egressProxyHost()
+}
+
 func newEgressHarness(t *testing.T, opts EgressOptions) egressHarness {
 	t.Helper()
 	// Private upstreams are allowed so the binding tests do not need DNS.
@@ -540,5 +546,23 @@ func TestCheckCoreEgressNetwork(t *testing.T) {
 	}
 	if err := checkCoreEgressNetwork(ctx, "token_ne_edge,token_ne_egress", "ftp://socket"); err == nil {
 		t.Fatal("unsupported Docker host must not pass")
+	}
+}
+
+// The probe dials the Xray singleton by its Compose service name. A loopback
+// default would silently never leave the API container, so /test would always
+// fail in the deployment this repository ships.
+func TestEgressProbeDialsTheSingletonNotLoopback(t *testing.T) {
+	t.Setenv(egressProxyHostEnv, "")
+	e := newEgressHarness(t, EgressOptions{})
+	if got := e.apiHost(); got != egressProxyHostDefault {
+		t.Fatalf("default proxy host = %q, want %q", got, egressProxyHostDefault)
+	}
+	if egressProxyHostDefault == "127.0.0.1" || egressProxyHostDefault == "localhost" {
+		t.Fatal("the default proxy host must be reachable from the API container, not loopback")
+	}
+	t.Setenv(egressProxyHostEnv, "xray.internal")
+	if got := e.apiHost(); got != "xray.internal" {
+		t.Fatalf("override proxy host = %q, want xray.internal", got)
 	}
 }
