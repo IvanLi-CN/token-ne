@@ -87,11 +87,12 @@ narrower than the compose lane:
   from the snapshot it holds at startup: the relay records each usage batch and forwards it to the
   real ingest path, so the core's emitted `egress_mode`/`egress_proxy_id` is observable without
   weakening ingest.
-- **A hand-written snapshot.** `egress_proxies[]` is not published by `server/internal/cores/snapshot.go`
-  on this branch, so the script pushes a snapshot through `PUT /internal/v1/config` and marks the
-  profile's runtime state `ready` in SQL. Everything else — the profile row, its encrypted
-  credentials, the upstream binding — comes from the admin API. The core still starts by pulling
-  from the control plane, which is what binds its usage sender.
+- **A hand-written snapshot.** The control plane now publishes `egress_proxies[]` itself, but this
+  lane still pushes one snapshot through `PUT /internal/v1/config` and marks the profile's runtime
+  state `ready` in SQL: it deliberately skips Xray, so no reconcile ever promotes a profile to
+  `ready` on its own here. The publisher path is covered separately by
+  `server/internal/cores/egress_snapshot_test.go`. Everything else — the profile row, its encrypted
+  credentials, the upstream binding — comes from the admin API.
 
 Observed on this workstation on 2026-11-26 (six consecutive runs, identical output, no leaked
 processes or database locks):

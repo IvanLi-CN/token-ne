@@ -24,8 +24,8 @@
 # Two substitutions are named because each proves something narrower than the
 # compose lane: the core dials the mock's SOCKS5 listener instead of Xray (so the
 # socks5h/remote-DNS contract and the failure mode are real, Xray's protocol
-# translation is not), and the core is driven with a hand-written snapshot because
-# egress_proxies[] publication is missing on this branch.
+# translation is not), and the core is driven with a hand-written snapshot because this
+# lane deliberately runs without Xray, so nothing promotes the profile to ready.
 #
 # The compose lane (tests/e2e/compose.egress.yaml) is documented in the README
 # and is NOT executed here: this workstation has no Docker daemon.
@@ -380,10 +380,9 @@ check "the profile recorded encrypted credentials" \
 check "the profile holds a stable inbound port inside the configured range" \
   jq -e '.inbound_port >= 15000 and .inbound_port <= 15999' "$RESP/egress-create.json"
 
-# Snapshot publication of egress_proxies[] is not implemented on this branch
-# (server/internal/cores/snapshot.go has no egress writer), so the runtime state
-# the reconciler would own is written here and the core is driven with a
-# hand-written snapshot. Both substitutions are named in the report.
+# This lane runs without Xray, so no reconcile pass ever promotes the profile to
+# ready: the state the reconciler would own is written here and the core is
+# driven with a hand-written snapshot. Both substitutions are named in the report.
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "update egress_proxies set runtime_state='ready' where id='$EGRESS_ID'"
 get_json "/api/egress-proxies/$EGRESS_ID" "$RESP/egress-get.json"
