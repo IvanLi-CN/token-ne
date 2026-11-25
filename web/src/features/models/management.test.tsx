@@ -54,9 +54,16 @@ function mock(handler?: Handler) {
   const fetch = vi.fn((url: string, init: RequestInit = {}) =>
     Promise.resolve(
       handler?.(url, init) ??
-        response({
-          data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
-        }),
+        (url.endsWith("/model-policy")
+          ? response({
+              upstream_id: url.split("/")[3],
+              default_action: "allow",
+              allow_patterns: [],
+              deny_patterns: [],
+            })
+          : response({
+              data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
+            })),
     ),
   );
   vi.stubGlobal("fetch", fetch);
@@ -92,7 +99,7 @@ describe("models management", () => {
       ModelsPage,
       "全局模型",
       "example",
-      ["输入价格", "缓存输入价格", "输出价格", "全局映射", "停用日期", "能力数"],
+      ["接受", "路由", "全局映射", "停用日期", "能力数"],
       "example",
     ],
     [
@@ -140,12 +147,12 @@ describe("models management", () => {
       expect(document.querySelector(".management-record")).toBeNull();
     },
   );
-  it("distinguishes unknown/free pricing and derives routing only from explicit positive capabilities", async () => {
+  it("derives routing only from explicit positive capabilities and keeps prices out of the list", async () => {
     mock();
     mount(ModelsPage);
     await screen.findByText("可路由");
-    expect(screen.getByText("未配置")).toBeTruthy();
-    expect(screen.getByText("免费")).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "输入价格" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "输出价格" })).toBeNull();
     expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("1 个引用，禁止删除")).toBeTruthy();
   });
@@ -156,7 +163,21 @@ describe("models management", () => {
         : undefined,
     );
     mount(ModelsPage);
-    await screen.findByText("无可用候选");
+    await screen.findByText("权重为 0");
+  });
+  it("names the policy when an upstream denies the model", async () => {
+    mock((url) =>
+      url === "/api/upstreams/upstream-1/model-policy"
+        ? response({
+            upstream_id: "upstream-1",
+            default_action: "allow",
+            allow_patterns: [],
+            deny_patterns: ["example"],
+          })
+        : undefined,
+    );
+    mount(ModelsPage);
+    await screen.findByText("策略拒绝");
   });
   it("creates a real model with null unknown and zero free prices", async () => {
     const fetch = mock((url, init) =>
@@ -187,14 +208,41 @@ describe("models management", () => {
       },
     });
   });
-  it("describes enabling a model instead of always warning about disabling", async () => {
-    mock((url) =>
-      url === "/api/models" ? response({ data: [{ ...model, enabled: false }] }) : undefined,
+  it("disables every row switch while one toggle is in flight", async () => {
+    let finish: (value: Response) => void = () => {};
+    const second = { ...model, model_id: "second" };
+    mock((url, init) => {
+      if (url === "/api/models") return response({ data: [model, second] });
+      if (init?.method === "PUT")
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return undefined;
+    });
+    mount(ModelsPage);
+    const switches = await screen.findAllByRole("switch");
+    fireEvent.click(switches[0]);
+    await waitFor(() => expect((switches[1] as HTMLButtonElement).disabled).toBe(true));
+    finish(response({ ...model, enabled: false }));
+    await waitFor(() => expect((switches[1] as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("toggles model acceptance in place without a confirmation dialog", async () => {
+    const fetch = mock((url, init) =>
+      url === "/api/models"
+        ? response({ data: [{ ...model, enabled: false }] })
+        : init?.method === "PUT"
+          ? response({ ...model, enabled: true })
+          : undefined,
     );
     mount(ModelsPage);
-    fireEvent.click(within(await screen.findByRole("table")).getByRole("button", { name: "启用" }));
-    const dialog = await screen.findByRole("dialog", { name: "启用 example？" });
-    expect(within(dialog).getByText(/启用后该模型重新对外提供/)).toBeTruthy();
+    fireEvent.click(
+      within(await screen.findByRole("table")).getByRole("switch", { name: /启用 example/ }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      JSON.parse(String(fetch.mock.calls.find(([, init]) => init?.method === "PUT")?.[1]?.body)),
+    ).toEqual({ enabled: true });
   });
   it("returns focus to the form after cancelling the discard prompt", async () => {
     mock();
@@ -230,7 +278,7 @@ describe("models management", () => {
           : undefined,
     );
     mount(ModelsPage);
-    await screen.findByText("无可用候选");
+    await screen.findByText("无能力");
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "确认" }));

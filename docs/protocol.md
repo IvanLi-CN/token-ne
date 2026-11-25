@@ -210,6 +210,9 @@ Idempotency-Key: <batch_id>
         "response_bytes": 4096,
         "input_tokens": 1200,
         "cached_input_tokens": 800,
+        "cache_write_tokens": 0,
+        "audio_input_tokens": null,
+        "audio_output_tokens": null,
         "output_tokens": 350,
         "reasoning_tokens": 120,
         "total_tokens": 1550,
@@ -370,6 +373,7 @@ Idempotency-Key: <batch_id>
 - `http_status` 100 到 599 或空。
 - `resolved_model` 可空但非空时至少包含一个字符；存在时表示名称路由后的全局 Model ID，由生产该事件的核心按自己应用的快照写入。第一期和本地模型错误事件可以省略；第二期成功解析且选中上游的事件必须记录 `requested_model`、`resolved_model`、`upstream_model` 和 `upstream_id`。控制面不得因 `resolved_model` 不是当前配置中的 Model ID 而拒绝或丢弃事件：它按当前配置解析，无法匹配时只记录告警，费用模型归属回退到 `requested_model`。价格修订 ID 由控制面在摄入时关联，不能假设核心产生该 ID。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
+- `cached_input_tokens`、`cache_write_tokens`、`audio_input_tokens` 是输入明细：包含在 `input_tokens` 内时按子集计费；三者之和大于 `input_tokens` 时视为独立计数（部分 OpenAI 兼容网关按上游原语义上报），控制面按总和计费并记录告警，不因此拒绝事件。`audio_output_tokens`、`reasoning_tokens` 与 `output_tokens` 同理。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
 - `status_rewritten_from` 只在确实发生状态码改写且存在真实上游 HTTP 状态时非空；非空时 `http_status` 必须与它不同且在 100 到 599 之间。连接/DNS/TLS/超时等无上游响应的情况必须为 `null`；控制面不重新执行改写策略。
 

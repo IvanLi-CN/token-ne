@@ -159,18 +159,26 @@ func (s *Store) InvalidateSession(ctx context.Context, id string, a Audit) error
 	})
 }
 
-const modelColumns = "model_id,enabled,default_upstream_model,to_char(shutdown_date,'YYYY-MM-DD'),input_usd_per_mtok::float8,cached_input_usd_per_mtok::float8,output_usd_per_mtok::float8,created_at,updated_at"
+const modelColumns = "m.model_id,m.enabled,m.default_upstream_model,to_char(m.shutdown_date,'YYYY-MM-DD'),r.input_usd_per_mtok::float8,r.cached_input_usd_per_mtok::float8,r.cache_write_usd_per_mtok::float8,r.audio_input_usd_per_mtok::float8,r.audio_output_usd_per_mtok::float8,r.reasoning_usd_per_mtok::float8,r.output_usd_per_mtok::float8,r.tiers::text,m.created_at,m.updated_at,r.source,r.source_id,r.locked,r.id::text,r.created_at"
 
 func scanModel(row pgx.Row) (Model, error) {
 	var m Model
-	e := row.Scan(&m.ID, &m.Enabled, &m.Mapping, &m.Shutdown, &m.Billing.Input, &m.Billing.Cached, &m.Billing.Output, &m.Created, &m.Updated)
+	var state PriceRevisionState
+	var tiers string
+	e := row.Scan(&m.ID, &m.Enabled, &m.Mapping, &m.Shutdown,
+		&m.Billing.Input, &m.Billing.Cached, &m.Billing.CacheWrite, &m.Billing.AudioIn, &m.Billing.AudioOut, &m.Billing.Reasoning, &m.Billing.Output,
+		&tiers, &m.Created, &m.Updated,
+		&state.Source, &state.SourceID, &state.Locked, &state.PriceRevisionID, &state.RevisionCreatedAt)
+	m.Billing.Tiers = unmarshalTiers([]byte(tiers))
+	state.UpdatedAt = m.Updated
+	m.BillingState = &state
 	return m, normalize(e)
 }
 func (s *Store) Model(ctx context.Context, id string) (Model, error) {
-	return scanModel(s.Pool.QueryRow(ctx, "select "+modelColumns+" from models where model_id=$1", id))
+	return scanModel(s.Pool.QueryRow(ctx, "select "+modelColumns+" from models m join price_revisions r on r.id=m.billing_revision_id where m.model_id=$1", id))
 }
 func (s *Store) Models(ctx context.Context) ([]Model, error) {
-	rows, e := s.Pool.Query(ctx, "select "+modelColumns+" from models order by model_id")
+	rows, e := s.Pool.Query(ctx, "select "+modelColumns+" from models m join price_revisions r on r.id=m.billing_revision_id order by m.model_id")
 	if e != nil {
 		return nil, e
 	}
@@ -187,18 +195,76 @@ func (s *Store) Models(ctx context.Context) ([]Model, error) {
 }
 func (s *Store) SaveModel(ctx context.Context, m Model, create bool, a Audit) (Model, error) {
 	e := s.mutate(ctx, a, func(tx pgx.Tx) error {
-		q := "update models set enabled=$2,default_upstream_model=$3,shutdown_date=$4::text::date,input_usd_per_mtok=$5,cached_input_usd_per_mtok=$6,output_usd_per_mtok=$7,updated_at=now() where model_id=$1 returning "
-		if create {
-			q = "insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok) values($1,$2,$3,$4::text::date,$5,$6,$7) returning "
-		}
 		var err error
-		m, err = scanModel(tx.QueryRow(ctx, q+modelColumns, m.ID, m.Enabled, m.Mapping, m.Shutdown, m.Billing.Input, m.Billing.Cached, m.Billing.Output))
+		m, err = saveModel(ctx, tx, m, create)
 		return err
 	})
 	return m, e
 }
+
+// Reference is one stored row that still points at an entity scheduled for
+// deletion. Kind names the referencing collection: capability, route_rule or
+// price_override.
+type Reference struct {
+	Kind string
+	ID   string
+}
+
+// ReferenceConflict reports why a delete was refused so the API can list every
+// blocking reference instead of a bare foreign-key violation.
+type ReferenceConflict struct {
+	Refs []Reference
+}
+
+func (e *ReferenceConflict) Error() string {
+	return "resource is still referenced by other resources"
+}
+
+// deletionReferences lists rows that block deleting kind/id. Foreign keys that
+// cascade (capabilities, catalog, policies on an upstream) are deliberately
+// absent: they never block a delete.
+func deletionReferences(ctx context.Context, tx pgx.Tx, kind, id string) ([]Reference, error) {
+	var query string
+	switch kind {
+	case "model":
+		query = `select kind,id from (
+ select 'capability' as kind, upstream_id::text as id from upstream_models where model_id=$1
+ union all select 'route_rule', id::text from model_route_rules where target_model_id=$1
+ union all select 'price_override', upstream_id::text from model_prices where model_id=$1
+) r order by kind,id`
+	case "upstream":
+		query = `select kind,id from (
+ select 'route_rule' as kind, id::text as id from model_route_rules where upstream_id=$1
+ union all select 'price_override', model_id from model_prices where upstream_id=$1
+) r order by kind,id`
+	default:
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, query, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := []Reference{}
+	for rows.Next() {
+		var ref Reference
+		if err = rows.Scan(&ref.Kind, &ref.ID); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
 func (s *Store) Delete(ctx context.Context, kind, id string, a Audit) error {
 	return s.mutate(ctx, a, func(tx pgx.Tx) error {
+		refs, e := deletionReferences(ctx, tx, kind, id)
+		if e != nil {
+			return e
+		}
+		if len(refs) > 0 {
+			return &ReferenceConflict{Refs: refs}
+		}
 		var q string
 		switch kind {
 		case "model":
@@ -214,7 +280,9 @@ func (s *Store) Delete(ctx context.Context, kind, id string, a Audit) error {
 		if e == nil && tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
-		if kind == "model" && errors.Is(normalize(e), ErrReference) {
+		// A concurrent reference can still land between the check and the
+		// delete; keep the constraint violation mapped to a conflict.
+		if (kind == "model" || kind == "upstream") && errors.Is(normalize(e), ErrReference) {
 			return ErrConflict
 		}
 		return e

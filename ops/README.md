@@ -46,6 +46,9 @@ Caddy 管理面仅监听 `/run/caddy/admin.sock`，通过卷与 API 共享，不
 | `COMPOSE_PROJECT_NAME` | 示例为 `token-ne`；动态容器的项目标签必须与之相符，固定网络名不会随项目名变化 |
 | `CADDY_HTTP_PORT`、`METRICS_PORT` | 默认 `8080` / `9090`，均仅绑定 loopback |
 | `CADDY_TLS_MODE` | 默认 `off`，生产基线依赖外部 TLS 反向代理 |
+| `SECOND_PHASE_MODEL_MANAGEMENT` | 二期管理契约的唯一部署开关，默认 `false`；`GET /api/version` 的 `features.second_phase_model_management` 直接反映该值，同时控制严格 `capabilities_revision` 校验与 `billing_state` 返回。只在 Web 客户端已发布严格载荷后才允许启用 |
+| `CONTROL_PLANE_URL` | 可选，默认 `http://api:8080`；控制面在编排网络内对 core 暴露的地址，裸金属 core 改成实际可达地址。该值也用于已存在实例的用量上报地址，修改后需要重建 core 才与创建时环境一致 |
+| `CORE_SPOOL_DIR` | 可选；按实例覆盖 usage spool 目录，留空使用容器默认 `/var/lib/token-ne/state/spool` |
 | `STREAM_USAGE_INJECTION` | 数据面开关的默认值，默认 `true`；Cores 页保存的选择写入 `system_state` 并优先于此变量 |
 
 Compose 固定内部 `CADDY_ADMIN_URL`、`DOCKER_HOST`、`CORE_NETWORKS` 与 `STATUS_REWRITE_CONFIG`，不声明 core service。动态 core 由控制面按发布版本创建，每个实例独占 `CORE_STATE_HOST_DIR/<instance_id>`，状态目录包含加密缓存及核心私有 usage spool；不要删除未确认用量，也不要让 API 读取或重放 spool。

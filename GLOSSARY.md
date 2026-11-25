@@ -57,8 +57,8 @@ _Avoid_: Control-plane replay, file replay
 _Avoid_: API root with /v1, endpoint template
 
 **Model**:
-全局模型条目，包含公开模型名、启用状态和计费信息；不按上游拆分。
-_Avoid_: Upstream model, catalog entry, route
+全局模型条目，包含公开模型名、接受状态（`enabled`）和计费信息；不按上游拆分。界面上的「全局模型预设」即指这份列表。
+_Avoid_: Upstream model, catalog entry, route, model preset
 
 **Model mapping**:
 把公开模型名改写为上游实际模型名的配置；存在全局和上游两个作用域，上游作用域覆盖全局，但映射本身不声明上游是否支持该模型。
@@ -73,12 +73,16 @@ _Avoid_: Model route, supported model list, catalog entry
 _Avoid_: Default target, resolved route
 
 **Upstream model catalog**:
-某个上游最近一次成功同步得到的模型发现结果；目录项不自动创建全局模型或上游模型能力。
+某个上游最近一次成功同步得到的模型发现结果；同步和刷新目录不会创建全局模型或上游模型能力，只有显式开关才会。
 _Avoid_: Upstream model capability, model route, public model list
 
 **Catalog binding**:
 某个目录项与其上游模型能力之间的显式关联；决定目录项的 `bound_model_id`，与上游模型名称改写字段互相独立。
 _Avoid_: Upstream model name override, capability flag
+
+**Catalog sync mark**:
+所有者对某个目录项的意图：该源模型应保持为全局模型；它独立于目录存在性、全局模型是否存在以及模型是否被接受。
+_Avoid_: Binding, installed flag, enabled state
 
 **Resolved model**:
 请求模型名经过精确模型 ID 或启用的名称路由规则解析后的全局模型 ID；下游 Key 权限和候选选择使用该名称。
@@ -103,6 +107,18 @@ _Avoid_: Effective price, price profile
 **Price revision**:
 一次原子应用的价格变更身份；用量事件引用它以保留费用计算上下文，改价不重算历史费用。
 _Avoid_: Product version, price source
+
+**Price sync run**:
+一次受控价格源获取及其规范化报价的审核批次；状态为 `running`、`ready`、`applied` 或 `failed`，首次成功应用后为 `applied` 且仍可继续应用剩余报价。批次记录本批全部修订 ID，不从报价直接改写价格。
+_Avoid_: Price import, price update, quote cache
+
+**Price revision baseline**:
+报价生成时记下的目标价格修订；应用前必须与目标当前修订一致（生成时目标不存在则为 `null` 且应用前仍不存在），否则整批以 `stale_price_quote` 拒绝。
+_Avoid_: Current price, expected price, version
+
+**Capabilities revision**:
+每个上游能力集合的单调递增版本；目录导入、绑定和全量能力替换都递增它，更新请求必须携带读到的版本，过期返回 `409`。
+_Avoid_: ETag, config revision, capability version
 
 **Applied weights**:
 已经应用并正在决定流量分配的实例权重集合。

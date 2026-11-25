@@ -60,6 +60,9 @@ services:
       CORE_IMAGE_REPOSITORY: ${CORE_IMAGE_REPOSITORY:-ghcr.io/ivanli-cn/token-ne-core}
       ALLOW_PRIVATE_UPSTREAMS: ${CORE_ALLOW_PRIVATE_UPSTREAMS:-false}
       STREAM_USAGE_INJECTION: ${STREAM_USAGE_INJECTION:-true}
+      SECOND_PHASE_MODEL_MANAGEMENT: ${SECOND_PHASE_MODEL_MANAGEMENT:-false}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://api:8080}
+      CORE_SPOOL_DIR: ${CORE_SPOOL_DIR:-}
       STATUS_REWRITE_CONFIG: /etc/token-ne/status-rewrite.yaml
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in the deployment environment}
       ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in the deployment environment}

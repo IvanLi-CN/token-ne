@@ -158,7 +158,6 @@ describe("application router", () => {
     await screen.findByRole("heading", { name: "总览" });
     for (const [path, title] of [
       ["/requests", "请求"],
-      ["/models", "Models"],
       ["/upstreams", "Upstreams"],
       ["/keys", "Downstream Keys"],
     ]) {
@@ -166,6 +165,11 @@ describe("application router", () => {
       await screen.findByRole("heading", { name: title });
       expect(router.state.location.pathname).toBe(path);
     }
+    fireEvent.click(screen.getByRole("link", { name: "系统" }));
+    await screen.findByRole("heading", { name: "系统" });
+    fireEvent.click(screen.getByRole("link", { name: "预设" }));
+    await screen.findByRole("heading", { name: "Models" });
+    expect(router.state.location.pathname).toBe("/system/models");
     fireEvent.click(screen.getByRole("button", { name: "深色" }));
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
     fireEvent.click(screen.getByRole("button", { name: "浅色" }));
@@ -355,7 +359,7 @@ describe("shared boundaries", () => {
     expect(document.activeElement).toBe(search);
     fireEvent.change(search, { target: { value: "Models" } });
     const panel = screen.getByRole("region", { name: "命令面板" });
-    expect(panel.querySelector('a[href="/models"]')).toBeTruthy();
+    expect(panel.querySelector('a[href="/system/models"]')).toBeTruthy();
     expect(panel.querySelector('a[href="/upstreams"]')).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "固定 Models" }));
     fireEvent.click(screen.getByRole("button", { name: "重置固定与最近" }));
@@ -372,9 +376,9 @@ describe("shared boundaries", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const drawer = screen.getByRole("dialog", { name: "token-ne" });
     expect(drawer.id).toBe(trigger.getAttribute("aria-controls"));
-    fireEvent.click(screen.getByRole("link", { name: "Models" }));
+    fireEvent.click(screen.getByRole("link", { name: "预设" }));
     await screen.findByRole("heading", { name: "Models" });
-    expect(router.state.location.pathname).toBe("/models");
+    expect(router.state.location.pathname).toBe("/system/models");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });

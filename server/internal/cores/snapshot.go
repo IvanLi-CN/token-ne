@@ -25,11 +25,22 @@ type Snapshots struct {
 	DB                                                    Database
 	Master                                                []byte
 	Token, SigningKey, SignatureMode, BaseURL, PolicyPath string
+	// SpoolDir is where a core writes its usage spool. The compose default is
+	// the container path; a bare-metal or e2e core points it at its own state
+	// directory.
+	SpoolDir string
 	// StreamUsageInjection mirrors the deployment switch for
 	// stream_options.include_usage injection; nil means enabled.
 	StreamUsageInjection *bool
 	warnMu               sync.Mutex
 	warnHash             string
+}
+
+func (s *Snapshots) spoolDir() string {
+	if s.SpoolDir != "" {
+		return s.SpoolDir
+	}
+	return "/var/lib/token-ne/state/spool"
 }
 
 // warnPolicyOnce deduplicates policy rejection warnings across the 5-second
@@ -93,21 +104,44 @@ func normalizeSnapshotUpstreamBaseURL(raw string) string {
 }
 
 type configBody struct {
-	Protocol      int             `json:"protocol_version"`
-	Schema        int             `json:"config_schema_version"`
-	Instance      string          `json:"instance_id"`
-	Revision      int64           `json:"revision"`
-	IssuedAt      time.Time       `json:"issued_at"`
-	Features      map[string]bool `json:"features"`
-	Keys          json.RawMessage `json:"downstream_keys"`
-	Models        json.RawMessage `json:"models"`
-	Upstreams     []upstream      `json:"upstreams"`
-	Capabilities  json.RawMessage `json:"upstream_models"`
-	Retry         json.RawMessage `json:"retry"`
-	Policy        policy          `json:"status_rewrite"`
-	Usage         map[string]any  `json:"usage"`
-	Limits        json.RawMessage `json:"limits"`
-	AllowUnsigned bool            `json:"allow_unsigned,omitempty"`
+	Protocol         int              `json:"protocol_version"`
+	Schema           int              `json:"config_schema_version"`
+	Instance         string           `json:"instance_id"`
+	Revision         int64            `json:"revision"`
+	IssuedAt         time.Time        `json:"issued_at"`
+	Features         map[string]bool  `json:"features"`
+	Keys             json.RawMessage  `json:"downstream_keys"`
+	Models           json.RawMessage  `json:"models"`
+	Upstreams        []upstream       `json:"upstreams"`
+	Capabilities     json.RawMessage  `json:"upstream_models"`
+	Retry            json.RawMessage  `json:"retry"`
+	Policy           policy           `json:"status_rewrite"`
+	Usage            map[string]any   `json:"usage"`
+	Limits           json.RawMessage  `json:"limits"`
+	AllowUnsigned    bool             `json:"allow_unsigned,omitempty"`
+	ModelRoutes      []routeRule      `json:"model_routes,omitempty"`
+	UpstreamPolicies []upstreamPolicy `json:"upstream_policies,omitempty"`
+}
+
+// routeRule and upstreamPolicy are the configuration projections of the
+// management API resources. They are omitted entirely when the control plane
+// holds no rows, so phase-one snapshots stay byte-compatible.
+type routeRule struct {
+	ID            string  `json:"id"`
+	Pattern       string  `json:"pattern"`
+	MatchType     string  `json:"match_type"`
+	TargetModelID string  `json:"target_model_id"`
+	UpstreamID    *string `json:"upstream_id"`
+	Priority      int     `json:"priority"`
+	Enabled       bool    `json:"enabled"`
+	Description   *string `json:"description"`
+}
+
+type upstreamPolicy struct {
+	UpstreamID    string   `json:"upstream_id"`
+	DefaultAction string   `json:"default_action"`
+	AllowPatterns []string `json:"allow_patterns"`
+	DenyPatterns  []string `json:"deny_patterns"`
 }
 
 type upstream struct {
@@ -127,6 +161,78 @@ type generation struct {
 	Hash     string
 	IssuedAt time.Time
 	Policy   policy
+}
+
+// modelRoutes reads the enabled rules in the same order the core resolves
+// them: ascending priority, with the ID as a deterministic tie-break.
+func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, error) {
+	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,priority,enabled,description from model_route_rules where enabled order by priority,id`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out []routeRule
+	for rows.Next() {
+		var r routeRule
+		if e = rows.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Priority, &r.Enabled, &r.Description); e != nil {
+			return nil, e
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// upstreamPolicies publishes every stored row: omitting an upstream means it
+// has no policy row, which is equivalent to default_action=allow.
+func (s *Snapshots) upstreamPolicies(ctx context.Context, tx pgx.Tx) ([]upstreamPolicy, error) {
+	rows, e := tx.Query(ctx, `select upstream_id::text,default_action,allow_patterns,deny_patterns from upstream_model_policies order by upstream_id`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out []upstreamPolicy
+	for rows.Next() {
+		var p upstreamPolicy
+		var allow, deny []byte
+		if e = rows.Scan(&p.UpstreamID, &p.DefaultAction, &allow, &deny); e != nil {
+			return nil, e
+		}
+		p.AllowPatterns, p.DenyPatterns = []string{}, []string{}
+		if e = json.Unmarshal(allow, &p.AllowPatterns); e != nil {
+			return nil, e
+		}
+		if e = json.Unmarshal(deny, &p.DenyPatterns); e != nil {
+			return nil, e
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// admitSnapshot keeps a target instance out of traffic when its declared
+// capabilities do not cover the routing or policy semantics the snapshot
+// carries. The declaration comes from the instance's latest heartbeat, which
+// reports the same feature set as its meta endpoint.
+func (s *Snapshots) admitSnapshot(ctx context.Context, tx pgx.Tx, instance string, raw []byte) error {
+	required, e := SnapshotFeatures(raw)
+	if e != nil || len(required) == 0 {
+		return e
+	}
+	var stored []byte
+	e = tx.QueryRow(ctx, `select coalesce(control_status->'features','[]'::jsonb) from core_instances where id=$1`, instance).Scan(&stored)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return ErrUnknown
+	}
+	if e != nil {
+		return e
+	}
+	declared := []string{}
+	if len(stored) > 0 {
+		if e = json.Unmarshal(stored, &declared); e != nil {
+			return fmt.Errorf("%w: invalid declared features", ErrInvalid)
+		}
+	}
+	return RequireSnapshotFeatures(declared, raw)
 }
 
 // Build serializes publication against other builders. PostgreSQL stores the
@@ -168,12 +274,24 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
 		Usage: map[string]any{"endpoint": strings.TrimRight(s.BaseURL, "/") + "/internal/v1/usage/batch", "token": s.Token, "batch_max_events": 500, "queue_max_events": 10000,
-			"spool": map[string]any{"dir": "/var/lib/token-ne/state/spool", "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
+			"spool": map[string]any{"dir": s.spoolDir(), "max_bytes": int64(8589934592), "min_free_bytes": 1073741824, "max_age_hours": 24, "segment_bytes": 67108864, "fsync_interval_ms": 1000}},
 	}
 	for _, f := range features {
 		c.Features[f] = featuresEnabled(f, injection, *p.Enabled)
 	}
-	// One database statement gives the entire routing catalog a single MVCC view.
+	if c.ModelRoutes, e = s.modelRoutes(ctx, tx); e != nil {
+		return Snapshot{}, e
+	}
+	if c.UpstreamPolicies, e = s.upstreamPolicies(ctx, tx); e != nil {
+		return Snapshot{}, e
+	}
+	if len(c.ModelRoutes) > 0 {
+		c.Features[FeatureModelNameRouting] = true
+	}
+	if len(c.UpstreamPolicies) > 0 {
+		c.Features[FeatureUpstreamModelPolicy] = true
+	}
+	// One database statement gives models, keys, upstreams and capabilities a single MVCC view.
 	var encrypted []struct {
 		ID        string `json:"id"`
 		Name      string `json:"name"`
@@ -227,6 +345,11 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if e != nil {
 		return Snapshot{}, e
 	}
+	if !override {
+		if e = s.admitSnapshot(ctx, tx, instance, raw); e != nil {
+			return Snapshot{}, e
+		}
+	}
 	fingerprint := Hash(raw)
 	if last.Hash != fingerprint {
 		last = generation{Revision: last.Revision + 1, Hash: fingerprint, IssuedAt: time.Now().UTC(), Policy: p}
@@ -234,6 +357,12 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, last.Revision, last.IssuedAt, override
 	raw, e = json.Marshal(c)
 	if e != nil {
+		return Snapshot{}, e
+	}
+	// The publisher applies the same second-phase semantics the core enforces;
+	// a builder regression must fail here instead of being sent to a core that
+	// refuses it.
+	if e = ValidateSnapshot(raw); e != nil {
 		return Snapshot{}, e
 	}
 	if len(raw) > MaxSnapshot {
@@ -275,14 +404,10 @@ func filterConfig(modelsRaw, keysRaw, capsRaw []byte) (json.RawMessage, json.Raw
 		_ = json.Unmarshal(m["enabled"], &on)
 		enabled[id] = on
 	}
-	filteredModels := []map[string]json.RawMessage{}
-	for _, m := range models {
-		var on bool
-		_ = json.Unmarshal(m["enabled"], &on)
-		if on {
-			filteredModels = append(filteredModels, m)
-		}
-	}
+	// Disabled models stay in the snapshot: core resolution reserves a global ID
+	// even when its model is disabled, and published route targets must reference
+	// a model that is present. /v1/models filters them out.
+	filteredModels := models
 	filteredKeys := []map[string]json.RawMessage{}
 	for _, k := range keys {
 		var on bool

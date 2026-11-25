@@ -22,7 +22,12 @@ func (a *API) listUpstreams(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": v})
+	views, e := a.decorateUpstreams(r.Context(), v)
+	if e != nil {
+		writeUpstreamError(w, r, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": views})
 }
 func (a *API) getUpstream(w http.ResponseWriter, r *http.Request) {
 	if !validUUID(w, r, "upstream_id") {
@@ -33,13 +38,19 @@ func (a *API) getUpstream(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "")
 		return
 	}
-	writeJSON(w, 200, v)
+	view, e := a.decorateUpstream(r.Context(), v)
+	if e != nil {
+		writeUpstreamError(w, r, e)
+		return
+	}
+	writeJSON(w, 200, view)
 }
 func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 	create := r.Method == "POST"
 	var body struct {
 		store.Upstream
-		APIKey *string `json:"api_key"`
+		APIKey               *string `json:"api_key"`
+		CapabilitiesRevision *int64  `json:"capabilities_revision"`
 	}
 	body.Connect = 10000
 	body.FirstByte = 90000
@@ -49,8 +60,14 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		required = append(required, "api_key")
 	} else if !validUUID(w, r, "upstream_id") {
 		return
+	} else if a.cfg.SecondPhaseModelManagement {
+		required = append(required, "capabilities_revision")
 	}
 	if !decode(w, r, &body, required...) {
+		return
+	}
+	if !create && a.cfg.SecondPhaseModelManagement && (body.CapabilitiesRevision == nil || *body.CapabilitiesRevision < 1) {
+		fail(w, r, 422, "validation_failed", "capabilities revision is invalid", detail("capabilities_revision", "must be at least 1"))
 		return
 	}
 	u := body.Upstream
@@ -112,6 +129,24 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	audi := auditFor(r, action, "upstream", u.ID)
 	audi.Payload, _ = json.Marshal(u)
+	if !create && a.cfg.SecondPhaseModelManagement {
+		saver, ok := a.repo.(phaseTwoUpstreamRepository)
+		if !ok {
+			fail(w, r, 500, "storage_unavailable", "storage operation unavailable", nil)
+			return
+		}
+		v, revision, e := saver.SaveUpstreamPhaseTwo(r.Context(), u, *body.CapabilitiesRevision, audi)
+		if e != nil {
+			if errors.Is(e, store.ErrUpstreamNameTaken) {
+				fail(w, r, 422, "validation_failed", "upstream name is already in use", detail("name", "must be unique"))
+				return
+			}
+			catalogError(w, r, e)
+			return
+		}
+		writeJSON(w, status, upstreamView{Upstream: v, CapabilitiesRevision: &revision})
+		return
+	}
 	v, e := a.repo.SaveUpstream(r.Context(), u, create, audi)
 	if e != nil {
 		if errors.Is(e, store.ErrConflict) {
@@ -121,7 +156,12 @@ func (a *API) saveUpstream(w http.ResponseWriter, r *http.Request) {
 		storageError(w, r, e, "models")
 		return
 	}
-	writeJSON(w, status, v)
+	view, e := a.decorateUpstream(r.Context(), v)
+	if e != nil {
+		writeUpstreamError(w, r, e)
+		return
+	}
+	writeJSON(w, status, view)
 }
 func (a *API) deleteUpstream(w http.ResponseWriter, r *http.Request) {
 	if !validUUID(w, r, "upstream_id") {

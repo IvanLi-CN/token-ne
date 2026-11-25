@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -33,6 +34,14 @@ var (
 )
 
 var features = []string{"chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite"}
+
+// Optional second-phase capabilities. They are deliberately absent from
+// features: every core must declare the global set, while routing and policy
+// semantics are only required by snapshots that actually carry them.
+const (
+	FeatureModelNameRouting    = "model_name_routing"
+	FeatureUpstreamModelPolicy = "upstream_model_policy"
+)
 
 func UUID(id string, v7 bool) bool {
 	u, err := uuid.Parse(id)
@@ -73,6 +82,50 @@ func RequireFeatures(got []string) error {
 		have[f] = true
 	}
 	for _, f := range features {
+		if !have[f] {
+			return fmt.Errorf("%w: %s", ErrFeature, f)
+		}
+	}
+	return nil
+}
+
+// SnapshotFeatures reports which optional capabilities a snapshot body
+// activates through its content: a non-empty model_routes array requires
+// model_name_routing and a non-empty upstream_policies array requires
+// upstream_model_policy. An empty or absent array requires nothing, so a
+// phase-one snapshot never constrains the target core.
+func SnapshotFeatures(body []byte) ([]string, error) {
+	var probe struct {
+		ModelRoutes      []json.RawMessage `json:"model_routes"`
+		UpstreamPolicies []json.RawMessage `json:"upstream_policies"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return nil, fmt.Errorf("%w: invalid snapshot body", ErrInvalid)
+	}
+	var required []string
+	if len(probe.ModelRoutes) > 0 {
+		required = append(required, FeatureModelNameRouting)
+	}
+	if len(probe.UpstreamPolicies) > 0 {
+		required = append(required, FeatureUpstreamModelPolicy)
+	}
+	return required, nil
+}
+
+// RequireSnapshotFeatures verifies that a target instance's declared
+// capabilities cover everything its snapshot body activates. It returns
+// ErrFeature naming the missing capability so the publication path can keep
+// the instance out of traffic instead of sending semantics it would ignore.
+func RequireSnapshotFeatures(declared []string, body []byte) error {
+	required, err := SnapshotFeatures(body)
+	if err != nil {
+		return err
+	}
+	have := make(map[string]bool, len(declared))
+	for _, f := range declared {
+		have[f] = true
+	}
+	for _, f := range required {
 		if !have[f] {
 			return fmt.Errorf("%w: %s", ErrFeature, f)
 		}

@@ -50,8 +50,27 @@ func (f *fakeTx) QueryRow(_ context.Context, q string, _ ...any) pgx.Row {
 	f.queries = append(f.queries, q)
 	return f.row
 }
-func (f *fakeTx) Commit(context.Context) error   { f.commit = true; return nil }
-func (f *fakeTx) Rollback(context.Context) error { f.rollback = true; return nil }
+func (f *fakeTx) Query(_ context.Context, q string, _ ...any) (pgx.Rows, error) {
+	f.queries = append(f.queries, q)
+	return emptyRows{}, nil
+}
+
+// emptyRows is a pgx.Rows with no results, used by reference lookups that find
+// nothing to block the delete.
+type emptyRows struct{}
+
+func (emptyRows) Close()                                       {}
+func (emptyRows) Err() error                                   { return nil }
+func (emptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (emptyRows) Next() bool                                   { return false }
+func (emptyRows) Scan(...any) error                            { return errors.New("no rows") }
+func (emptyRows) Values() ([]any, error)                       { return nil, nil }
+func (emptyRows) RawValues() [][]byte                          { return nil }
+func (emptyRows) Conn() *pgx.Conn                              { return nil }
+func (emptyRows) TypeMap() *pgtype.Map                         { return pgtype.NewMap() }
+func (f *fakeTx) Commit(context.Context) error                 { f.commit = true; return nil }
+func (f *fakeTx) Rollback(context.Context) error               { f.rollback = true; return nil }
 
 type upstreamRow struct{}
 
@@ -79,7 +98,7 @@ func TestDeleteRestriction(t *testing.T) {
 	if e := s.Delete(context.Background(), "model", "model", Audit{}); !errors.Is(e, ErrConflict) {
 		t.Fatalf("got %v", e)
 	}
-	if tx.commit || !tx.rollback || len(tx.queries) != 1 {
+	if tx.commit || !tx.rollback || len(tx.queries) != 2 {
 		t.Fatal("restricted delete committed")
 	}
 }
@@ -91,7 +110,7 @@ func TestMutationAuditAtomic(t *testing.T) {
 		}
 		s := &Store{fakeDB{tx: tx}}
 		e := s.Delete(context.Background(), "upstream", "id", Audit{})
-		if (e != nil) != fail || tx.commit == fail || len(tx.queries) != 2 {
+		if (e != nil) != fail || tx.commit == fail || len(tx.queries) != 3 {
 			t.Fatalf("audit transaction fail=%v: %v", fail, e)
 		}
 	}
@@ -298,15 +317,20 @@ func TestUsageAcceptsKnownModelWithoutTokenCounts(t *testing.T) {
 	}
 }
 
-func TestUsageRejectsCachedTokensAboveInput(t *testing.T) {
+// A provider may report cache tokens outside input_tokens (Anthropic-shaped
+// metadata). That is billable input, not a reason to reject the whole batch.
+func TestUsageTreatsCacheDetailsAboveInputAsSeparateCounters(t *testing.T) {
 	batch := validUsageBatch()
-	cached := int64(2)
+	input, cached := int64(1), int64(2)
+	batch.Events[0].InputTokens = &input
 	batch.Events[0].CachedInputTokens = &cached
 	tx := &usageTxFake{}
-	_, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
-	problem, ok := err.(*usage.Problem)
-	if !ok || problem.Field != "cached_input_tokens" || tx.committed || !tx.rolled {
-		t.Fatalf("err=%v committed=%v rolled=%v", err, tx.committed, tx.rolled)
+	result, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
+	if err != nil || !tx.committed || tx.rolled || len(result.Inserted) != 1 {
+		t.Fatalf("result=%+v err=%v committed=%v rolled=%v", result, err, tx.committed, tx.rolled)
+	}
+	if result.Inserted[0].Cost == nil || *result.Inserted[0].Cost != "0.000000" {
+		t.Fatalf("cost = %v, want a billable zero-cost event", result.Inserted[0].Cost)
 	}
 }
 

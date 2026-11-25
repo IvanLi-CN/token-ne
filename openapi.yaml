@@ -702,6 +702,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelRoute"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -740,6 +744,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoutePreview"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -772,6 +780,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelRoute"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -795,6 +807,8 @@ paths:
       responses:
         "204":
           description: 已删除
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -956,6 +970,10 @@ paths:
                   capabilities_revision:
                     type: integer
                     minimum: 1
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1015,6 +1033,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpstreamModelPolicy"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1050,6 +1072,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceProfile"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1077,6 +1103,8 @@ paths:
       responses:
         "204":
           description: 已移除覆盖
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -1085,6 +1113,8 @@ paths:
           $ref: "#/components/responses/AdminNotFound"
         "409":
           $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -1171,6 +1201,132 @@ paths:
           $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    get:
+      tags: [prices]
+      summary: 列出受控价格源的模型
+      operationId: listPriceSourceModels
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: vendor
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, released, deprecated]
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: 价格源模型清单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceCatalog"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models/unsync:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [prices]
+      summary: 批量停止价格源模型的同步
+      operationId: unsyncPriceSourceModels
+      description: 只清除同步标记，不删除全局模型，也不修改价格修订或接受状态。
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceSourceInstallInput"
+      responses:
+        "200":
+          description: 已清除的标记数
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceUnsync"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/price-sources/{source_id}/models/install:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [prices]
+      summary: 把价格源模型批量加入全局模型
+      operationId: installPriceSourceModels
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceSourceInstallInput"
+      responses:
+        "201":
+          description: 逐行安装结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceSourceInstall"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/price-sync-runs/{run_id}:
     parameters:
       - $ref: "#/components/parameters/SyncRunId"
@@ -1220,6 +1376,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceSyncRun"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
         "401":
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
@@ -2662,9 +2822,49 @@ components:
         cached_input_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
+        cache_write_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 缓存写入按此价格计费；一期或未提供时为 null。
+        audio_input_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        audio_output_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+        reasoning_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 推理 token 单价；来源未单列时按输出价计费。
         output_usd_per_mtok:
           type: [number, "null"]
           minimum: 0
+        tiers:
+          type: array
+          description: 上下文阶梯；prompt 达到 threshold_tokens 时整份替换基础价，未给出的维度沿用基础价。
+          items:
+            $ref: "#/components/schemas/PriceTier"
+    PriceTier:
+      type: object
+      required: [threshold_tokens]
+      properties:
+        threshold_tokens:
+          type: integer
+          minimum: 1
+        input_usd_per_mtok:
+          type: [number, "null"]
+        cached_input_usd_per_mtok:
+          type: [number, "null"]
+        cache_write_usd_per_mtok:
+          type: [number, "null"]
+        audio_input_usd_per_mtok:
+          type: [number, "null"]
+        audio_output_usd_per_mtok:
+          type: [number, "null"]
+        reasoning_usd_per_mtok:
+          type: [number, "null"]
+        output_usd_per_mtok:
+          type: [number, "null"]
     ModelAdmin:
       type: object
       required: [model_id, enabled, created_at, updated_at, billing]
@@ -3041,7 +3241,7 @@ components:
           format: date-time
     PriceSyncRun:
       type: object
-      required: [id, source_id, state, items, price_revision_ids]
+      required: [id, source_id, state, items, price_revision_ids, applied_quote_ids]
       properties:
         id:
           type: string
@@ -3064,6 +3264,11 @@ components:
           items:
             type: string
             format: uuid
+        applied_quote_ids:
+          type: array
+          description: 本批次已成功应用的报价 ID；刷新页面后这些行保持不可选。
+          items:
+            type: string
         error:
           type: [string, "null"]
         items:
@@ -3127,6 +3332,101 @@ components:
           items:
             type: string
       description: 控制面要求每个被选中的非安全报价都出现在 `reviewed_quote_ids` 中，且该列表必须是 `quote_ids` 的子集；任一目标的当前修订与报价基线不一致就整批拒绝。`force_locked` 只单独确认锁定档案，不代替逐项审核。应用事务先锁定批次行和全部目标行，成功后追加本批 `price_revision_ids`、更新 `applied_at`，不覆盖之前的批次结果；拒绝时批次保持 `ready`。
+    PriceSourceCatalog:
+      type: object
+      required: [source_id, fetched_at, vendors, data]
+      properties:
+        source_id:
+          type: string
+        fetched_at:
+          type: string
+          format: date-time
+        vendors:
+          type: array
+          items:
+            type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceModel"
+    SourceModel:
+      type: object
+      required: [source_model_id, vendor, released_at, deprecated_at, billing, model_id, installed, synced]
+      properties:
+        source_model_id:
+          type: string
+          maxLength: 256
+        vendor:
+          type: string
+        released_at:
+          type: [string, "null"]
+          format: date-time
+        deprecated_at:
+          type: [string, "null"]
+          format: date-time
+        billing:
+          $ref: "#/components/schemas/Billing"
+        model_id:
+          type: string
+          description: 加入全局模型时使用的目标 ID（显式映射优先，否则为来源 ID）。
+        installed:
+          type: boolean
+          description: 目标 ID 是否已存在于全局模型。
+        synced:
+          type: boolean
+          description: 该来源行是否记录了“保持为全局模型”的同步标记；目录开关显示为开还要求目标模型存在。
+        web_search_usd_per_call:
+          type: [number, "null"]
+          minimum: 0
+          description: 按次搜索费用；仅展示，不进入 token 计费
+        cache_write_1h_usd_per_mtok:
+          type: [number, "null"]
+          minimum: 0
+          description: 1 小时缓存写入单价
+    PriceSourceUnsync:
+      type: object
+      required: [source_id, cleared]
+      properties:
+        source_id:
+          type: string
+        cleared:
+          type: integer
+          minimum: 0
+    PriceSourceInstallInput:
+      type: object
+      required: [source_model_ids]
+      properties:
+        source_model_ids:
+          type: array
+          description: 保持输入顺序去重后处理；重复的 ID 会被忽略。
+          minItems: 1
+          maxItems: 200
+          items:
+            type: string
+            maxLength: 256
+    PriceSourceInstall:
+      type: object
+      required: [source_id, data]
+      properties:
+        source_id:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceModelInstall"
+    SourceModelInstall:
+      type: object
+      required: [source_model_id, model_id, outcome]
+      properties:
+        source_model_id:
+          type: string
+        model_id:
+          type: string
+        outcome:
+          type: string
+          enum: [created, exists, conflict]
+        reason:
+          type: string
     Upstream:
       type: object
       required: [id, name, kind, base_url, auth_style, enabled, models, created_at, updated_at]
@@ -3663,6 +3963,10 @@ components:
               type: [integer, "null"]
             status_rewritten_from:
               type: [integer, "null"]
+            price_source:
+              type: [string, "null"]
+            price_source_id:
+              type: [string, "null"]
     AuditEvent:
       type: object
       required: [id, actor, action, target_type, created_at]

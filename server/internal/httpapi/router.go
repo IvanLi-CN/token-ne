@@ -88,12 +88,27 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("GET /api/models/{model_id}", a.protect(a.getModel))
 	m.HandleFunc("PUT /api/models/{model_id}", a.protect(a.saveModel))
 	m.HandleFunc("DELETE /api/models/{model_id}", a.protect(a.deleteModel))
+	registerPrices(m, a)
+	registerPriceSync(m, a)
+	registerPriceCatalog(m, a)
 	m.HandleFunc("GET /api/upstreams", a.protect(a.listUpstreams))
 	m.HandleFunc("POST /api/upstreams", a.protect(a.saveUpstream))
 	m.HandleFunc("GET /api/upstreams/{upstream_id}", a.protect(a.getUpstream))
 	m.HandleFunc("PUT /api/upstreams/{upstream_id}", a.protect(a.saveUpstream))
 	m.HandleFunc("DELETE /api/upstreams/{upstream_id}", a.protect(a.deleteUpstream))
 	m.HandleFunc("POST /api/upstreams/{upstream_id}/test", a.protect(a.testUpstream))
+	m.HandleFunc("POST /api/upstreams/models/sync", a.protect(a.syncAllUpstreamCatalogs))
+	m.HandleFunc("GET /api/upstreams/{upstream_id}/models/catalog", a.protect(a.upstreamCatalog))
+	m.HandleFunc("POST /api/upstreams/{upstream_id}/models/sync", a.protect(a.syncUpstreamCatalog))
+	m.HandleFunc("GET /api/upstreams/{upstream_id}/model-sync-runs/{run_id}", a.protect(a.upstreamCatalogRun))
+	m.HandleFunc("POST /api/upstreams/{upstream_id}/models/import", a.protect(a.importUpstreamModel))
+	m.HandleFunc("GET /api/model-routes", a.protect(a.listModelRoutes))
+	m.HandleFunc("POST /api/model-routes", a.protect(a.saveModelRoute))
+	m.HandleFunc("POST /api/model-routes/preview", a.protect(a.previewModelRoute))
+	m.HandleFunc("PUT /api/model-routes/{route_id}", a.protect(a.saveModelRoute))
+	m.HandleFunc("DELETE /api/model-routes/{route_id}", a.protect(a.deleteModelRoute))
+	m.HandleFunc("GET /api/upstreams/{upstream_id}/model-policy", a.protect(a.getUpstreamModelPolicy))
+	m.HandleFunc("PUT /api/upstreams/{upstream_id}/model-policy", a.protect(a.saveUpstreamModelPolicy))
 	m.HandleFunc("GET /api/downstream-keys", a.protect(a.listKeys))
 	m.HandleFunc("POST /api/downstream-keys", a.protect(a.saveKey))
 	m.HandleFunc("PUT /api/downstream-keys/{key_id}", a.protect(a.saveKey))
@@ -173,9 +188,17 @@ func fail(w http.ResponseWriter, r *http.Request, status int, code, message stri
 	writeJSON(w, status, map[string]any{"error": adminError{code, message, id, d}})
 }
 func storageError(w http.ResponseWriter, r *http.Request, e error, field string) {
+	var conflict *store.ReferenceConflict
 	switch {
 	case errors.Is(e, store.ErrNotFound):
 		fail(w, r, 404, "not_found", "resource not found", nil)
+	case errors.As(e, &conflict):
+		fail(w, r, 409, "conflict", "resource is still referenced", referenceDetails(conflict.Refs))
+	case errors.Is(e, store.ErrModelNameTaken):
+		if field == "" {
+			field = "model_id"
+		}
+		fail(w, r, 409, "conflict", "model name is already used by a route rule", detail(field, "a route rule already uses this pattern"))
 	case errors.Is(e, store.ErrConflict):
 		fail(w, r, 409, "conflict", "resource conflicts with an existing resource or reference", nil)
 	case errors.Is(e, store.ErrReference):
@@ -187,8 +210,40 @@ func storageError(w http.ResponseWriter, r *http.Request, e error, field string)
 		fail(w, r, 503, "storage_unavailable", "storage operation unavailable", nil)
 	}
 }
+
+// referenceDetails names each blocking collection so a client can point at the
+// exact rule or override instead of a bare conflict.
+func referenceDetails(refs []store.Reference) []Detail {
+	collections := map[string]string{"capability": "capabilities", "route_rule": "route_rules", "price_override": "price_overrides"}
+	out := make([]Detail, 0, len(refs))
+	seen := make(map[string]int, len(refs))
+	for _, ref := range refs {
+		collection := collections[ref.Kind]
+		if collection == "" {
+			collection = "references"
+		}
+		out = append(out, Detail{
+			Path:   fmt.Sprintf("%s[%d]", collection, seen[collection]),
+			Reason: fmt.Sprintf("%s %s still references this resource", strings.ReplaceAll(ref.Kind, "_", " "), ref.ID),
+		})
+		seen[collection]++
+	}
+	return out
+}
 func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string) bool {
 	return decodeWithNullable(w, r, dst, required, nil)
+}
+
+// registerUnavailable keeps a phase-two surface addressable when the configured
+// repository does not implement it. A silent 404 would look like a client bug
+// instead of a server capability gap.
+func registerUnavailable(m *http.ServeMux, a *API, patterns ...string) {
+	handler := a.protect(func(w http.ResponseWriter, r *http.Request) {
+		fail(w, r, 503, "storage_unavailable", "storage operation unavailable", nil)
+	})
+	for _, pattern := range patterns {
+		m.HandleFunc(pattern, handler)
+	}
 }
 
 func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, required []string, nullable map[string]bool) bool {

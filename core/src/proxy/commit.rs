@@ -19,6 +19,9 @@ const NONSTREAM_LIMIT: usize = 1024 * 1024;
 pub struct UsageTokens {
     pub input: Option<u64>,
     pub cached_input: Option<u64>,
+    pub cache_write: Option<u64>,
+    pub audio_input: Option<u64>,
+    pub audio_output: Option<u64>,
     pub output: Option<u64>,
     pub reasoning: Option<u64>,
     pub total: Option<u64>,
@@ -36,6 +39,16 @@ impl UsageTokens {
             output: usage["output_tokens"]
                 .as_u64()
                 .or_else(|| usage["completion_tokens"].as_u64()),
+            cache_write: usage["cache_creation_input_tokens"]
+                .as_u64()
+                .or_else(|| usage["input_tokens_details"]["cache_creation_tokens"].as_u64())
+                .or_else(|| usage["prompt_tokens_details"]["cache_write_tokens"].as_u64()),
+            audio_input: usage["input_tokens_details"]["audio_tokens"]
+                .as_u64()
+                .or_else(|| usage["prompt_tokens_details"]["audio_tokens"].as_u64()),
+            audio_output: usage["output_tokens_details"]["audio_tokens"]
+                .as_u64()
+                .or_else(|| usage["completion_tokens_details"]["audio_tokens"].as_u64()),
             reasoning: usage["output_tokens_details"]["reasoning_tokens"]
                 .as_u64()
                 .or_else(|| usage["completion_tokens_details"]["reasoning_tokens"].as_u64()),
@@ -60,6 +73,8 @@ pub struct ForwardingFacts {
     pub downstream_key_id: String,
     pub endpoint: String,
     pub requested_model: String,
+    /// 名称路由后的全局 Model ID；路由在转发前已完成，因此与 attempt 数无关。
+    pub resolved_model: Option<String>,
     pub upstream_id: Option<String>,
     pub upstream_model: Option<String>,
     pub stream: bool,

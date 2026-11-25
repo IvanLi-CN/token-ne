@@ -29,6 +29,12 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 60080,
     strictPort: true,
+    // The SPA calls the management API on its own origin. Point this at the
+    // control plane so `bun run dev` works without a reverse proxy.
+    proxy: {
+      "/api": process.env.TOKEN_NE_API ?? "http://127.0.0.1:8080",
+      "/v1": process.env.TOKEN_NE_API ?? "http://127.0.0.1:8080",
+    },
   },
   build: {
     outDir: "dist",

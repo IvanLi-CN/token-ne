@@ -5,7 +5,7 @@ use crate::{
         retry::{self, ForwardRequest},
         routing,
     },
-    state::{AppliedConfig, CoreState},
+    state::{AppliedConfig, ConfigSource, CoreState, SignatureState},
     telemetry,
 };
 use axum::{
@@ -15,7 +15,7 @@ use axum::{
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -67,6 +67,7 @@ pub fn router(state: ServerState) -> Router {
             "/internal/v1/meta",
             get(|| async { Json(telemetry::meta()) }),
         )
+        .route("/internal/v1/config", put(apply_config))
         .route("/internal/v1/status", get(status))
         .route_layer(middleware::from_fn_with_state(state.clone(), control_auth));
     let public = Router::new()
@@ -184,6 +185,232 @@ async fn metrics(State(s): State<ServerState>) -> impl IntoResponse {
 async fn status(State(s): State<ServerState>) -> Json<Value> {
     Json(s.core.status())
 }
+const MAX_CONFIG_BODY: usize = 8 << 20;
+
+fn canonical_uuid_v7(value: &str) -> bool {
+    match uuid::Uuid::parse_str(value) {
+        Ok(parsed) => {
+            parsed.get_version_num() == 7
+                && parsed.get_variant() == uuid::Variant::RFC4122
+                && parsed.to_string() == value
+        }
+        Err(_) => false,
+    }
+}
+
+fn control_json_error(
+    request_id: &str,
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    details: Vec<Value>,
+) -> Response {
+    (
+        status,
+      		Json(json!({"protocol_version":1,"error":{"code":code,"message":message,"request_id":request_id,"retryable":false,"details":details}})),
+    )
+        .into_response()
+}
+
+/// Maps the shared configuration error to the protocol envelope. Semantic
+/// failures keep the exact field path the publisher used, so both sides point
+/// at the same array element and field.
+fn config_error_response(error: crate::config::ConfigError, request_id: &str) -> Response {
+    match error.0.as_str() {
+        "json" => control_json_error(
+            request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "configuration is not a valid object",
+            Vec::new(),
+        ),
+        "instance_id" => control_json_error(
+            request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "configuration instance does not match this core",
+            vec![json!({"path":"instance_id","reason":"must match the target core"})],
+        ),
+        "override_active" => control_json_error(
+            request_id,
+            StatusCode::CONFLICT,
+            "override_active",
+            "manual configuration override is active",
+            Vec::new(),
+        ),
+        "stale_revision" => control_json_error(
+            request_id,
+            StatusCode::CONFLICT,
+            "stale_revision",
+            "configuration revision is stale",
+            Vec::new(),
+        ),
+        "signature" => control_json_error(
+            request_id,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+            "configuration signature is missing or invalid",
+            vec![json!({"path":"signature","reason":"signature verification failed"})],
+        ),
+        path => control_json_error(
+            request_id,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+            "configuration validation failed",
+            vec![json!({"path":path,"reason":"invalid configuration field"})],
+        ),
+    }
+}
+
+/// `PUT /internal/v1/config` applies a pushed snapshot atomically. The pull
+/// path shares the same parser, so a snapshot accepted here and one accepted
+/// there have identical semantics.
+async fn apply_config(State(state): State<ServerState>, req: Request) -> Response {
+    let request_id = req
+        .headers()
+        .get("x-token-ne-request-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    if !canonical_uuid_v7(&request_id) {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "request ID must be a UUIDv7",
+            Vec::new(),
+        );
+    }
+    if req
+        .headers()
+        .get("x-token-ne-protocol-version")
+        .and_then(|v| v.to_str().ok())
+        != Some("1")
+    {
+        return control_json_error(
+            &request_id,
+            StatusCode::CONFLICT,
+            "incompatible_version",
+            "protocol version must be 1",
+            Vec::new(),
+        );
+    }
+    let content_type = req
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if !content_type
+        .split(';')
+        .next()
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "Content-Type must be application/json",
+            Vec::new(),
+        );
+    }
+    let header_instance = req
+        .headers()
+        .get("x-token-ne-instance-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let header_revision = req
+        .headers()
+        .get("x-token-ne-config-revision")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let signature = req
+        .headers()
+        .get("x-token-ne-config-signature")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let body = match axum::body::to_bytes(req.into_body(), MAX_CONFIG_BODY).await {
+        Ok(body) => body,
+        Err(_) => {
+            return control_json_error(
+                &request_id,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                "configuration body exceeds 8 MiB",
+                Vec::new(),
+            );
+        }
+    };
+    let value = match serde_json::from_slice::<Value>(&body) {
+        Ok(value) if value.is_object() => value,
+        _ => {
+            return control_json_error(
+                &request_id,
+                StatusCode::BAD_REQUEST,
+                "malformed_request",
+                "configuration must be a JSON object",
+                Vec::new(),
+            );
+        }
+    };
+    let body_instance = value.get("instance_id").and_then(Value::as_str);
+    let body_revision = value.get("revision").and_then(Value::as_u64);
+    let (Some(body_instance), Some(body_revision)) = (body_instance, body_revision) else {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "configuration envelope is incomplete",
+            Vec::new(),
+        );
+    };
+    if header_instance.as_deref() != Some(body_instance) || header_revision != Some(body_revision) {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "configuration envelope headers do not match the body",
+            vec![json!({"path":"instance_id","reason":"header and body must match"})],
+        );
+    }
+    if value.get("protocol_version").and_then(Value::as_u64) != Some(1)
+        || value.get("config_schema_version").and_then(Value::as_u64) != Some(1)
+    {
+        return control_json_error(
+            &request_id,
+            StatusCode::CONFLICT,
+            "incompatible_version",
+            "configuration protocol or schema is incompatible",
+            Vec::new(),
+        );
+    }
+    match state
+        .core
+        .apply(&body, ConfigSource::ControlPlane, signature.as_deref())
+    {
+        Ok(applied) => {
+            // 幂等重推返回的是首次应用时的快照；ack 仍要反映本次校验结果。
+            let signature_state = state
+                .core
+                .check_signature(&body, ConfigSource::ControlPlane, signature.as_deref())
+                .unwrap_or(applied.signature_state);
+            let signature_state = match signature_state {
+                SignatureState::Valid => "valid",
+                SignatureState::Invalid => "invalid",
+                SignatureState::Missing => "missing",
+                SignatureState::Off => "off",
+            };
+            Json(json!({
+                "protocol_version": 1,
+                "instance_id": applied.config.instance_id,
+                "applied_revision": applied.config.revision,
+                "config_schema_version": 1,
+                "signature_state": signature_state,
+            }))
+            .into_response()
+        }
+        Err(error) => config_error_response(error, &request_id),
+    }
+}
 fn catalog(m: &crate::config::Model) -> Value {
     json!({"id":m.model_id,"object":"model","created":m.created_at.unwrap_or(0),"owned_by":"token-ne","shutdown_date":m.shutdown_date})
 }
@@ -251,19 +478,28 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         Ok(Err(_)) => return api_error(StatusCode::BAD_REQUEST, "invalid_request"),
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"),
     };
-    let Some(model) = routing::lookup(config, &body.model) else {
+    let Some(resolution) = routing::resolve(config, &body.model) else {
         return api_error(StatusCode::NOT_FOUND, "model_not_found");
     };
-    if !routing::allowed(&config.downstream_keys[auth.key_index], &body.model) {
+    // 权限检查使用解析后的全局 Model ID，别名不能绕过 Key 的模型白名单。
+    if !routing::allowed(
+        &config.downstream_keys[auth.key_index],
+        &resolution.model.model_id,
+    ) {
         return api_error(StatusCode::FORBIDDEN, "model_not_allowed");
     }
-    let candidates = routing::candidates(config, &body.model, &mut rand::rng());
+    let candidates = routing::candidates(
+        config,
+        &resolution.model.model_id,
+        resolution.upstream_id,
+        &mut rand::rng(),
+    );
     retry::forward(ForwardRequest {
         parts,
         body,
         config,
         options: &state.core.options.validation,
-        model,
+        model: resolution.model,
         key_id: &config.downstream_keys[auth.key_index].id,
         candidates,
         started: auth.started,

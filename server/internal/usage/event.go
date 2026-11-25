@@ -26,6 +26,7 @@ type Event struct {
 	UpstreamID          *string   `json:"upstream_id"`
 	Endpoint            string    `json:"endpoint"`
 	RequestedModel      *string   `json:"requested_model"`
+	ResolvedModel       *string   `json:"resolved_model"`
 	UpstreamModel       *string   `json:"upstream_model"`
 	Stream              bool      `json:"stream"`
 	HTTPStatus          *int      `json:"http_status"`
@@ -37,6 +38,9 @@ type Event struct {
 	AttemptCount        int       `json:"attempt_count"`
 	InputTokens         *int64    `json:"input_tokens"`
 	CachedInputTokens   *int64    `json:"cached_input_tokens"`
+	CacheWriteTokens    *int64    `json:"cache_write_tokens"`
+	AudioInputTokens    *int64    `json:"audio_input_tokens"`
+	AudioOutputTokens   *int64    `json:"audio_output_tokens"`
 	OutputTokens        *int64    `json:"output_tokens"`
 	ReasoningTokens     *int64    `json:"reasoning_tokens"`
 	TotalTokens         *int64    `json:"total_tokens"`
@@ -157,7 +161,7 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 		min, max int
 	}{
 		{"request_id", &e.RequestID, 1, 128}, {"core_version", &e.CoreVersion, 1, 128}, {"endpoint", &e.Endpoint, 1, 256},
-		{"requested_model", e.RequestedModel, 0, 256}, {"upstream_model", e.UpstreamModel, 0, 256},
+		{"requested_model", e.RequestedModel, 0, 256}, {"resolved_model", e.ResolvedModel, 1, 256}, {"upstream_model", e.UpstreamModel, 0, 256},
 		{"error_code", e.ErrorCode, 0, 128}, {"error_message", e.ErrorMessage, 0, 1024},
 	} {
 		if v.value != nil {
@@ -219,8 +223,11 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 		name  string
 		value *int64
 	}{
-		{"input_tokens", e.InputTokens}, {"cached_input_tokens", e.CachedInputTokens}, {"output_tokens", e.OutputTokens},
-		{"reasoning_tokens", e.ReasoningTokens}, {"total_tokens", e.TotalTokens}, {"request_bytes", e.RequestBytes}, {"response_bytes", e.ResponseBytes},
+		{"input_tokens", e.InputTokens}, {"cached_input_tokens", e.CachedInputTokens},
+		{"cache_write_tokens", e.CacheWriteTokens}, {"audio_input_tokens", e.AudioInputTokens},
+		{"audio_output_tokens", e.AudioOutputTokens}, {"output_tokens", e.OutputTokens},
+		{"reasoning_tokens", e.ReasoningTokens}, {"total_tokens", e.TotalTokens},
+		{"request_bytes", e.RequestBytes}, {"response_bytes", e.ResponseBytes},
 	} {
 		if v.value != nil && *v.value < 0 {
 			return v.name, "must be non-negative"

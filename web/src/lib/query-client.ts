@@ -11,6 +11,14 @@ export const queryKeys = {
   request: (id: string) => ["requests", "detail", id] as const,
   models: ["models"] as const,
   upstreams: ["upstreams"] as const,
+  modelRoutes: ["model-routes"] as const,
+  catalog: (upstreamId: string) => ["upstreams", upstreamId, "catalog"] as const,
+  upstreamPolicy: (upstreamId: string) => ["upstreams", upstreamId, "policy"] as const,
+  prices: ["prices"] as const,
+  priceSources: ["price-sources"] as const,
+  priceSourceCatalog: (sourceId: string, q: string, vendor: string, sort: string, order: string) =>
+    ["price-source-catalog", sourceId, q, vendor, sort, order] as const,
+  priceRun: (runId: string) => ["price-sync-runs", runId] as const,
   keys: ["downstream-keys"] as const,
   cores: ["cores"] as const,
 };

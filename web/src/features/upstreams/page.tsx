@@ -1,6 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { usePhaseFeatures } from "../../app/phase";
+import type { Column } from "../../components/data-table";
+import { FieldFailure } from "../../components/field-errors";
 import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
+import { ApiError, type CatalogSyncBatchItem, catalogApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
 import { modelsApi } from "../models/api";
 import {
@@ -12,15 +16,16 @@ import {
   FormError,
 } from "../models/management";
 import { ManagementTable } from "../models/management-table";
-import { type TestResult, type Upstream, type UpstreamInput, upstreamsApi } from "./api";
+import { type TestResult, type Upstream, type UpstreamUpdate, upstreamsApi } from "./api";
 import { CapabilityEditor } from "./capability-editor";
+import { UpstreamCatalogDialog } from "./catalog";
 
 const timeouts = [
   ["connect_timeout_ms", "连接超时（ms）", 600000],
   ["first_byte_timeout_ms", "首字节超时（ms）", 3600000],
   ["idle_timeout_ms", "空闲超时（ms）", 3600000],
 ] as const;
-function editable(upstream: Upstream): UpstreamInput {
+function editable(upstream: Upstream): UpstreamUpdate {
   return {
     name: upstream.name,
     kind: upstream.kind,
@@ -28,6 +33,7 @@ function editable(upstream: Upstream): UpstreamInput {
     auth_style: upstream.auth_style,
     enabled: upstream.enabled,
     models: upstream.models,
+    capabilities_revision: upstream.capabilities_revision,
     ...Object.fromEntries(
       timeouts.filter(([key]) => upstream[key] !== undefined).map(([key]) => [key, upstream[key]]),
     ),
@@ -35,10 +41,12 @@ function editable(upstream: Upstream): UpstreamInput {
 }
 function UpstreamEditor({
   upstream,
+  secondPhase,
   onClose,
   onSaved,
 }: {
   upstream: Upstream | null;
+  secondPhase: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -50,18 +58,40 @@ function UpstreamEditor({
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [revision, setRevision] = useState(upstream?.capabilities_revision);
+  const [reloadNote, setReloadNote] = useState("");
+  async function reloadCapabilities() {
+    if (!upstream) return;
+    try {
+      const latest = await upstreamsApi.get(upstream.id);
+      const previous = new Set(capabilities.map((capability) => capability.model_id));
+      const next = new Set(latest.models.map((capability) => capability.model_id));
+      const added = [...next].filter((modelId) => !previous.has(modelId));
+      const removed = [...previous].filter((modelId) => !next.has(modelId));
+      setCapabilities(latest.models);
+      setRevision(latest.capabilities_revision);
+      setError(undefined);
+      setDirty(true);
+      setReloadNote(
+        `已重新加载能力版本 ${latest.capabilities_revision ?? "未知"}：新增 ${added.join("、") || "无"}；移除 ${removed.join("、") || "无"}。请检查差异后重新保存。`,
+      );
+    } catch (failure) {
+      setError(failure);
+    }
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const body: UpstreamInput = {
+    const body: UpstreamUpdate = {
       name: String(data.get("name")),
       kind: "api_key",
       base_url: String(data.get("base_url")),
       auth_style: data.get("auth_style") === "api_key" ? "api_key" : "bearer",
       enabled: data.has("enabled"),
       models: capabilities,
+      ...(secondPhase ? { capabilities_revision: revision } : {}),
       ...Object.fromEntries(
         timeouts
           .filter(([key]) => data.get(key) !== "")
@@ -190,6 +220,7 @@ function UpstreamEditor({
           ) : (
             <CapabilityEditor
               models={models.data}
+              revision={revision}
               value={capabilities}
               onChange={(next) => {
                 setCapabilities(next);
@@ -199,8 +230,27 @@ function UpstreamEditor({
           )}
         </fieldset>
         <FormError error={error} />
+        {error instanceof ApiError && error.status === 409 && upstream && (
+          <div className="grid justify-items-start gap-2">
+            <p className="muted">能力版本已过期；重新加载服务器当前集合后再合并草稿。</p>
+            <Button variant="secondary" onClick={() => void reloadCapabilities()}>
+              重新加载最新能力
+            </Button>
+          </div>
+        )}
+        {reloadNote && (
+          <p role="status" className="text-sm text-[var(--warning)]">
+            {reloadNote}
+          </p>
+        )}
         <div className="dialog-actions">
-          <Button className="rounded-xl" type="submit" disabled={pending || !models.isSuccess}>
+          <Button
+            className="rounded-xl"
+            type="submit"
+            disabled={
+              pending || !models.isSuccess || (secondPhase && upstream != null && revision == null)
+            }
+          >
             {pending ? "保存中…" : "保存上游"}
           </Button>
         </div>
@@ -249,14 +299,50 @@ function TestAction({ upstream }: { upstream: Upstream }) {
 }
 export default function UpstreamsPage() {
   const client = useQueryClient();
+  const { secondPhase } = usePhaseFeatures();
   const upstreams = useQuery({
     queryKey: queryKeys.upstreams,
     queryFn: ({ signal }) => upstreamsApi.list(signal),
   });
   const [editor, setEditor] = useState<Upstream | null | undefined>();
+  const [catalog, setCatalog] = useState<Upstream>();
+  const [batch, setBatch] = useState<CatalogSyncBatchItem[]>();
+  const [batchError, setBatchError] = useState<unknown>();
+  const [batchPending, setBatchPending] = useState(false);
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: queryKeys.upstreams });
   };
+  async function syncAll() {
+    if (batchPending) return;
+    setBatchPending(true);
+    setBatchError(undefined);
+    setBatch(undefined);
+    try {
+      setBatch(await catalogApi.syncAll());
+      await refresh();
+    } catch (failure) {
+      setBatchError(failure);
+    } finally {
+      setBatchPending(false);
+    }
+  }
+  const phaseColumns: Column<Upstream>[] = secondPhase
+    ? [
+        {
+          key: "capabilities_revision",
+          header: "能力版本",
+          cell: (upstream) =>
+            upstream.capabilities_revision == null ? (
+              <span className="muted">未返回</span>
+            ) : (
+              <span className="tabular-nums">{upstream.capabilities_revision}</span>
+            ),
+        },
+      ]
+    : [];
+  const catalogUpstream = catalog
+    ? (upstreams.data?.find((upstream) => upstream.id === catalog.id) ?? catalog)
+    : undefined;
   return (
     <>
       <PageTitle title="Upstreams" />
@@ -266,10 +352,31 @@ export default function UpstreamsPage() {
             <h2>上游连接</h2>
             <p className="muted">优先级升序选择，同级按权重分配；测试不会自动改变启用状态。</p>
           </div>
-          <Button className="rounded-xl" onClick={() => setEditor(null)}>
-            创建上游
-          </Button>
+          <div className="panel-controls">
+            {secondPhase && (
+              <Button variant="secondary" disabled={batchPending} onClick={() => void syncAll()}>
+                {batchPending ? "同步中…" : "同步全部目录"}
+              </Button>
+            )}
+            <Button className="rounded-xl" onClick={() => setEditor(null)}>
+              创建上游
+            </Button>
+          </div>
         </div>
+        {batch || batchError ? (
+          <div className="grid gap-2 px-5 pb-5">
+            {batch?.map((item) => (
+              <p key={item.upstream_id} role="status" className="text-sm">
+                {`${upstreams.data?.find((upstream) => upstream.id === item.upstream_id)?.name ?? item.upstream_id}：`}
+                {item.state === "started"
+                  ? "已启动同步"
+                  : `跳过（${item.reason === "catalog_sync_running" ? "catalog_sync_running · 已有同步进行中" : (item.reason ?? "已跳过")}）`}
+                {item.run_id && <code className="ml-2 text-xs break-all">{item.run_id}</code>}
+              </p>
+            ))}
+            <FieldFailure error={batchError} />
+          </div>
+        ) : null}
         <div className="px-5 pb-5">
           <ManagementTable
             caption="上游列表"
@@ -325,6 +432,7 @@ export default function UpstreamsPage() {
                 header: "能力数量",
                 cell: (upstream) => upstream.models.length,
               },
+              ...phaseColumns,
               {
                 key: "test",
                 header: "最近测试（本次会话）",
@@ -338,6 +446,11 @@ export default function UpstreamsPage() {
                     <Button variant="secondary" onClick={() => setEditor(upstream)}>
                       编辑
                     </Button>
+                    {secondPhase && (
+                      <Button variant="secondary" onClick={() => setCatalog(upstream)}>
+                        目录与策略
+                      </Button>
+                    )}
                     <DangerAction
                       label={upstream.enabled ? "禁用" : "启用"}
                       title={`${upstream.enabled ? "禁用" : "启用"} ${upstream.name}？`}
@@ -368,7 +481,19 @@ export default function UpstreamsPage() {
         </div>
       </section>
       {editor !== undefined && (
-        <UpstreamEditor upstream={editor} onClose={() => setEditor(undefined)} onSaved={refresh} />
+        <UpstreamEditor
+          upstream={editor}
+          secondPhase={secondPhase}
+          onClose={() => setEditor(undefined)}
+          onSaved={refresh}
+        />
+      )}
+      {catalogUpstream && (
+        <UpstreamCatalogDialog
+          upstream={catalogUpstream}
+          onClose={() => setCatalog(undefined)}
+          onCapabilitiesChanged={refresh}
+        />
       )}
     </>
   );

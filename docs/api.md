@@ -24,7 +24,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 - `/api/auth/*`：本地登录、OIDC 登录与绑定、退出、强制下线、当前管理员和公开登录能力。
 - `/api/settings/auth`：管理员认证设置；`PUT` 使用 `revision` 前置条件，client secret 只写不读。OIDC 配置首次保存后以数据库为准，环境变量仅在该部署从未保存时生效。
-- `/api/version`：公开的 API 运行时版本、commit 和构建时间；Web 页脚消费该值。
+- `/api/version`：公开的 API 运行时版本、commit、构建时间和 `features.second_phase_model_management`；Web 页脚消费版本值，二期界面用它判定部署阶段。
 - `/api/models`：全局模型；`model_id` 是公开名，实体包含启用、计费、全局映射和 `shutdown_date`。
 - `/api/model-routes`：模型名称路由规则；规则解析到全局模型，可选限制上游，支持精确和 Glob。
 - `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 能力集合。
@@ -60,25 +60,34 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 共用 OpenAPI 的 `UpstreamUpdateInput` 是两期载荷的联合契约；`UpstreamUpdateInputPhaseOne` 用于一期，`UpstreamUpdateInputPhaseTwo` 强制要求 `capabilities_revision`。二期服务和客户端在启用目录导入前必须选择严格契约，缺失版本返回 `422`、过期返回 `409`，不能通过一期分支绕过版本检查。阶段由部署能力决定，不由请求内容决定：`GET /api/version` 的 `features.second_phase_model_management` 是唯一开关，缺省为 `false`，同时控制严格 `capabilities_revision` 校验与 `billing_state` 返回。全量替换保留留存能力的目录绑定，客户端重取后显示差异供管理员合并。
 - `GET/PUT /api/upstreams/{upstream_id}/model-policy` 读取或原子替换 `default_action`、`allow_patterns` 和 `deny_patterns`。保存前校验 Glob、重复规则和影响范围。没有策略行的上游返回 `default_action=allow` 和两个空列表，不是 `404`；该响应同时作为编辑表单的初始值。
 - 目录的 `bound_model_id` 为单个全局 ID 或 `null`。绑定身份独立于上游名称改写字段。目录项或能力已绑定其他目标时返回 `409`。
-- 能力、路由规则或当前上游价格覆盖阻塞删除 Model。路由限制或当前价格覆盖阻塞删除 Upstream。阻塞时返回 `409` 并在 `details` 列出引用。删除 Upstream 时级联清理其能力、目录、策略和同步记录。历史价格修订及用量继续可查。
+- 能力、路由规则或当前上游价格覆盖阻塞删除 Model；路由限制或当前价格覆盖阻塞删除 Upstream。阻塞时返回 `409 conflict`，`details[].path` 按 `capabilities[i]`、`route_rules[i]`、`price_overrides[i]` 列出每个引用。删除 Upstream 时级联清理其能力、目录、策略和同步记录。历史价格修订及用量继续可查。
 
 ## 模型路由 API
 
 - `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、可选 `upstream_id`、`priority`、`enabled` 和描述。`exact` 的 `pattern` 是全局 Model ID 或精确别名；`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。
 - `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
-- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有同 `pattern` 规则，同样拒绝并返回字段路径。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
+- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有规则使用同一 `pattern`，同样拒绝并返回 `409` 和字段路径 `model_id`。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
 - 路由规则写入、Model 创建和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。
 
 ## 价格 API
 
-- 全局默认价格通过原有模型 API 读取和更新。第二期的模型响应必须返回 `billing_state`，且 `price_revision_id` 不为空：迁移为一期既有 Model 回填一条 `scope=global`、`source=manual` 的初始修订，新建 Model 与目录导入在同一事务内创建。`PUT /api/models/{model_id}` 可通过 `billing` 和 `billing_locked` 修改全局价格和锁定状态。
+- 全局默认价格通过原有模型 API 读取和更新。开启二期开关时模型响应必须返回 `billing_state`，且 `price_revision_id` 不为空：迁移为一期既有 Model 回填一条 `scope=global`、`source=manual` 的初始修订，新建 Model 与目录导入在同一事务内创建；开关关闭时省略 `billing_state`，保持一期响应形状。`PUT /api/models/{model_id}` 通过 `billing` 和 `billing_locked` 修改全局价格和锁定状态；已锁定价格的改动或解锁还需 `confirm_locked=true`，否则返回 `409 price_profile_locked`。
+- 价格档案覆盖六个 token 维度：`input_usd_per_mtok`、`cached_input_usd_per_mtok`、`cache_write_usd_per_mtok`、`audio_input_usd_per_mtok`、`audio_output_usd_per_mtok`、`reasoning_usd_per_mtok`、`output_usd_per_mtok`，另有 `tiers` 数组表达上下文阶梯（prompt 达到 `threshold_tokens` 后整份替换基础价，未给出的维度沿用基础价）。`null` 表示未知，`0` 表示免费。
 - `GET /api/prices` 返回上游级覆盖。`PUT /api/upstreams/{upstream_id}/models/{model_id}/price` 设置覆盖与锁定状态。`DELETE` 移除上游级覆盖；已锁定档案必须在查询参数里传 `confirm_locked=true`，否则返回 `409 price_profile_locked`。修改或解锁已锁定的档案时 `PUT` 载荷需显式传入同一个字段。
 - 改价或改变锁定状态时追加不可变修订。用量摄入选择整份上游级覆盖或全局默认价格，并引用当时的修订 ID。`null` 表示未知，`0` 表示免费。
-- `GET /api/price-sources` 返回受控内置源；`POST /api/price-sources/{source_id}/sync` 生成报价批次，不直接覆盖价格。
+- `GET /api/price-sources` 返回受控内置源（`builtin`，仓库内嵌数据集，运行时不联网）；`POST /api/price-sources/{source_id}/sync` 生成报价批次并返回 `202`，不直接覆盖价格。
 - `GET /api/price-sync-runs/{run_id}` 返回当前值、建议值、来源、匹配方式和冲突。报价的 `upstream_id` 为 `null` 时指向全局默认价格，否则指向该上游的覆盖。
 - 报价保存生成时的目标当前价格修订和目标档案更新时间；`base_price_revision_id` 为 `null` 表示生成时目标覆盖尚不存在，应用前必须仍不存在。应用事务锁定批次行和全部目标行后重检基线；若任一目标已变化，返回 `409 stale_price_quote` 并整批回滚，要求重新同步。
-- `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内追加全部新修订 ID 到批次，不覆盖此前的应用结果。`reviewed_quote_ids` 必须是 `quote_ids` 的子集，并列出所有已选非安全报价。锁定档案仍需以 `force_locked=true` 单独确认；此确认不代替逐项审核。拒绝码：`409 stale_price_quote`、`409 quote_review_required`、`409 price_profile_locked`、`409 price_run_not_ready`、`422 quote_not_applicable`；任一拒绝都不修改价格。
+- `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内追加全部新修订 ID 到批次，不覆盖此前的应用结果；批次同时记录 `applied_quote_ids`，刷新页面后这些行保持不可选。`reviewed_quote_ids` 必须是 `quote_ids` 的子集，并列出所有已选非安全报价。锁定档案仍需以 `force_locked=true` 单独确认；此确认不代替逐项审核。拒绝码：`409 stale_price_quote`、`409 quote_review_required`、`409 price_profile_locked`、`409 price_run_not_ready`、`422 quote_not_applicable`；任一拒绝都不修改价格。
+
+## 价格源模型目录
+
+- `GET /api/price-sources/{source_id}/models` 返回受控价格源的模型清单、`installed` 状态和 `synced` 同步标记。查询参数：`q`（来源模型 ID 或目标模型名的子串）、`vendor`、`sort=name|released|deprecated`、`order=asc|desc`；无论排序方向，缺失日期固定排在最后。目录开关显示为开当且仅当 `synced` 为真且 `installed` 为真。
+- `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），写入同步标记并在同一事务内为缺失的行创建 `enabled=false` 的全局模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created`、`exists` 或 `conflict`。已存在的模型、被路由规则占用的名称和未知的来源行都不会被覆盖；冲突行不写标记。
+- `POST /api/price-sources/{source_id}/models/unsync` 接收 `source_model_ids`（1–200 个，去重），只清除同步标记并返回 `cleared` 数量：不删除全局模型，不修改价格修订，不改变 `enabled`。
+- 全局模型的接受状态由 `PUT /api/models/{model_id}` 的 `enabled` 控制，与目录同步标记互相独立；`DELETE /api/models/{model_id}` 删除模型后，对应目录行因为模型缺失而显示为关闭，目录刷新不会按标记重建。
+- 该接口只创建全局模型，不创建上游能力、路由规则或承接策略；新建模型沿用名称保留规则，未知来源返回 `404`。
 
 ## 模型与用量归因
 
