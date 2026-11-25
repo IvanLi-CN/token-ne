@@ -349,6 +349,7 @@ export interface PriceSyncRun {
   fetched_at?: string | null;
   applied_at?: string | null;
   price_revision_ids: string[];
+  applied_quote_ids: string[];
   error?: string | null;
   items: PriceQuote[];
 }

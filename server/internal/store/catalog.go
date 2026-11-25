@@ -20,6 +20,7 @@ var (
 	ErrCatalogBindingConflict    = errors.New("catalog item or capability is bound to another model")
 	ErrTargetModelExists         = errors.New("target model already exists")
 	ErrModelNameTaken            = errors.New("model name is already used by a route rule")
+	ErrUpstreamNameTaken         = errors.New("upstream name is already in use")
 )
 
 // Catalog sync states mirror the upstream_model_sync_runs check constraint.
@@ -549,6 +550,15 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 		}
 		if current != expected {
 			return ErrCapabilitiesRevisionStale
+		}
+		var nameTaken bool
+		if err := tx.QueryRow(ctx, "select exists(select 1 from upstreams where name=$2 and id<>$1)", u.ID, u.Name).Scan(&nameTaken); err != nil {
+			return normalize(err)
+		}
+		if nameTaken {
+			// Keep the name conflict distinct from unrelated unique/FK violations
+			// so the API can report the field instead of a bare 409.
+			return ErrUpstreamNameTaken
 		}
 		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,capabilities_revision=capabilities_revision+1,updated_at=now() where id=$1"
 		if _, err := tx.Exec(ctx, q, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce); err != nil {

@@ -134,6 +134,7 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 			{"price_sync_runs", "state", "text", "", false},
 			{"price_sync_runs", "quotes", "jsonb", "[]", false},
 			{"price_sync_runs", "price_revision_ids", "_uuid", "{}", false},
+			{"price_sync_runs", "applied_quote_ids", "_text", "{}", false},
 			{"price_sync_runs", "applied_at", "timestamptz", "", true},
 			{"upstreams", "capabilities_revision", "int8", "1", false},
 			{"upstream_models", "catalog_model_id", "text", "", true},

@@ -317,15 +317,20 @@ func TestUsageAcceptsKnownModelWithoutTokenCounts(t *testing.T) {
 	}
 }
 
-func TestUsageRejectsCachedTokensAboveInput(t *testing.T) {
+// A provider may report cache tokens outside input_tokens (Anthropic-shaped
+// metadata). That is billable input, not a reason to reject the whole batch.
+func TestUsageTreatsCacheDetailsAboveInputAsSeparateCounters(t *testing.T) {
 	batch := validUsageBatch()
-	cached := int64(2)
+	input, cached := int64(1), int64(2)
+	batch.Events[0].InputTokens = &input
 	batch.Events[0].CachedInputTokens = &cached
 	tx := &usageTxFake{}
-	_, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
-	problem, ok := err.(*usage.Problem)
-	if !ok || problem.Field != "cached_input_tokens" || tx.committed || !tx.rolled {
-		t.Fatalf("err=%v committed=%v rolled=%v", err, tx.committed, tx.rolled)
+	result, err := NewUsageInserter(usagePoolFake{tx}).IngestUsage(context.Background(), batch)
+	if err != nil || !tx.committed || tx.rolled || len(result.Inserted) != 1 {
+		t.Fatalf("result=%+v err=%v committed=%v rolled=%v", result, err, tx.committed, tx.rolled)
+	}
+	if result.Inserted[0].Cost == nil || *result.Inserted[0].Cost != "0.000000" {
+		t.Fatalf("cost = %v, want a billable zero-cost event", result.Inserted[0].Cost)
 	}
 }
 

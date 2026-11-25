@@ -168,6 +168,9 @@ func TestPriceQuoteWorkflowIntegration(t *testing.T) {
 		if applied.State != "applied" || applied.AppliedAt == nil || len(applied.PriceRevisionIDs) != 1 {
 			t.Fatalf("applied run = %+v", applied)
 		}
+		if len(applied.AppliedQuoteIDs) != 1 || applied.AppliedQuoteIDs[0] != q.ID {
+			t.Fatalf("applied quote ids = %v, want [%s]", applied.AppliedQuoteIDs, q.ID)
+		}
 		requireBilling(t, modelBilling(t, ctx, s, modelID), 0.15, 0.075, 0.6)
 		source, sourceID, locked := quoteRevision(t, ctx, s, applied.PriceRevisionIDs[0])
 		if source != "price_source" || sourceID == nil || *sourceID != pricesource.BuiltinID || locked {
@@ -324,6 +327,100 @@ func TestPriceQuoteWorkflowIntegration(t *testing.T) {
 			t.Fatalf("load override: %v", err)
 		}
 		requireBilling(t, profile.Billing, 3, 3, 3)
+	})
+
+	// An apply must not overwrite a manual override write that commits while the
+	// apply is in flight. The override row lock makes the apply observe the new
+	// revision and reject the stale quote instead of silently losing the edit.
+	t.Run("apply waits for a concurrent override write and rejects the stale baseline", func(t *testing.T) {
+		modelID := "llama-3.3-70b"
+		preparePriceTargets(t, ctx, s, []string{modelID}, nil)
+		testModel(t, ctx, s, modelID, Billing{Input: price(1), Cached: price(1), Output: price(1)})
+		upstreamID := createUpstreamForPriceSync(t, ctx, s, "p9-race-"+uuid.NewString()[:8])
+		addCapability(t, ctx, s, upstreamID, modelID, new("meta-llama/Llama-3.3-70B-Instruct"))
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			for _, statement := range []string{
+				"delete from model_prices where upstream_id=$1",
+				"delete from upstream_models where upstream_id=$1",
+				"delete from upstreams where id=$1",
+			} {
+				if _, err := s.Pool.Exec(cleanupCtx, statement, upstreamID); err != nil {
+					t.Logf("cleanup %q: %v", statement, err)
+				}
+			}
+		})
+		if _, err := s.SaveUpstreamPrice(ctx, modelID, upstreamID,
+			Billing{Input: price(1), Cached: price(1), Output: price(1)}, false, false, priceAudit()); err != nil {
+			t.Fatalf("create override: %v", err)
+		}
+		run, err := s.SyncPriceSource(ctx, pricesource.BuiltinID, quoteAudit("price.quote_fetch"))
+		if err != nil {
+			t.Fatalf("sync: %v", err)
+		}
+		quote := findQuote(t, run, modelID, &upstreamID)
+		if quote.Status != pricesource.StatusSafe || quote.BasePriceRevisionID == nil || quote.Proposed == nil {
+			t.Fatalf("quote = %+v", quote)
+		}
+
+		// Hold the row like a manual editor, let the apply reach its baseline read,
+		// then commit the manual change before releasing the lock.
+		tx, err := s.Pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		defer tx.Rollback(ctx)
+		var held string
+		if err = tx.QueryRow(ctx, `select price_revision_id::text from model_prices
+			where model_id=$1 and upstream_id=$2 for update`, modelID, upstreamID).Scan(&held); err != nil {
+			t.Fatalf("lock override: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, applyErr := s.ApplyPriceSyncRun(ctx, run.ID, PriceSyncApplyInput{QuoteIDs: []string{quote.ID}}, quoteAudit("price.quote_apply"))
+			done <- applyErr
+		}()
+		time.Sleep(300 * time.Millisecond)
+
+		manual := Billing{Input: price(3), Cached: price(3), Output: price(3)}
+		revision, err := appendUpstreamRevision(ctx, tx, modelID, upstreamID, manual, false)
+		if err != nil {
+			t.Fatalf("append manual revision: %v", err)
+		}
+		v := roundedBilling(manual)
+		tiers, err := marshalTiers(manual.Tiers)
+		if err != nil {
+			t.Fatalf("tiers: %v", err)
+		}
+		if _, err = tx.Exec(ctx, `
+update model_prices set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,cache_write_usd_per_mtok=$5,
+  audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,reasoning_usd_per_mtok=$8,output_usd_per_mtok=$9,
+  tiers=$10::jsonb,source='manual',locked=false,price_revision_id=$11,updated_at=now()
+where model_id=$1 and upstream_id=$2`,
+			modelID, upstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, revision); err != nil {
+			t.Fatalf("manual update: %v", err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatalf("commit manual edit: %v", err)
+		}
+
+		select {
+		case applyErr := <-done:
+			if !errors.Is(applyErr, ErrStalePriceQuote) {
+				t.Fatalf("apply = %v, want ErrStalePriceQuote", applyErr)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("apply did not finish after the manual edit committed")
+		}
+		profile, err := findUpstreamProfile(ctx, s, modelID, upstreamID)
+		if err != nil {
+			t.Fatalf("load override: %v", err)
+		}
+		requireBilling(t, profile.Billing, 3, 3, 3)
+		if profile.PriceRevisionID != revision {
+			t.Fatalf("override revision = %s, want the manual revision %s", profile.PriceRevisionID, revision)
+		}
 	})
 
 	t.Run("two applies append revision IDs instead of replacing", func(t *testing.T) {

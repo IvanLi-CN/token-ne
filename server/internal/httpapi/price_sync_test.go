@@ -82,7 +82,7 @@ func samplePriceRun() store.PriceSyncRun {
 	revision := uuid.NewString()
 	return store.PriceSyncRun{
 		ID: uuid.NewString(), SourceID: "builtin", State: "ready", FetchedAt: &now,
-		PriceRevisionIDs: []string{},
+		PriceRevisionIDs: []string{}, AppliedQuoteIDs: []string{},
 		Items: []store.PriceQuote{{
 			ID: uuid.NewString(), ModelID: "gpt-4o-mini", SourceModelID: new("gpt-4o-mini"),
 			MatchMethod: "model_exact", Status: "safe", BasePriceRevisionID: &revision, BaseUpdatedAt: &now,

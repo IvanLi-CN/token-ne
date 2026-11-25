@@ -223,17 +223,9 @@ func ingestUsage(ctx context.Context, pool UsagePool, batch usage.Batch, priceQu
 				}
 				obs.ModelLabel = *modelID
 				var fits bool
-				obs.Cost, fits = cost.Calculate(effective.Prices(), effective.Tiers, cost.Usage{
-					Input: e.InputTokens, Cached: e.CachedInputTokens, CacheWrite: e.CacheWriteTokens,
-					AudioIn: e.AudioInputTokens, AudioOut: e.AudioOutputTokens,
-					Reasoning: e.ReasoningTokens, Output: e.OutputTokens,
-				})
+				obs.Cost, fits = cost.Calculate(effective.Prices(), effective.Tiers, tokenUsage(ctx, e))
 				if !fits {
-					field := "input_tokens"
-					if e.CachedInputTokens != nil && e.InputTokens != nil && *e.CachedInputTokens > *e.InputTokens {
-						field = "cached_input_tokens"
-					}
-					return usage.Result{}, usage.EventProblem(i, field, "calculated cost exceeds storage range or token detail is inconsistent")
+					return usage.Result{}, usage.EventProblem(i, "input_tokens", "calculated cost exceeds storage range")
 				}
 				revisionID = effective.RevisionID
 			} else {
@@ -274,4 +266,45 @@ func ingestUsage(ctx context.Context, pool UsagePool, batch usage.Batch, priceQu
 		}
 	}
 	return result, nil
+}
+
+// tokenUsage reconciles the two shapes providers use for detail counters.
+// OpenAI reports cache/audio/reasoning tokens as subsets of input_tokens and
+// output_tokens, which is what cost.Calculate subtracts. Anthropic-shaped
+// payloads (cache_creation_input_tokens) and some audio providers report them
+// as separate counters, so the detail sum exceeds the reported total; charging
+// the sum keeps the event billable instead of rejecting the whole batch.
+func tokenUsage(ctx context.Context, e usage.Event) cost.Usage {
+	u := cost.Usage{
+		Input: e.InputTokens, Cached: e.CachedInputTokens, CacheWrite: e.CacheWriteTokens,
+		AudioIn: e.AudioInputTokens, AudioOut: e.AudioOutputTokens,
+		Reasoning: e.ReasoningTokens, Output: e.OutputTokens,
+	}
+	if e.InputTokens != nil {
+		if details := sumTokens(e.CachedInputTokens, e.CacheWriteTokens, e.AudioInputTokens); details > *e.InputTokens {
+			total := *e.InputTokens + details
+			slog.WarnContext(ctx, "usage input details exceed input_tokens; treating details as separate counters",
+				"event_id", e.EventID, "input_tokens", *e.InputTokens, "detail_tokens", details)
+			u.Input = &total
+		}
+	}
+	if e.OutputTokens != nil {
+		if details := sumTokens(e.AudioOutputTokens, e.ReasoningTokens); details > *e.OutputTokens {
+			total := *e.OutputTokens + details
+			slog.WarnContext(ctx, "usage output details exceed output_tokens; treating details as separate counters",
+				"event_id", e.EventID, "output_tokens", *e.OutputTokens, "detail_tokens", details)
+			u.Output = &total
+		}
+	}
+	return u
+}
+
+func sumTokens(values ...*int64) int64 {
+	var sum int64
+	for _, value := range values {
+		if value != nil && *value > 0 {
+			sum += *value
+		}
+	}
+	return sum
 }

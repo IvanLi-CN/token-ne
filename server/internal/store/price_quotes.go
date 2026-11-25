@@ -53,6 +53,7 @@ type PriceSyncRun struct {
 	FetchedAt        *time.Time   `json:"fetched_at"`
 	AppliedAt        *time.Time   `json:"applied_at"`
 	PriceRevisionIDs []string     `json:"price_revision_ids"`
+	AppliedQuoteIDs  []string     `json:"applied_quote_ids"`
 	Error            *string      `json:"error"`
 	Items            []PriceQuote `json:"items"`
 }
@@ -66,13 +67,13 @@ type PriceSyncApplyInput struct {
 	ForceLocked      bool
 }
 
-const priceRunColumns = "id::text,source_id,state,fetched_at,applied_at,quotes,price_revision_ids::text[],error"
+const priceRunColumns = "id::text,source_id,state,fetched_at,applied_at,quotes,price_revision_ids::text[],applied_quote_ids::text[],error"
 
 func scanPriceRun(row pgx.Row) (PriceSyncRun, error) {
 	var run PriceSyncRun
 	var raw []byte
 	err := row.Scan(&run.ID, &run.SourceID, &run.State, &run.FetchedAt, &run.AppliedAt,
-		&raw, &run.PriceRevisionIDs, &run.Error)
+		&raw, &run.PriceRevisionIDs, &run.AppliedQuoteIDs, &run.Error)
 	if err != nil {
 		return PriceSyncRun{}, normalize(err)
 	}
@@ -87,6 +88,9 @@ func scanPriceRun(row pgx.Row) (PriceSyncRun, error) {
 	}
 	if run.PriceRevisionIDs == nil {
 		run.PriceRevisionIDs = []string{}
+	}
+	if run.AppliedQuoteIDs == nil {
+		run.AppliedQuoteIDs = []string{}
 	}
 	return run, nil
 }
@@ -143,7 +147,7 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 	now := time.Now().UTC()
 	run := PriceSyncRun{
 		ID: runID, SourceID: sourceID, State: "running",
-		PriceRevisionIDs: []string{}, Items: []PriceQuote{},
+		PriceRevisionIDs: []string{}, AppliedQuoteIDs: []string{}, Items: []PriceQuote{},
 	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -154,21 +158,25 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 		return run, normalize(err)
 	}
 	fail := func(reason error) (PriceSyncRun, error) {
-		message := reason.Error()
-		run.State, run.Error, run.FetchedAt = "failed", &message, &now
-		if _, updateErr := tx.Exec(ctx, "update price_sync_runs set state='failed',fetched_at=$2,error=$3 where id=$1", runID, now, message); updateErr != nil {
-			_ = tx.Rollback(ctx)
+		// The failure record must survive the aborted transaction that produced
+		// it: roll back, then upsert the terminal state on its own connection so
+		// an internal error still leaves the attempt and its reason observable.
+		_ = tx.Rollback(ctx)
+		message := clipCatalogError(reason.Error())
+		failedAt := time.Now().UTC()
+		run.State, run.Error, run.FetchedAt = "failed", &message, &failedAt
+		if _, updateErr := s.Pool.Exec(ctx, `
+insert into price_sync_runs(id,source_id,state,fetched_at,error)
+values($1,$2,'failed',$3,$4)
+on conflict (id) do update set state='failed',fetched_at=excluded.fetched_at,error=excluded.error`,
+			runID, sourceID, failedAt, message); updateErr != nil {
 			return run, normalize(updateErr)
 		}
 		a.Payload = priceAuditPayload(map[string]any{
 			"source_id": sourceID, "outcome": "failed", "error": message,
 		})
-		if auditErr := writeAudit(ctx, tx, a); auditErr != nil {
-			_ = tx.Rollback(ctx)
+		if auditErr := s.RecordAudit(ctx, a); auditErr != nil {
 			return run, auditErr
-		}
-		if commitErr := tx.Commit(ctx); commitErr != nil {
-			return run, commitErr
 		}
 		return run, nil
 	}
@@ -177,8 +185,7 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 	}
 	targets, err := loadPriceTargets(ctx, tx)
 	if err != nil {
-		_ = tx.Rollback(ctx)
-		return run, err
+		return fail(err)
 	}
 	quotes, err := adapter.Quotes(dataset, targets)
 	if err != nil {
@@ -194,8 +201,7 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 	}
 	run.State, run.FetchedAt, run.Items = "ready", &now, items
 	if _, err = tx.Exec(ctx, "update price_sync_runs set state='ready',fetched_at=$2,quotes=$3 where id=$1", runID, now, raw); err != nil {
-		_ = tx.Rollback(ctx)
-		return run, normalize(err)
+		return fail(err)
 	}
 	a.Payload = priceAuditPayload(map[string]any{
 		"source_id": sourceID, "outcome": "ready", "quote_count": len(items),
@@ -205,7 +211,7 @@ func (s *Store) SyncPriceSource(ctx context.Context, sourceID string, a Audit) (
 		return run, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return run, err
+		return fail(err)
 	}
 	return run, nil
 }
@@ -379,6 +385,7 @@ func applyPriceRun(ctx context.Context, tx pgx.Tx, runID string, in PriceSyncApp
 	}
 
 	applied := make([]string, 0, len(selected))
+	appliedQuotes := make([]string, 0, len(selected))
 	for _, q := range selected {
 		c := current[targetKey(q.ModelID, q.UpstreamID)]
 		revision, err := appendQuotedRevision(ctx, tx, run.SourceID, q, c)
@@ -386,11 +393,13 @@ func applyPriceRun(ctx context.Context, tx pgx.Tx, runID string, in PriceSyncApp
 			return PriceSyncRun{}, empty, err
 		}
 		applied = append(applied, revision)
+		appliedQuotes = append(appliedQuotes, q.ID)
 	}
 	run, err = scanPriceRun(tx.QueryRow(ctx, `
 update price_sync_runs
-set price_revision_ids=price_revision_ids || $2::text[]::uuid[],applied_at=now(),state='applied'
-where id=$1 returning `+priceRunColumns, runID, applied))
+set price_revision_ids=price_revision_ids || $2::text[]::uuid[],
+    applied_quote_ids=applied_quote_ids || $3::text[],applied_at=now(),state='applied'
+where id=$1 returning `+priceRunColumns, runID, applied, appliedQuotes))
 	if err != nil {
 		return PriceSyncRun{}, empty, err
 	}
@@ -438,9 +447,13 @@ where m.model_id=$1`, modelID).Scan(&c.revision, &c.locked)
 		c.exists = true
 		return c, nil
 	}
+	// The row lock is the baseline guarantee for upstream overrides: a manual
+	// SaveUpstreamPrice blocks here and commits first, so this transaction
+	// observes the new revision and rejects the stale quote instead of
+	// overwriting the manual edit.
 	err = tx.QueryRow(ctx, `
 select price_revision_id::text,locked from model_prices
-where model_id=$1 and upstream_id=$2`, modelID, *upstreamID).Scan(&c.revision, &c.locked)
+where model_id=$1 and upstream_id=$2 for update`, modelID, *upstreamID).Scan(&c.revision, &c.locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, nil
 	}
@@ -486,26 +499,33 @@ values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'price_source',$12,$13,'upstream') ret
 	if err != nil {
 		return "", normalize(err)
 	}
-	tag, err := tx.Exec(ctx, `
+	if c.exists {
+		// The revision predicate is defence in depth on top of the row lock: a
+		// writer that bypasses the lock can still not be overwritten silently.
+		tag, err := tx.Exec(ctx, `
 update model_prices set input_usd_per_mtok=$3,cached_input_usd_per_mtok=$4,cache_write_usd_per_mtok=$5,
   audio_input_usd_per_mtok=$6,audio_output_usd_per_mtok=$7,reasoning_usd_per_mtok=$8,output_usd_per_mtok=$9,
   tiers=$10::jsonb,source='price_source',locked=$11,price_revision_id=$12,updated_at=now()
-where model_id=$1 and upstream_id=$2`,
-		q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned)
+where model_id=$1 and upstream_id=$2 and price_revision_id=$13::uuid`,
+			q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned, c.revision)
+		if err != nil {
+			return "", normalize(err)
+		}
+		if tag.RowsAffected() == 0 {
+			return "", ErrStalePriceQuote
+		}
+		return returned, nil
+	}
+	tag, err := tx.Exec(ctx, `
+insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
+  audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
+values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'price_source',$12,$13)
+on conflict (model_id,upstream_id) do nothing`,
+		uuid.NewString(), q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned)
 	if err != nil {
 		return "", normalize(err)
 	}
 	if tag.RowsAffected() == 0 {
-		if !c.exists {
-			if _, err = tx.Exec(ctx, `
-insert into model_prices(id,model_id,upstream_id,input_usd_per_mtok,cached_input_usd_per_mtok,cache_write_usd_per_mtok,
-  audio_input_usd_per_mtok,audio_output_usd_per_mtok,reasoning_usd_per_mtok,output_usd_per_mtok,tiers,source,locked,price_revision_id)
-values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'price_source',$12,$13)`,
-				uuid.NewString(), q.ModelID, *q.UpstreamID, v.input, v.cached, v.write, v.audioIn, v.audioOut, v.reasoning, v.output, tiers, c.locked, returned); err != nil {
-				return "", normalize(err)
-			}
-			return returned, nil
-		}
 		return "", ErrStalePriceQuote
 	}
 	return returned, nil

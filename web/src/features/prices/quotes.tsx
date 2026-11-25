@@ -65,7 +65,9 @@ function PriceRunPanel({
     const key = data?.id ?? "";
     if (appliedRun.current !== key) {
       appliedRun.current = key;
-      setApplied(new Set());
+      // A reloaded run already knows which quotes it consumed; keep those rows
+      // disabled instead of letting the user re-select a stale baseline.
+      setApplied(new Set(data?.applied_quote_ids ?? []));
     }
     if (data?.state !== "ready") return;
     const resetKey = `${data.id}:${data.price_revision_ids.length}`;

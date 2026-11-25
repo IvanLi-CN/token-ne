@@ -48,3 +48,32 @@ func TestValidateSnapshotReportsFirstUnknownFieldDeterministically(t *testing.T)
 		}
 	}
 }
+
+// The core rejects an exact pattern that is empty, over 256 scalars or carries
+// a control character, and a description over 1024 scalars. The publisher must
+// reject the same snapshot instead of learning at push time.
+func TestValidateSnapshotMirrorsExactPatternAndDescriptionLimits(t *testing.T) {
+	long := strings.Repeat("x", 257)
+	routes := `[{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000a1","pattern":"` + long + `","match_type":"exact","target_model_id":"gpt-5","priority":10,"enabled":true}]`
+	err := ValidateSnapshot(snapshotBody(routes, phaseTwoFeatures))
+	var rejection *SnapshotValidationError
+	if !errors.As(err, &rejection) || rejection.Details[0].Path != "model_routes[0].pattern" {
+		t.Fatalf("long exact pattern = %v", err)
+	}
+
+	control := `[{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000a1","pattern":"gpt\u0007","match_type":"exact","target_model_id":"gpt-5","priority":10,"enabled":true}]`
+	if err = ValidateSnapshot(snapshotBody(control, phaseTwoFeatures)); !errors.As(err, &rejection) || rejection.Details[0].Path != "model_routes[0].pattern" {
+		t.Fatalf("control character pattern = %v", err)
+	}
+
+	description := strings.Repeat("d", 1025)
+	described := `[{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000a1","pattern":"alias","match_type":"exact","target_model_id":"gpt-5","priority":10,"enabled":true,"description":"` + description + `"}]`
+	if err = ValidateSnapshot(snapshotBody(described, phaseTwoFeatures)); !errors.As(err, &rejection) || rejection.Details[0].Path != "model_routes[0].description" {
+		t.Fatalf("long description = %v", err)
+	}
+
+	valid := `[{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000a1","pattern":"alias","match_type":"exact","target_model_id":"gpt-5","priority":10,"enabled":true,"description":"ok"}]`
+	if err = ValidateSnapshot(snapshotBody(valid, phaseTwoFeatures)); err != nil {
+		t.Fatalf("valid exact route rejected: %v", err)
+	}
+}

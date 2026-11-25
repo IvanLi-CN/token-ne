@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 )
@@ -53,6 +56,7 @@ type snapshotRoute struct {
 	UpstreamID    *string `json:"upstream_id"`
 	Priority      *int    `json:"priority"`
 	Enabled       bool    `json:"enabled"`
+	Description   *string `json:"description"`
 }
 
 type snapshotPolicy struct {
@@ -187,8 +191,8 @@ func ValidateSnapshot(body []byte) error {
 		}
 		switch route.MatchType {
 		case "exact":
-			if route.Pattern == "" {
-				return snapshotReject(base+".pattern", "must not be empty")
+			if !validSnapshotName(route.Pattern) {
+				return snapshotReject(base+".pattern", "must contain 1 to 256 characters")
 			}
 		case "glob":
 			if err := modelglob.Validate(route.Pattern); err != nil {
@@ -208,6 +212,9 @@ func ValidateSnapshot(body []byte) error {
 		}
 		if route.Priority == nil || *route.Priority < 0 || *route.Priority > 100000 {
 			return snapshotReject(base+".priority", "must be between 0 and 100000")
+		}
+		if route.Description != nil && utf8.RuneCountInString(*route.Description) > 1024 {
+			return snapshotReject(base+".description", "maximum length is 1024")
 		}
 		if route.Enabled && route.MatchType == "exact" {
 			if exact[route.Pattern] {
@@ -262,6 +269,13 @@ func sameOptional(a, b *string) bool {
 		return a == nil && b == nil
 	}
 	return *a == *b
+}
+
+// validSnapshotName mirrors the core's `text` validation for exact patterns:
+// non-empty, at most 256 scalars and no control characters. The publisher must
+// not accept a snapshot the target core would reject with 422.
+func validSnapshotName(value string) bool {
+	return value != "" && utf8.RuneCountInString(value) <= 256 && !strings.ContainsFunc(value, unicode.IsControl)
 }
 
 func requireFeatureTrue(features map[string]json.RawMessage, name, path string) error {

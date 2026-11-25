@@ -79,7 +79,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `GET /api/price-sources` 返回受控内置源（`builtin`，仓库内嵌数据集，运行时不联网）；`POST /api/price-sources/{source_id}/sync` 生成报价批次并返回 `202`，不直接覆盖价格。
 - `GET /api/price-sync-runs/{run_id}` 返回当前值、建议值、来源、匹配方式和冲突。报价的 `upstream_id` 为 `null` 时指向全局默认价格，否则指向该上游的覆盖。
 - 报价保存生成时的目标当前价格修订和目标档案更新时间；`base_price_revision_id` 为 `null` 表示生成时目标覆盖尚不存在，应用前必须仍不存在。应用事务锁定批次行和全部目标行后重检基线；若任一目标已变化，返回 `409 stale_price_quote` 并整批回滚，要求重新同步。
-- `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内追加全部新修订 ID 到批次，不覆盖此前的应用结果。`reviewed_quote_ids` 必须是 `quote_ids` 的子集，并列出所有已选非安全报价。锁定档案仍需以 `force_locked=true` 单独确认；此确认不代替逐项审核。拒绝码：`409 stale_price_quote`、`409 quote_review_required`、`409 price_profile_locked`、`409 price_run_not_ready`、`422 quote_not_applicable`；任一拒绝都不修改价格。
+- `POST /api/price-sync-runs/{run_id}/apply` 应用显式选择且目标已确定的报价，在一个事务内追加全部新修订 ID 到批次，不覆盖此前的应用结果；批次同时记录 `applied_quote_ids`，刷新页面后这些行保持不可选。`reviewed_quote_ids` 必须是 `quote_ids` 的子集，并列出所有已选非安全报价。锁定档案仍需以 `force_locked=true` 单独确认；此确认不代替逐项审核。拒绝码：`409 stale_price_quote`、`409 quote_review_required`、`409 price_profile_locked`、`409 price_run_not_ready`、`422 quote_not_applicable`；任一拒绝都不修改价格。
 
 ## 价格源模型目录
 

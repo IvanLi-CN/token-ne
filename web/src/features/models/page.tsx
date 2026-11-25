@@ -446,6 +446,13 @@ export default function ModelsPage() {
     if (policies.isLoading) {
       return { label: "加载中", tone: "neutral", title: "正在加载上游承接策略。" };
     }
+    if (policies.isError) {
+      return {
+        label: "策略未知",
+        tone: "error",
+        title: "上游承接策略加载失败，无法判断候选是否被拒绝。",
+      };
+    }
     const capabilities = (upstreams.data ?? []).flatMap((upstream) =>
       upstream.models
         .filter((capability) => capability.model_id === model.model_id)

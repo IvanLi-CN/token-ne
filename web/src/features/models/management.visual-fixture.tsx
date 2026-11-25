@@ -235,6 +235,7 @@ const priceRun = {
   fetched_at: timestamp,
   applied_at: null,
   price_revision_ids: [],
+  applied_quote_ids: [],
   error: null,
   items: [
     {
@@ -457,6 +458,7 @@ window.fetch = async (input, init) => {
       state: "applied",
       applied_at: "2026-11-22T00:05:00Z",
       price_revision_ids: ["cafe0001-cccc-4fd7-8ae8-00000000000c"],
+      applied_quote_ids: ["quote-safe"],
     });
   }
   if (url.endsWith("/test"))

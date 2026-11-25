@@ -103,6 +103,7 @@ const run: PriceSyncRun = {
   fetched_at: timestamp,
   applied_at: null,
   price_revision_ids: [],
+  applied_quote_ids: [],
   error: null,
   items: [safe, review, conflict],
 };
@@ -111,6 +112,7 @@ const appliedRun: PriceSyncRun = {
   state: "applied",
   applied_at: timestamp,
   price_revision_ids: ["rev-new-0001"],
+  applied_quote_ids: [safe.id],
 };
 function response(body: unknown, status = 200) {
   return status === 204

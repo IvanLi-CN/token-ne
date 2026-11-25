@@ -30,7 +30,7 @@ export const quoteStatusMeta: Record<
     tone: "error",
     selectable: true,
     review: true,
-    hint: "目标已有不同价格；必须逐项确认后才能应用。",
+    hint: "来源之间不一致，或目标已锁定；必须逐项确认后才能应用。",
   },
   missing: {
     label: "缺失",
@@ -44,7 +44,7 @@ export const quoteStatusMeta: Record<
     tone: "neutral",
     selectable: false,
     review: false,
-    hint: "没有匹配的来源行；不改变当前价格。",
+    hint: "来源价格与当前价格一致，无需变更。",
   },
 };
 

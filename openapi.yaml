@@ -3231,7 +3231,7 @@ components:
           format: date-time
     PriceSyncRun:
       type: object
-      required: [id, source_id, state, items, price_revision_ids]
+      required: [id, source_id, state, items, price_revision_ids, applied_quote_ids]
       properties:
         id:
           type: string
@@ -3254,6 +3254,11 @@ components:
           items:
             type: string
             format: uuid
+        applied_quote_ids:
+          type: array
+          description: 本批次已成功应用的报价 ID；刷新页面后这些行保持不可选。
+          items:
+            type: string
         error:
           type: [string, "null"]
         items:
