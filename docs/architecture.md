@@ -525,8 +525,8 @@ sequenceDiagram
 
 ### 退役实例自动销毁
 
-- 默认 `CORE_AUTO_PRUNE=true`。自动销毁只对同时满足以下条件的实例生效：淘汰该实例的部署状态已达到 `completed`（由 `core_instances.retired_by_deployment_id` 记录）、权重为 0、排水完成并已停止、且通过 spool 清零确认。停止后经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）才进入删除队列。
-- 回滚窗口从“淘汰该实例的那次部署”进入 `completed` 起，到该实例容器与状态目录被实际删除为止；窗口内保留镜像身份和状态目录；容器在正常路径下保留到删除队列执行，`force=true` 提前删除容器时按回滚步骤以登记的镜像 digest 重建容器并复用保留的状态目录。`CORE_AUTO_PRUNE_GRACE_SECONDS` 从实例停止时刻起算，宽限期结束且其余门禁全部满足后才进入删除队列。只有实例已被实际销毁（或状态目录已不存在）时，回滚才按登记的镜像 digest 重建实例和新状态目录：自动销毁的前提是 spool 已确认清零，因此这种情况下没有用量需要重放；未被销毁（含 `cleanup_blocked`）时回滚必须复用原状态目录并重放其 spool。
+- 默认 `CORE_AUTO_PRUNE=true`。自动销毁只对同时满足以下条件的实例生效：淘汰该实例的部署状态已达到 `completed`（由 `core_instances.retired_by_deployment_id` 记录）、权重为 0、排水完成并已停止、且通过 spool 清零确认。自实例停止与 `completed` 中较晚者起经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）才进入删除队列。
+- 回滚窗口从“淘汰该实例的那次部署”进入 `completed` 起，到该实例容器与状态目录被实际删除为止；窗口内保留镜像身份和状态目录；容器在正常路径下保留到删除队列执行，`force=true` 提前删除容器时按回滚步骤以登记的镜像 digest 重建容器并复用保留的状态目录。宽限期自实例停止时刻与 `completed` 时刻中较晚者起算（`CORE_AUTO_PRUNE_GRACE_SECONDS`，默认 300 秒），宽限期结束且其余门禁全部满足后才进入删除队列。只有实例已被实际销毁（或状态目录已不存在）时，回滚才按登记的镜像 digest 重建实例和新状态目录：自动销毁的前提是 spool 已确认清零，因此这种情况下没有用量需要重放；未被销毁（含 `cleanup_blocked`）时回滚必须复用原状态目录并重放其 spool。
 - 失败实例没有“从未接收流量”这类无法从协议观测的前置条件；它必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描），才进入删除候选。容器删除与状态目录删除共用同一次确认零观测；没有确认观测时两者都保留。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为确认；该观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成，或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
@@ -888,11 +888,11 @@ api config export --instance <instance_id> > "$CORE_STATE_HOST_DIR/<instance_id>
 - 出站代理档案保存在 PostgreSQL；控制面是 Xray 的唯一写入者，管理员 API 和浏览器不直接连接 Xray。
 - Xray 是 Compose 声明服务，控制面不创建、删除或重启其容器。启动配置只包含 gRPC API、默认 blackhole、`stats` app、`policy.system` 统计开关和日志/路由骨架；不存在默认直连 outbound。
 - 每个档案分配稳定的内部 SOCKS5 入站端口（来自 `XRAY_PROXY_PORT_MIN`–`XRAY_PROXY_PORT_MAX`，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。
-- 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则。`StatsService` 只在 `stats` app 与 `policy.system.statsInboundUplink/statsOutboundUplink` 开启时才有可读计数；否则 `GetStats` 返回 `NotFound`，档案状态一律以对账结果为准，不使用统计推断可用性。
+- 控制面通过 `HandlerService` 增加/删除 SOCKS5 入站和协议出站，通过 `RoutingService` 维护 `inboundTag -> outboundTag` 规则（每次发布完整替换规则集，不追加）。`StatsService` 只在 `stats` app 与 `policy.system.statsInboundUplink/statsOutboundUplink` 开启时才有可读计数；否则 `GetStats` 返回 `NotFound`，档案状态一律以对账结果为准，不使用统计推断可用性。
 - 控制面启动、Xray 重启和档案变更后读取 Xray 的 inbound/outbound 列表，补齐缺失项、移除不属于期望状态的 `egress:` 标签，验证路由后才把档案标记为 `ready`。`swapping` 期间被路由引用的 `:staged` 属于期望状态，不作为孤儿清理。数据库是期望状态，Xray 运行态可重建。
-- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警、递增 revision；绑定它的上游不进入候选，已建立连接继续使用，新请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有当快照中该档案的有效 `enabled` 值或端点发生变化时才递增配置 revision，以便发布有效的 `enabled` 值：管理员启用或停用、`pending`/`disabled` → `ready`、`ready` 与 `degraded` 之间切换、`swapping` → `degraded`、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 不变，因此不递增。
-- Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更按固定顺序执行：新增 `egress:<id>:out:staged` → 把 `inboundTag -> outboundTag` 路由切到 `:staged` → 删除旧 `egress:<id>:out` → 以稳定 tag `egress:<id>:out` 新增新出站 → 路由切回 `egress:<id>:out` → 删除 `:staged`。交换进行中的档案在数据库中标记为 `swapping` 并记录交换阶段 `swap_phase`（`staged_added` → `route_staged` → `old_removed` → `stable_added` → `route_stable`）。对账按 `swap_phase` 推进：`:staged` 存在且阶段早于 `route_stable` 时必须继续推进，不作为孤儿清理。只有 `swap_phase = route_stable`、`egress:<id>:out` 已存在且路由已指向它时才允许删除 `:staged` 并把档案标记为 `ready`。任何一步失败或崩溃后，被路由引用的出站都不被删除；档案保持 `swapping`，下次对账从已记录的 `swap_phase` 继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或发现路由指向不存在的出站时才标记 `degraded` 并递增 revision；承载流量的 tag 从不先删后加，因此不存在无出站可用的空窗期。
+- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警、递增 revision；绑定它的上游不再进入候选，已建立连接继续使用，新请求返回 `503 no_upstream_available`。从对账失败到核心应用降低 `enabled` 的 revision 之间，新请求仍可能选中该上游并按 `connect_error` 重试。不得自动重启 Xray 作为常规配置手段，也不得切换到直连或其他档案。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间有效资格保持为启用，因此不递增 revision；只有当快照中该档案的有效 `enabled` 值或端点发生变化时才递增配置 revision，以便发布有效的 `enabled` 值。触发条件按计算值判定：`enabled` 从 false 变为 true（管理员启用且运行态为 `ready`，或进入 `ready`/`swapping` 且管理员启用）、从 true 变为 false（管理员停用，或离开 `ready`/`swapping`）、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 保持 true，因此不递增。
+- Xray 没有可用的同 tag 原地 `AlterOutbound` 实现，也不能重复添加同 tag 出站；变更按固定顺序执行：新增 `egress:<id>:out:staged` → 把 `inboundTag -> outboundTag` 路由切到 `:staged` → 删除旧 `egress:<id>:out` → 以稳定 tag `egress:<id>:out` 新增新出站 → 路由切回 `egress:<id>:out` → 删除 `:staged`。路由规则以完整规则集替换发布（单次调用、不追加），按 `inboundTag` 与该档案的 `egress:<id>:out` tag 匹配；替换后读取 `ListRule` 确认指向预期出站才推进交换阶段，不得先删后加，避免入站落入默认 `blackhole`。交换进行中的档案在数据库中标记为 `swapping` 并记录交换阶段 `swap_phase`（`staged_added` → `route_staged` → `old_removed` → `stable_added` → `route_stable`）。对账按 `swap_phase` 推进：`:staged` 存在且阶段早于 `route_stable` 时必须继续推进，不作为孤儿清理。只有 `swap_phase = route_stable`、`egress:<id>:out` 已存在且路由已指向它时才允许删除 `:staged` 并把档案标记为 `ready`。任何一步失败或崩溃后，被路由引用的出站都不被删除；档案保持 `swapping`，下次对账从已记录的 `swap_phase` 继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或发现路由指向不存在的出站时才标记 `degraded` 并递增 revision；承载流量的 tag 从不先删后加，因此不存在无出站可用的空窗期。
 - 档案被上游引用时删除返回 `409`；禁用后其 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。历史用量保留原 `egress_proxy_id`，删除档案不重写历史。
 - Xray API 不提供认证，安全依赖 `xray-control` 网络隔离和只绑定该网络地址；核心不加入该网络。
 
@@ -989,7 +989,7 @@ flowchart TD
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`：管理员启用或停用、`pending`/`disabled` → `ready`、`ready` 与 `degraded` 之间切换、`swapping` → `degraded`、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 不变，因此不递增。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
+- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`，触发条件按计算值判定：`enabled` 从 false 变为 true（管理员启用且运行态为 `ready`，或进入 `ready`/`swapping` 且管理员启用）、从 true 变为 false（管理员停用，或离开 `ready`/`swapping`）、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 保持 true，因此不递增。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1767,7 +1767,7 @@ networks:
 | `CORE_IMAGE_REPOSITORY` | 核心镜像仓库，默认 `ghcr.io/ivanli-cn/token-ne-core`；动态实例镜像为 `<repo>:<version>` 或 `<repo>@<digest>` | 否 |
 | `ALLOW_PRIVATE_UPSTREAMS` | API 侧是否允许上游指向私网；Compose 从 `CORE_ALLOW_PRIVATE_UPSTREAMS` 派生 | 否，默认 `false` |
 | `CORE_NETWORKS` | Go 创建核心容器时加入的网络；一期默认 `token_ne_edge,token_ne_core_control`，第二期追加 `token_ne_egress` | 否 |
-| `CORE_AUTO_PRUNE` | 是否自动销毁淘汰它的部署已 `completed`、自停止起宽限期已过、排水已完成且 spool 清零的核心实例，默认 `true` | 否 |
+| `CORE_AUTO_PRUNE` | 是否自动销毁淘汰它的部署已 `completed`、宽限期（自实例停止与 `completed` 中较晚者起算）已过、排水已完成且 spool 清零的核心实例，默认 `true` | 否 |
 | `CORE_AUTO_PRUNE_GRACE_SECONDS` | 退役实例进入自动销毁前的宽限期，默认 300 秒 | 否 |
 | `CORE_AUTO_PRUNE_MAX_AGE_SECONDS` | spool 未清零实例标记 `cleanup_blocked` 前的等待时间，默认 86400 秒 | 否 |
 | `XRAY_IMAGE` | 固定版本或 digest 的 xtls/xray-core 镜像；仅第二期 Compose 必需 | 第二期是 |
@@ -2224,6 +2224,7 @@ create table egress_proxies (
   inbound_port int not null unique check (inbound_port between 1024 and 65535),
   runtime_state text not null default 'pending' check (runtime_state in ('pending', 'swapping', 'ready', 'degraded', 'disabled')),
   swap_phase text check (swap_phase in ('staged_added', 'route_staged', 'old_removed', 'stable_added', 'route_stable')),
+  check (swap_phase is null or runtime_state = 'swapping'),
   last_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

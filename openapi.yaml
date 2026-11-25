@@ -1565,8 +1565,6 @@ paths:
           $ref: "#/components/responses/AdminForbidden"
         "404":
           $ref: "#/components/responses/AdminNotFound"
-        "409":
-          $ref: "#/components/responses/AdminConflict"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":
@@ -3778,11 +3776,11 @@ components:
         transport:
           type: object
           additionalProperties: true
-          description: 非秘密传输选项；按协议枚举，未知字段返回 422。
+          description: 非秘密传输选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知传输或未知字段返回 422。
         tls:
           type: object
           additionalProperties: true
-          description: 非秘密 TLS 选项；按协议枚举，未知字段返回 422。
+          description: 非秘密 TLS 选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知模式或未知字段返回 422。
         has_credentials:
           type: boolean
           description: 是否已保存凭据；凭据本身只写不读，响应不返回明文或密文。
@@ -3791,7 +3789,7 @@ components:
           description: 管理员期望的启用状态。
         effective_enabled:
           type: boolean
-          description: 控制面计算后的有效路由资格；运行态为 ready，或 swapping 且路由指向已存在出站时为 true。
+          description: 控制面计算后的有效路由资格；管理员 enabled 为 true 且运行态为 ready，或 swapping 且路由指向已存在出站时为 true；pending、degraded 或管理员禁用时为 false。
         runtime_state:
           type: string
           enum: [pending, swapping, ready, degraded, disabled]
@@ -3835,11 +3833,11 @@ components:
         transport:
           type: object
           additionalProperties: true
-          description: 非秘密传输选项；未知字段返回 422。
+          description: 非秘密传输选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知传输或未知字段返回 422。
         tls:
           type: object
           additionalProperties: true
-          description: 非秘密 TLS 选项；未知字段返回 422。
+          description: 非秘密 TLS 选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知模式或未知字段返回 422。
         credentials:
           type: [object, "null"]
           additionalProperties: true

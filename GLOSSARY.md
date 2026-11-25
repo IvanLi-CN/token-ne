@@ -157,7 +157,7 @@ _Avoid_: Build number, image tag only
 _Avoid_: Release version, immutable tag, core instance identity
 
 **Egress proxy profile**:
-上游访问外网时使用的第三方正向代理配置；只由控制面持有并下发给 Xray，core 只拿到内部 SOCKS5 端点。
+上游访问外网时使用的第三方正向代理配置；第三方协议、服务器地址和凭据只由控制面持有并下发给 Xray，core 只拿到内部 SOCKS5 端点、代理档案 ID 和计算后的有效启用状态。
 _Avoid_: Proxy node, subscription entry, upstream URL
 
 **Egress endpoint**:

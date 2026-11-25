@@ -97,7 +97,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 凭据创建和更新时接收一次明文，之后只写不读；API 响应、日志、审计和 core 配置都不出现代理凭据（明文或密文）。core 配置只包含 `socks5h` 端点、档案 ID 和有效启用状态。
 - 上游写入接受可选 `egress_proxy_id`，为空表示直连。绑定上游的请求、目录同步和测试都经该档案出站；代理不可用时上游没有候选，禁止回退直连或其他档案。
 - 仍被上游引用的档案不能删除，返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。删除档案不重写历史用量中的 `egress_proxy_id`。
-- 启用档案前控制面必须确认目标实例已加入 `egress` 网络；未加入时拒绝启用。档案运行态由控制面对账 Xray 得到，控制面是 Xray 的唯一写入者。
+- 创建或改名时名称重复、端口范围耗尽返回 `409`；传入未知传输、未知 TLS 模式或未知字段返回 `422`，不做降级猜测。
+- 启用档案前控制面必须确认目标实例已加入 `egress` 网络；未加入时返回 `409` 并拒绝启用。档案运行态由控制面对账 Xray 得到，控制面是 Xray 的唯一写入者。
 
 ## 模型与用量归因
 
@@ -115,7 +116,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 核心 spool
 
-控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：spool 非零、观测缺失或观测早于排水完成时返回 `409 spool_not_drained`；恢复方式是重启兼容 core，不是控制面重放。显式 `force=true` 只删除容器并保留状态目录，直到清零确认。详见 [`spool.md`](./spool.md)。
+控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：spool 非零、观测缺失、观测早于排水完成、过期心跳、崩溃或强制停止时返回 `409 spool_not_drained`；恢复方式是重启兼容 core，不是控制面重放。显式 `force=true` 只删除容器并保留状态目录，直到清零确认。详见 [`spool.md`](./spool.md)。
 
 ## 契约测试
 

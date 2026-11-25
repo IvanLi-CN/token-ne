@@ -74,7 +74,7 @@
 | 401 | `unauthorized` | 未登录或会话失效 |
 | 403 | `forbidden` | 同源/CSRF 校验失败 |
 | 404 | `not_found` | 对象不存在 |
-| 409 | `conflict` | 引用未清理、版本冲突、部署进行中 |
+| 409 | `conflict` | 引用未清理、版本冲突、部署进行中、档案名称重复、代理端口范围耗尽或目标实例未加入代理网络 |
 | 409 | `spool_not_drained` | prune 时实例未取得排水后的 spool 清零证明 |
 | 413 | `payload_too_large` | 请求体过大 |
 | 422 | `validation_failed` | 字段、范围、引用或重复 ID 错误 |

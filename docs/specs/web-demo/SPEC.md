@@ -62,7 +62,7 @@
 - Scene selection and shareable state MUST be URL-encoded and MUST survive reload.
 - Inputs: `?demo=<scene-id>` and `d_*` query keys.
 - Outputs: the demo starts in the named scene with the named persona/network/data toggles; changing scene or share state MUST use client-side navigation via the demo router's history API and MUST NOT trigger a full document reload. Reading `demo`/`d_*` at boot and writing them on change are both required: a memory-only router that never touches `window.location` does not satisfy this requirement.
-- Outputs: because production `Link`/`NavLink` carry only `to`, the demo runtime MUST treat the URL as the source of truth for `demo` and every `d_*` key on each location change and restore them with `history.replaceState` (or the router's `replace`), merging into the existing search string and preserving every non-demo query key and the hash. Refresh, Back/Forward and copied links must therefore keep the scene and share state on every page rather than only on the entry page.
+- Outputs: because production `Link`/`NavLink` carry only `to`, the demo runtime MUST keep the current `demo` and `d_*` values in runtime state seeded from the boot URL, treat that state rather than the post-navigation URL as authoritative, and on each location change write them back with `history.replaceState` (or the router's `replace`), merging into the existing search string and preserving every non-demo query key and the hash. Refresh, Back/Forward and copied links must therefore keep the scene and share state on every page rather than only on the entry page.
 - Compatibility: demo query keys MUST NOT collide with production query keys; production code MUST NOT read `demo` or `d_*`.
 
 ### REQ-DEMO-007
@@ -75,14 +75,14 @@
 
 - Static hosting of `/demo/**` MUST provide deep-link recovery for unknown sub-paths.
 - Inputs: a request for `/demo` or `/demo/` (no sub-path) and for `/demo/<any-known-route>`, including after reload.
-- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must serve that document, without redirecting (a redirect would change the pathname and break `basename=/demo`), for `/demo`, `/demo/`, and every `/demo/*` path that is not an existing asset file; missing assets under `/demo/assets/` must still return `404`. Renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
+- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must rewrite (not redirect: a redirect to `/demo/demo.html` would change the pathname and break `basename=/demo`) to that document for `/demo`, `/demo/`, and every `/demo/*` path outside `/demo/assets/`; any request under `/demo/assets/` that does not match an emitted asset MUST return `404`. Renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
 - Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file, including `/demo/**`. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
 
 ### REQ-DEMO-009
 
 - The demo MUST NOT change production runtime behavior, production access rules, or production delivery.
 - Inputs: demo entry, mock module, and build config.
-- Outputs: the production entry `web/src/main.tsx` does not import anything under `web/src/demo/`; the production artifact contains no demo scene data. Scene identifiers MUST carry a `demo-scene-` prefix so their absence is greppable.
+- Outputs: the production entry `web/src/main.tsx` does not import anything under `web/src/demo/`; the production artifact contains no demo scene data. Scene fixture identifiers MUST carry a `demo-scene-` prefix so their absence is greppable, while the `?demo=` value stays the unprefixed scene id listed in Terms.
 - Verification: the production build MUST fail if any module under `web/src/demo/` is reachable from `web/src/main.tsx` (a `generateBundle` guard rejecting any emitted module id matching `src/demo/`); `grep -r "demo-scene-" web/dist` returns nothing; and `web/index.html` references no demo entry chunk or demo script.
 
 ### REQ-DEMO-010

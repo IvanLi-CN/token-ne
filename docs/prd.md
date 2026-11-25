@@ -33,7 +33,6 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 提交前重试：连接失败、首字节超时、可重试 HTTP 状态、SSE 错误事件。
 - 用量与延迟事实写入 PostgreSQL；Prometheus `/metrics`；外部 Grafana 仪表盘。
 - Web 后台：本地登录与可选 OIDC 登录、系统页（Cores 与设置子页面）、总览、请求明细、Models、Upstreams、Downstream Keys、核心版本与流量管理。
-- 纯前端 Web demo：用正式页面与正式路由的 mock 运行时演示同一套管理流程，不依赖任何后端服务。
 - 管理面 OIDC 登录：单一 OIDC Provider、显式 `iss` + `sub` 身份绑定、本地登录 break-glass、可配置会话 TTL。
 - Go 控制面动态创建/停止 Rust 核心容器；动态容器带 Compose 项目标签和网络，属于项目成员但不是 Compose 声明服务。
 - 默认部署下，退役核心容器在控制面观测到停止且用量 spool 清零后自动销毁；异常、状态缺失或 spool 未清零的实例保留并告警，不需要常规手工 prune。
@@ -281,7 +280,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 控制面恢复后，运行中的核心自行重放；已停止实例由兼容 core 重启后自行重放。
 - 控制面在返回 `202` 前用单个 PostgreSQL 事务写入批次；数据库不可用返回 503，核心保留 spool 重试。
 - 核心不连接 PostgreSQL；数据库只由控制面访问。
-- prune 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成（`inflight == 0`）后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时，删除容器和状态目录并记录 `last_ack_seq` 到审计；不满足时返回 409 `spool_not_drained`。只有显式 `force=true` 的强制清理才允许删除容器，状态目录必须保留到清零确认。
+- prune 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成（`inflight == 0`）后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时，删除容器和状态目录并记录 `last_ack_seq` 到审计。证明不满足时返回 409 `spool_not_drained`；此时只有显式 `force=true` 的强制清理才允许删除容器，状态目录必须保留到清零确认。
 
 **验收**：重复投递同一批事件不会产生重复行；控制面停机 3 到 24 小时后恢复，用量能重放且不重复；spool 容量和最早未确认时间有指标；控制面无法读取 spool 文件；宿主机整体故障不在保证范围内。
 
@@ -301,13 +300,13 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 支持一键回滚：把权重切回旧版本，保留旧实例直到确认。
 - 所有部署状态持久化到 PostgreSQL；控制面重启后可以恢复/对账。
 - 新版本配置 schema 不兼容时，控制面拒绝加入流量。
-- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。自动删除只对淘汰该实例的部署状态已达 `completed`、权重为 0、排水完成并已停止、且 spool 清零已确认的实例生效；停止后经过默认 5 分钟宽限期才进入删除。
-- 回滚窗口从淘汰该实例的那次部署变为 `completed` 起算，到该实例容器与状态目录被实际删除为止；窗口内镜像身份与状态目录均保留；容器在清零确认后删除，显式 `force=true` 的强制清理可提前删除容器。宽限期从实例停止时刻起算。回滚按状态目录是否存在分支：原目录仍在时复用它并由兼容 core 重放 spool，容器缺失时按登记的镜像 digest 重建容器；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零。
+- 默认 `CORE_AUTO_PRUNE=true`，可通过 `CORE_AUTO_PRUNE=false` 关闭。自动删除只对淘汰该实例的部署状态已达 `completed`、权重为 0、排水完成并已停止、且 spool 清零已确认的实例生效；自实例停止与 `completed` 中较晚者起经过默认 5 分钟宽限期才进入删除。
+- 回滚窗口从淘汰该实例的那次部署变为 `completed` 起算，到该实例容器与状态目录被实际删除为止；窗口内镜像身份与状态目录均保留；容器在清零确认后删除，显式 `force=true` 的强制清理可提前删除容器。宽限期从实例停止时刻与 `completed` 时刻中较晚者起算，保证 `completed` 后至少保留一个完整宽限期。回滚按状态目录是否存在分支：原目录仍在时复用它并由兼容 core 重放 spool，容器缺失时按登记的镜像 digest 重建容器；只有原状态目录已被确认销毁时才创建新状态目录，此时 spool 已确认清零。
 - 失败实例必须先完成同一套 spool 清零确认（含必要的兼容 core 重启扫描）才进入删除候选；不使用无法从协议观测的“从未接收流量”作为条件，删除前保留结构化错误、最后状态和退出信息。
 - 自动销毁只有在存在确认零观测时才删除容器，并用同一观测作为删除状态目录的前提；观测缺失或非零时容器与状态目录都保留。显式 `force=true` 的强制清理是唯一例外：只删除容器并保留状态目录，清零确认后才允许删除状态目录。状态目录由一次性 helper 以 root 执行 `rm -rf /state/<instance_id>` 删除，API 容器始终不挂载状态根目录。
 - 自动销毁由控制面执行，不使用 Docker `AutoRemove`。Docker 退出即删会让控制面来不及读取最终状态、确认 spool 或写审计；默认路径必须是“停止 → 观测 → 确认 → 删除”。
 - 正常退役只有在排水完成（`inflight == 0`）之后取得的 `status` 观测为 `spool.unacked_events == 0` 时才能作为零未确认确认。排水后的零观测在实例停止后保持有效，不因宽限期流逝失效。观测早于排水完成、或只有过期心跳而取不到排水后观测时，必须先重启兼容 core 扫描 spool 并确认零后再销毁。崩溃、强制停止或状态缺失不得只依赖可能过期的周期心跳。
-- 以下情况不自动销毁：运行中或预热中、仍有正权重、淘汰该实例的部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致；标签不完整时不进入删除候选，也不进入 `cleanup_blocked`，只计数并写审计。观测非零或缺失时先用兼容 core 重启重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，并停止自动重启与自动重试。该标记不是终态：spool 事后清零则清除并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计，保留给手工处置。
+- 以下情况不自动销毁：运行中或预热中、仍有正权重、淘汰该实例的部署未达 `completed`、最后一次 spool 观测非零或缺失、归属标签不完整、spool 重放中、强制排水未结束。归属标签完整指 `com.token-ne.role=core`、`com.token-ne.version`、`com.token-ne.instance`、`com.token-ne.deployment` 四者都存在且与实例记录一致。观测非零或缺失时先用兼容 core 重启重放；`CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 24 小时）从实例停止时刻起算，超过该时限仍未清零时标记 `cleanup_blocked` 并告警，保留容器与状态目录，并停止自动重启与自动重试。该标记不是终态：spool 事后清零则清除并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。归属标签不完整时该实例不进入删除候选，也不进入 `cleanup_blocked`，控制面以 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数并写审计，保留给手工处置。
 - 删除容器或状态目录失败时保留记录并退避重试，指标标记失败，不把实例误标为已销毁。手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止时才删除容器和状态目录；观测早于排水完成、过期心跳、崩溃、强制停止、缺失或非零时返回 409 `spool_not_drained`，先用兼容 core 重放；显式 `force=true` 的强制清理只删除容器、保留状态目录并写审计，清零确认后才允许删除状态目录。
 - 自动销毁写入审计 `core.instance.prune`（`automatic=true`）并更新指标 `token_ne_core_auto_prune_total{result}`。
 - 默认部署不保留静态基线 core；动态 core 是唯一核心来源。没有 `com.token-ne.deployment` 标签的历史 Compose 核心不参与自动销毁，仍按冲突或手工处置。
@@ -334,7 +333,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 交互要求：
 
-- 危险操作（删除上游、停核心、强制排水、删除或停用仍被引用的出站代理档案）需要确认；停用代理档案前显示受影响上游，删除被引用档案返回 `409`。
+- 危险操作（删除上游、停核心、强制排水、停用仍被引用的出站代理档案）需要确认；停用档案前显示受影响上游，删除被引用档案直接返回 `409`，不弹确认。
 - 关闭本地登录、重新绑定 OIDC 身份、修改 issuer 或 client secret 需要确认；关闭本地登录还需输入当前密码。
 - 写操作使用同源校验和 CSRF 防护。
 - 数据加载失败时显示可重试错误，不显示伪造的成功状态。
@@ -505,8 +504,8 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - 控制面是 Xray 的唯一写入者；管理员 API 和浏览器不直接连接 Xray。控制面通过 Xray gRPC API 的 HandlerService 和 RoutingService 增加/删除每个档案的 SOCKS5 入站、协议出站和 `inboundTag -> outboundTag` 路由规则。StatsService 需要 `stats` app 与 `policy.system` 统计开关才有可读计数，因此档案可用性一律以对账结果为准。
 - 每个档案分配稳定的内部入站端口（来自控制面配置的端口范围，持久化并在删除后回收），使用稳定 tag，例如 `egress:<profile_id>:in` 和 `egress:<profile_id>:out`。端口范围耗尽时创建档案失败并返回明确错误；端口只在档案删除且其 Xray 运行态清理完成后回收，启用或停用不重新分配端口，因此启用不会耗尽范围，也不复用其他档案端口，不降级为直连。目标实例未加入 `egress` 网络时拒绝启用该档案。Xray 启动配置只包含 API、默认 blackhole、`stats` app、统计开关和必要的日志/路由骨架；不存在默认直连 outbound，避免未匹配流量泄漏。
 - 控制面启动、Xray 重启、档案变更后都执行对账：读取 Xray 的 inbound/outbound 列表，补齐或清理缺失项，移除不属于当前期望状态的 `egress:` 标签，验证路由规则后才把档案标记为 `ready`。数据库是期望状态，Xray 运行态可重建；不以 Xray 配置文件作为事实来源。
-- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间路由始终指向已存在的出站，档案有效资格保持为启用，因此不发布 revision；只有快照中该档案的有效 `enabled` 值或端点发生变化时才发布新的配置 revision：管理员启用或停用、`pending`/`disabled` → `ready`、`ready` 与 `degraded` 之间切换、`swapping` → `degraded`、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 不变，因此不发布。Xray 不支持同 tag 原地更新出站，变更按固定顺序执行：新增 staged 出站 → 切换路由到 staged → 删除旧出站 → 以稳定 tag 新增新出站 → 路由切回稳定 tag → 删除 staged。中途失败时不得删除路由当前指向的出站；交换序列内的单步失败保持 `swapping`，按已记录的交换阶段由对账继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或对账发现路由指向不存在的出站时才标记 `degraded`，此时才发布 revision 并让绑定上游失去候选；任何情况下都不得把流量导向其他档案或直连。
-- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警；绑定它的上游不进入候选，已建立连接继续使用，新请求按连接失败处理。不得自动重启 Xray 作为常规配置手段，也不得为此切换到直连或其他档案。
+- 档案的服务器、凭据、传输或 TLS 变更通过 Xray API 应用到同一入站端点，不要求 core 重新加载配置。`swapping` 期间路由始终指向已存在的出站，档案有效资格保持为启用，因此不发布 revision；只有快照中该档案的有效 `enabled` 值或端点发生变化时才发布新的配置 revision。触发条件按计算值判定：`enabled` 从 false 变为 true（管理员启用且运行态为 `ready`，或进入 `ready`/`swapping` 且管理员启用）、从 true 变为 false（管理员停用，或离开 `ready`/`swapping`）、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 保持 true，因此不发布。Xray 不支持同 tag 原地更新出站，变更按固定顺序执行：新增 staged 出站 → 切换路由到 staged → 删除旧出站 → 以稳定 tag 新增新出站 → 路由切回稳定 tag → 删除 staged。中途失败时不得删除路由当前指向的出站；交换序列内的单步失败保持 `swapping`，按已记录的交换阶段由对账继续推进，已存在请求继续由路由当前指向的出站承载。只有连续多次对账仍无法推进、或对账发现路由指向不存在的出站时才标记 `degraded`，此时才发布 revision 并让绑定上游失去候选；任何情况下都不得把流量导向其他档案或直连。
+- 交换序列之外的增加、删除和对账失败，或配置无法应用到 Xray 时，档案进入 `degraded` 并告警；绑定它的上游不再进入候选，已建立连接继续使用，新请求返回 `503 no_upstream_available`。从对账失败到核心应用降低 `enabled` 的 revision 之间，新请求仍可能选中该上游并按 `connect_error` 重试。不得自动重启 Xray 作为常规配置手段，也不得为此切换到直连或其他档案。
 - 档案被上游引用时删除返回 `409`；禁用档案前必须显示受影响上游并确认。禁用后该档案的 Xray 入站/出站被移除，绑定上游没有候选；启用后由对账恢复。删除代理档案不重写历史用量中的 `egress_proxy_id` 或历史费用。
 - Xray 停止或重启时既有代理连接中断：提交前的连接或 SOCKS5 握手失败按可重试连接错误处理；提交后的中断按 `aborted` 或 `upstream_stream_error` 记为终态，不重试，也不回退直连；候选耗尽后返回 503。直连上游不受影响。控制面恢复后重新对账，代理上游恢复，不需要重启 core。
 - 控制面不可用时 Xray 运行态继续服务；若此时 Xray 重启，代理档案丢失，绑定上游请求失败，直连上游不受影响；控制面恢复后重新对账。
@@ -596,7 +595,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 
 默认部署指标（自自动销毁能力上线后 30 天内）：
 
-- 不产生需要人工清理的退役核心容器；spool 未清零或状态缺失的异常实例除外，且必须有告警。
+- 不产生需要人工清理的退役核心容器；spool 未清零、状态缺失或归属标签不完整的异常实例除外，且必须有告警，其中标签不完整至少提供 `token_ne_core_auto_prune_total{result="labels_incomplete"}` 计数。
 
 ## 验收清单
 
