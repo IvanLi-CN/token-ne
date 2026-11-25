@@ -13,7 +13,7 @@ token-ne 的 Web 管理面只能对着真实控制面运行：`sessionLoader` �
 
 ## 决策
 
-按 style-playbook `web-demo` Topic 的成熟形态落地：正式 App 树 + 正式路由 + mock-only 运行时 + 独立构建目标。完整取舍见 [ADR 0015](../../adr/0015-web-demo-runtime.md)。
+按 style-playbook `web-demo` Topic 的成熟形态落地：正式 App 树 + 正式路由 + mock-only 运行时 + 独立构建目标。完整取舍见 [ADR 0016](../../adr/0016-web-demo-runtime.md)。
 
 ## 与既有文档的关系
 
