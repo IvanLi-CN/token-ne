@@ -44,7 +44,8 @@ usage spool 是单个 core 实例私有的追加式本地日志，只保存用�
 
 - 实例停止但 spool 未清零：保留状态目录，用兼容 core 镜像重启该实例，由 core 启动时自动重放。
 - 控制面不自动读取 spool，也不提供“控制面重放”接口。
-- `POST /api/cores/prune` 只对已停止实例使用最后一次 heartbeat/status 观测值：`spool.unacked_events == 0` 时允许，并记录 `last_ack_seq` 到审计；观测非零或缺失时先用兼容 core 重启并等待清零。
+- 默认部署由控制面执行自动销毁，可用 `CORE_AUTO_PRUNE=false` 关闭。退役实例停止、淘汰该实例的部署状态达到 `completed`、自实例停止与 `completed` 中较晚者起经过 `CORE_AUTO_PRUNE_GRACE_SECONDS`（默认 300 秒）宽限期、且排水完成（`inflight == 0`）后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 时，控制面自动销毁容器和状态目录，并记录 `last_ack_seq` 到审计。回滚窗口从淘汰该实例的部署 `completed` 起算，到容器与状态目录被实际删除为止；窗口内保留镜像身份和状态目录，容器在清零确认后删除；强制清理提前删除容器时，回滚按登记的镜像 digest 重建容器并复用保留的状态目录。过期心跳、崩溃、强制停止、观测缺失或观测早于排水完成都不得作为清零依据，必须先重启兼容 core 扫描并确认清零；无法确认最后状态的实例不销毁，超过 `CORE_AUTO_PRUNE_MAX_AGE_SECONDS`（默认 86400 秒）仍不清零时标记 `cleanup_blocked`，保留容器与状态目录并停止自动重启与自动重试。`cleanup_blocked` 不是终态：spool 事后清零则清除标记并重新进入删除候选，未清除时只由手工 `POST /api/cores/prune` 处置。环境变量定义见 [`architecture.md`](./architecture.md) 的环境变量表。
+- 手工 `POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁完全相同的清零证明：排水完成（`inflight == 0`）后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例已正常停止时，才删除容器和状态目录并记录 `last_ack_seq` 到审计。观测早于排水完成、过期心跳、崩溃、强制停止、观测缺失或非零都不得作为清零依据，必须先重启兼容 core 重放并确认清零。强制清理只能删除容器，状态目录保留到清零确认。
 - 镜像无法启动时，使用兼容旧镜像人工恢复；恢复后再升级。
 - 控制面重启不影响运行中 core 的自重放。
 

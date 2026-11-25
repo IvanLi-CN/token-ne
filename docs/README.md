@@ -1,22 +1,23 @@
 # 文档索引
 
-- [术语表](../GLOSSARY.md)：Core、控制面、下游、上游、上游模型目录、目录绑定、映射、模型名称路由、上游承接策略和价格档案的规范用语。
+- [术语表](../GLOSSARY.md)：Core、控制面、下游、上游、上游模型目录、目录绑定、映射、模型名称路由、上游承接策略、价格档案、出站代理档案和 Web demo 的规范用语。
 - [产品需求文档](./prd.md)：第一期与第二期范围、功能需求、非功能需求和验收标准。
 - [技术可行性分析](./feasibility.md)：关键机制验证、容量估算、方案取舍和风险。
-- [开发与部署架构](./architecture.md)：组件边界、请求流程、核心设计、控制面、Caddy HTTP 入口、配置签名、核心私有 spool、数据模型、部署和升级。
+- [开发与部署架构](./architecture.md)：组件边界、请求流程、核心设计、控制面、Caddy HTTP 入口、配置签名、核心私有 spool、退役实例自动销毁、出站代理、数据模型、部署和升级。
 - [核心与控制面通信协议](./protocol.md)：协议版本、端点、信封、严格校验、兼容规则、幂等和重试。
-- [API 契约说明](./api.md)：管理 API、下游模型接口、分页、鉴权和 spool 边界。
+- [API 契约说明](./api.md)：管理 API、下游模型接口、出站代理 API、分页、鉴权和 spool 边界。
 - [OpenAPI 契约](../openapi.yaml)：机器可读的 HTTP 接口定义。
 - [错误契约](./errors.md)：下游 OpenAI 错误、管理 API 错误和状态码映射。
 - [上游 HTTP 语义](./upstream-http.md)：URL 拼接、认证、header、压缩、重定向和超时。
-- [核心 spool 生命周期](./spool.md)：所有权、确认、重启重放、prune 和容量。
+- [核心 spool 生命周期](./spool.md)：所有权、清零证明、自动销毁、重启重放、prune 和容量。
 - [配置与事件 Schema](./schemas/)：config、usage-batch、heartbeat 和 error JSON Schema；core status 复用 heartbeat 的 `payload` 定义。
 - [Golden fixtures](./fixtures/)：配置、usage、heartbeat、管理错误和 OpenAI 错误样例。
-- [Web 设计规格](../DESIGN.md)：页面、状态、交互和视觉边界。
+- [Web 设计规格](../DESIGN.md)：页面、状态、交互、视觉边界和 demo 面。
 - [技术选型](./tech-selection.md)：版本基线、依赖选择、兼容性门禁和被否决方案。
 - [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道、同版本 core 自动部署和恢复边界。
 - [管理员 OIDC 登录 Spec](./specs/oidc-admin-login/SPEC.md)：Authelia 管理登录、身份绑定、本地登录 break-glass、配置优先级和会话 TTL。
 - [模型与上游管理 Spec](./specs/model-upstream-management/SPEC.md)：上游模型目录、目录绑定、上游承接策略、模型名称路由、价格档案和第三方价格同步边界。
+- [Web Demo Spec](./specs/web-demo/SPEC.md)：正式 App 与路由的 mock-only 运行时、独立 `/demo/` 构建、场景与分享状态、Inspector 和静态深链恢复。
 - [产品版本发布 Runbook](./runbooks/release.md)：手动 target、精确镜像与 latest 验证、失败恢复和禁止事项。
 - [管理员 OIDC 登录 Runbook](./runbooks/admin-oidc.md)：Authelia client、首次绑定、私有 CA、强制下线和 break-glass。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。
@@ -39,3 +40,4 @@
 - [ADR 0013：运行时管理全部核心实例](./adr/0013-runtime-managed-core-lifecycle.md)
 - [ADR 0014：目录、路由、策略与价格作用域分离](./adr/0014-model-upstream-management-boundaries.md)
 - [ADR 0015：目录同步标记与模型接受、删除分离](./adr/0015-catalog-sync-mark-vs-model-acceptance.md)
+- [ADR 0016：Web demo 采用独立构建目标与 mock 运行时](./adr/0016-web-demo-runtime.md)

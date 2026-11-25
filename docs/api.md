@@ -1,6 +1,6 @@
 # API 契约说明
 
-机器可读契约是根目录 [`openapi.yaml`](../openapi.yaml)。模型目录、承接策略、名称路由、上游价格覆盖和报价同步属于第二期接口设计。两期共用接口兼容一期载荷，二期新增字段的必填条件见字段说明与下文。
+机器可读契约是根目录 [`openapi.yaml`](../openapi.yaml)。模型目录、承接策略、名称路由、上游价格覆盖、报价同步和出站代理档案属于第二期接口设计。两期共用接口兼容一期载荷，二期新增字段的必填条件见字段说明与下文。
 
 ## 下游接口
 
@@ -32,7 +32,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `/api/upstreams/{id}/model-policy`：该上游针对全局模型的默认动作、白名单和黑名单。
 - `/api/prices`、`/api/price-sources` 和 `/api/price-sync-runs` 提供上游价格覆盖查询、受控价格源和报价批次管理。
 - `/api/downstream-keys`：下游 Key；明文只在创建和轮换响应出现一次。
-- `/api/cores`：核心版本、实例、部署、权重、排水、prune 和 spool 状态。
+- `/api/cores`：核心版本、实例、部署、权重、排水、prune 和 spool 状态。第二期在 `POST /api/cores/prune` 增加可选 `force`：只删除容器并保留状态目录。
+- `/api/egress-proxies`：出站代理档案；创建、编辑、启用、停用、测试和删除。凭据创建和更新时接收一次明文，之后只写不读。
 - `/api/overview`、`/api/usage/*`、`/api/requests/*`：用量与请求查询。
 - `/api/audit`：审计查询。
 - `/api/data-plane-settings`：数据面开关；目前只有 `stream_usage_injection`（默认 `true`），修改写入 `system_state` 并记录审计，下一轮配置快照生效。
@@ -89,9 +90,19 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 全局模型的接受状态由 `PUT /api/models/{model_id}` 的 `enabled` 控制，与目录同步标记互相独立；`DELETE /api/models/{model_id}` 删除模型后，对应目录行因为模型缺失而显示为关闭，目录刷新不会按标记重建。
 - 该接口只创建全局模型，不创建上游能力、路由规则或承接策略；新建模型沿用名称保留规则，未知来源返回 `404`。
 
+## 出站代理 API
+
+- `GET/POST /api/egress-proxies` 列出或创建档案；`GET/PUT/DELETE /api/egress-proxies/{id}` 读取、更新或删除档案；`POST /api/egress-proxies/{id}/test` 通过该档案访问受控探测目标，返回状态、耗时和错误分类，不返回凭据。
+- 档案字段为名称、协议、服务器、端口、凭据、传输/TLS 选项和管理员期望的启用状态；响应另含 `runtime_state`、`swap_phase`、`inbound_port`、计算后的 `effective_enabled` 和 `has_credentials`。协议限定 HTTP CONNECT、SOCKS5、Shadowsocks（AEAD）、VMess、VLESS 和 Trojan；未知协议、未知传输或未知字段返回 `422`，不做降级猜测。
+- 凭据创建和更新时接收一次明文，之后只写不读；API 响应、日志、审计和 core 配置都不出现代理凭据（明文或密文）。core 配置只包含 `socks5h` 端点、档案 ID 和有效启用状态。
+- 上游写入接受可选 `egress_proxy_id`，为空表示直连。绑定上游的请求、目录同步和测试都经该档案出站；代理不可用时上游没有候选，禁止回退直连或其他档案。
+- 仍被上游引用的档案不能删除，返回 `409`；禁用档案不解除绑定，但绑定上游没有候选。删除档案不重写历史用量中的 `egress_proxy_id`。
+- 创建或改名时名称重复、端口范围耗尽返回 `409`；传入未知传输、未知 TLS 模式或未知字段返回 `422`，不做降级猜测。
+- 启用档案前控制面必须确认目标实例已加入 `egress` 网络；未加入时返回 `409` 并拒绝启用。档案运行态由控制面对账 Xray 得到，控制面是 Xray 的唯一写入者。
+
 ## 模型与用量归因
 
-- 第二期用量事实同时保留 `requested_model`、`resolved_model`、`upstream_model`、`upstream_id` 和 `price_revision_id`。
+- 第二期用量事实同时保留 `requested_model`、`resolved_model`、`upstream_model`、`upstream_id`、`price_revision_id`，以及产生终态那一次尝试的 `egress_mode` 和 `egress_proxy_id`。
 - `requested_model` 用于还原客户端请求，`resolved_model` 用于权限、统计和费用模型归属，`upstream_model` 用于还原实际发送名称。`resolved_model` 缺失或已不在当前配置中时，费用模型归属回退 `requested_model` 并告警；不得因此丢弃事件。
 - `GET /api/requests` 用 `model` 筛选请求名，用 `resolved_model` 筛选解析后的全局 ID。
 - 价格修改只影响后续事件；历史 `cost_usd` 不重算。
@@ -105,7 +116,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 核心 spool
 
-控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 在 `unacked_events > 0` 时返回 `409 spool_not_drained`。恢复方式是重启兼容 core，不是控制面重放。详见 [`spool.md`](./spool.md)。
+控制面只通过 `/api/cores/spool` 和实例状态读取 spool 摘要，不读取文件。`POST /api/cores/prune` 只对已停止实例生效，并使用与自动销毁相同的清零证明：spool 非零、观测缺失、观测早于排水完成、过期心跳、崩溃或强制停止时返回 `409 spool_not_drained`；恢复方式是重启兼容 core，不是控制面重放。显式 `force=true` 只删除容器并保留状态目录，直到清零确认。详见 [`spool.md`](./spool.md)。
 
 ## 契约测试
 
@@ -115,4 +126,4 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - OIDC 登录与绑定必须覆盖成功、非法 state/nonce/PKCE、未绑定身份、IdP 不可达和通用错误重定向。
 - 认证设置必须覆盖 revision 冲突、secret 省略/清除/替换、来源标记和本地登录锁死防护。
 - 下游错误必须是完整 OpenAI `ErrorResponse`，包括 `param`/`code` 的 `null`。
-- 目录同步、导入/绑定、策略、路由、报价同步和价格应用必须有独立的契约测试；同步失败和报价缺失必须验证“保留旧状态”。
+- 目录同步、导入/绑定、策略、路由、报价同步、价格应用和出站代理档案必须有独立的契约测试；同步失败和报价缺失必须验证“保留旧状态”。

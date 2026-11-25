@@ -155,3 +155,39 @@ _Avoid_: Build number, image tag only
 **Mutable deployment channel**:
 指向某个 release identity 的可移动镜像标签（当前为 `latest`），供部署系统发现并自动更新控制面；不参与 release identity、回滚目标或审计事实。
 _Avoid_: Release version, immutable tag, core instance identity
+
+**Egress proxy profile**:
+上游访问外网时使用的第三方正向代理配置；第三方协议、服务器地址和凭据只由控制面持有并下发给 Xray，core 只拿到内部 SOCKS5 端点、代理档案 ID 和计算后的有效启用状态。
+_Avoid_: Proxy node, subscription entry, upstream URL
+
+**Egress endpoint**:
+Xray 为单个档案提供的无认证 SOCKS5 入站；core 以 `socks5h` 语义使用它，域名解析发生在第三方代理侧。
+_Avoid_: Proxy URL, direct upstream
+
+**Effective routing eligibility**:
+管理员启用状态与 Xray 运行态计算出的快照字段 `egress_proxies[].enabled`；只在运行态为 `ready`，或 `swapping` 且路由指向已存在出站时为真。
+_Avoid_: Runtime state, admin enabled flag
+
+**Swap phase**:
+出站变更的固定阶段序列 `staged_added` → `route_staged` → `old_removed` → `stable_added` → `route_stable`；对账据此续跑，而不是重建整个档案。
+_Avoid_: Rolling update step, migration state
+
+**Zero proof**:
+排水完成后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例正常停止；自动销毁与手工 prune 共用这一判据。
+_Avoid_: Last heartbeat, assumed empty spool
+
+**Web demo**:
+用正式 App 树、正式路由与正式组件运行在 mock 运行时上的可体验管理面；不连接控制面、数据库、Docker、Caddy 或 Xray。
+_Avoid_: Demo page, mock site, static preview
+
+**Demo runtime**:
+在首次渲染前安装 `/api/*` 拦截、提供演示身份并启动正式路由的运行时；`session-expired` 场景在演示登录前返回未认证，未覆盖的接口失败而不是回退真实网络。
+_Avoid_: Demo mode flag, mock backend service
+
+**Demo build**:
+`web` 的独立构建目标，输出 `web/dist-demo` 并托管在 `/demo/`；不进入 API 镜像，也不进入生产 `web/dist`。
+_Avoid_: Production demo switch, embedded demo bundle
+
+**Simulated mutation**:
+demo 中只修改内存模型、立即在正式 UI 回显并在 Inspector 标记为模拟的写操作。
+_Avoid_: Fake write, dry-run request

@@ -24,6 +24,7 @@
 | Docker Engine | `28.5+` | 容器生命周期 |
 | Docker Compose | v2 插件 | 部署入口与网络声明 |
 | docker-socket-proxy | `3.4` | 收敛 Docker API 权限；固定版本而非 `latest` |
+| Xray-core | `v26.11.9` | 第二期出站代理转换器（xtls/xray-core）；`XRAY_IMAGE` 必须固定 digest 或对应不可变 tag，不使用 `latest` |
 
 ### Rust 核心
 

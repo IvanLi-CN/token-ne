@@ -63,6 +63,16 @@
         "core_instance": { "type": "string", "format": "uuid" },
         "downstream_key_id": { "$ref": "#/$defs/nullableUuid" },
         "upstream_id": { "$ref": "#/$defs/nullableUuid" },
+        "egress_mode": {
+          "type": "string",
+          "enum": ["direct", "proxy"],
+          "description": "Optional for phase-one and unrecorded events. proxy requires a non-null egress_proxy_id; direct requires null or absence."
+        },
+        "egress_proxy_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "endpoint": { "type": "string", "minLength": 1, "maxLength": 256 },
         "requested_model": {
           "type": ["string", "null"],
@@ -156,6 +166,49 @@
           },
           "then": {
             "properties": { "attempt_count": { "minimum": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "egress_mode": { "const": "proxy" } },
+            "required": ["egress_mode"]
+          },
+          "then": {
+            "required": ["egress_proxy_id"],
+            "properties": { "egress_proxy_id": { "type": "string" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "egress_mode": { "const": "direct" } },
+            "required": ["egress_mode"]
+          },
+          "then": {
+            "properties": { "egress_proxy_id": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["egress_proxy_id"],
+            "properties": { "egress_proxy_id": { "type": "string" } }
+          },
+          "then": {
+            "required": ["egress_mode"],
+            "properties": { "egress_mode": { "const": "proxy" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["outcome", "attempt_count"],
+            "properties": {
+              "outcome": { "const": "local_error" },
+              "attempt_count": { "const": 0 }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [{ "required": ["egress_mode"] }, { "required": ["egress_proxy_id"] }]
+            }
           }
         }
       ]

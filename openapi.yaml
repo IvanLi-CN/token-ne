@@ -9,7 +9,7 @@ info:
     token-ne 的对外 OpenAI 兼容接口与管理 API 契约。
     下游 `/v1/*` 只承诺第一期定义的 OpenAI 风格端点；管理 API 使用会话 Cookie、
     同源校验和统一错误信封。内部核心控制协议见 `docs/protocol.md`.
-    上游模型目录与承接策略、模型名称路由、上游价格覆盖和报价同步属于第二期接口设计。
+    上游模型目录与承接策略、模型名称路由、上游价格覆盖、报价同步和出站代理档案属于第二期接口设计。
     共用接口兼容第一期载荷。新增字段的说明列出第二期启用后的约束。
 servers:
   - url: http://127.0.0.1:8080
@@ -28,6 +28,8 @@ tags:
     description: 上游、模型能力和测试
   - name: prices
     description: 全局/上游价格、受控价格源和报价应用
+  - name: egress
+    description: 出站代理档案、Xray 运行态和代理连通性测试
   - name: downstream-keys
     description: 下游 API Key 生命周期
   - name: cores
@@ -1394,6 +1396,179 @@ paths:
           $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/egress-proxies:
+    get:
+      tags: [egress]
+      summary: 列出出站代理档案
+      operationId: listEgressProxies
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 出站代理档案
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EgressProxy"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    post:
+      tags: [egress]
+      summary: 创建出站代理档案
+      operationId: createEgressProxy
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EgressProxyInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EgressProxy"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/egress-proxies/{proxy_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProxyId"
+    get:
+      tags: [egress]
+      summary: 读取出站代理档案
+      operationId: getEgressProxy
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 出站代理档案
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EgressProxy"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    put:
+      tags: [egress]
+      summary: 更新出站代理档案
+      operationId: updateEgressProxy
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EgressProxyInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EgressProxy"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+    delete:
+      tags: [egress]
+      summary: 删除出站代理档案
+      operationId: deleteEgressProxy
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: 已删除
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "409":
+          $ref: "#/components/responses/AdminConflict"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/egress-proxies/{proxy_id}/test:
+    parameters:
+      - $ref: "#/components/parameters/ProxyId"
+    post:
+      tags: [egress]
+      summary: 通过该档案测试出站连通性
+      operationId: testEgressProxy
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EgressProxyTestResult"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/downstream-keys:
     get:
       tags: [downstream-keys]
@@ -1808,7 +1983,8 @@ paths:
   /api/cores/prune:
     post:
       tags: [cores]
-      summary: 清理已停止且 spool 已清零的实例
+      summary: 清理已停止的核心实例
+      description: 默认要求排水后取得的最后一次在线 `status` 观测为 `spool.unacked_events == 0` 且实例已正常停止，此时删除容器和状态目录；不满足时返回 409 `spool_not_drained`。第二期可用 `force=true` 只删除容器并保留状态目录。
       operationId: pruneCoreInstances
       security:
         - cookieAuth: []
@@ -2388,6 +2564,13 @@ components:
         format: uuid
     KeyId:
       name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProxyId:
+      name: proxy_id
       in: path
       required: true
       schema:
@@ -3463,6 +3646,10 @@ components:
           type: integer
           minimum: 100
           maximum: 3600000
+        egress_proxy_id:
+          type: [string, "null"]
+          format: uuid
+          description: 绑定的出站代理档案；空表示直连。第二期字段，一期响应省略或为 null。
         capabilities_revision:
           type: integer
           minimum: 1
@@ -3512,6 +3699,10 @@ components:
           type: integer
           minimum: 100
           maximum: 3600000
+        egress_proxy_id:
+          type: [string, "null"]
+          format: uuid
+          description: 绑定的出站代理档案；null 或省略表示直连。第二期服务校验引用存在性与核心能力。
         models:
           type: array
           items:
@@ -3561,6 +3752,115 @@ components:
           minimum: 0
         error:
           type: [string, "null"]
+    EgressProxy:
+      type: object
+      required: [id, name, protocol, server, port, enabled, effective_enabled, runtime_state, inbound_port, has_credentials, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 128
+        protocol:
+          type: string
+          enum: [http, socks5, shadowsocks, vmess, vless, trojan]
+        server:
+          type: string
+          minLength: 1
+          maxLength: 255
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        transport:
+          type: object
+          additionalProperties: true
+          description: 非秘密传输选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知传输或未知字段返回 422。
+        tls:
+          type: object
+          additionalProperties: true
+          description: 非秘密 TLS 选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知模式或未知字段返回 422。
+        has_credentials:
+          type: boolean
+          description: 是否已保存凭据；凭据本身只写不读，响应不返回明文或密文。
+        enabled:
+          type: boolean
+          description: 管理员期望的启用状态。
+        effective_enabled:
+          type: boolean
+          description: 控制面计算后的有效路由资格；管理员 enabled 为 true 且运行态为 ready，或 swapping 且路由指向已存在出站时为 true；pending、degraded 或管理员禁用时为 false。
+        runtime_state:
+          type: string
+          enum: [pending, swapping, ready, degraded, disabled]
+        swap_phase:
+          type: [string, "null"]
+          enum: [staged_added, route_staged, old_removed, stable_added, route_stable, null]
+          description: 仅在 runtime_state 为 swapping 时有值。
+        inbound_port:
+          type: integer
+          minimum: 1024
+          maximum: 65535
+          description: 控制面分配并持久化的内部 SOCKS5 入站端口。
+        last_error:
+          type: [string, "null"]
+          maxLength: 1024
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EgressProxyInput:
+      type: object
+      required: [name, protocol, server, port, enabled]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        protocol:
+          type: string
+          enum: [http, socks5, shadowsocks, vmess, vless, trojan]
+        server:
+          type: string
+          minLength: 1
+          maxLength: 255
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        transport:
+          type: object
+          additionalProperties: true
+          description: 非秘密传输选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知传输或未知字段返回 422。
+        tls:
+          type: object
+          additionalProperties: true
+          description: 非秘密 TLS 选项；JSON 不枚举协议专属字段，控制面按 `protocol` 做封闭语义校验，未知模式或未知字段返回 422。
+        credentials:
+          type: [object, "null"]
+          additionalProperties: true
+          description: 明文凭据只在创建或更新请求出现。省略表示保留现有凭据，null 表示清除，对象表示替换。
+        enabled:
+          type: boolean
+    EgressProxyTestResult:
+      type: object
+      required: [ok, duration_ms]
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: [integer, "null"]
+          minimum: 100
+          maximum: 599
+        duration_ms:
+          type: integer
+          minimum: 0
+        error_class:
+          type: [string, "null"]
+          maxLength: 128
+          description: 连接、DNS、TLS 或代理握手错误分类；成功时为 null。
     DownstreamKey:
       type: object
       required: [id, name, key_prefix, enabled, allowed_models, max_inflight, created_at]
@@ -3831,6 +4131,10 @@ components:
           items:
             type: string
             format: uuid
+        force:
+          type: boolean
+          default: false
+          description: 第二期可选。只删除已停止实例的容器并保留状态目录；缺少排水后的清零证明时，默认 prune 返回 409 spool_not_drained。
     Overview:
       type: object
       properties:

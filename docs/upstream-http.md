@@ -12,7 +12,7 @@
 - 保留下游查询字符串；不增加隐式 `api-version`。
 - 下游 `/v1/models` 和 `/v1/models/{model}` 由控制面发布的全局 Model 配置提供，不访问上游；第二期控制面可以在管理 API 触发对上游 `/v1/models` 的独立目录同步，不能把上游响应直接透传给下游。
 
-`base_url` 必须是 `https`，不能包含用户名/密码，不能指向 loopback、link-local、私网或云元数据地址。开发模式可显式放开；core 在每次请求前再次校验解析后的目标地址，防止 DNS rebinding。
+`base_url` 必须是 `https`，不能包含用户名/密码，不能指向 loopback、link-local、私网或云元数据地址。开发模式可显式放开。未绑定出站代理时，core 在每次请求前再次校验解析后的目标地址，防止 DNS rebinding。绑定 `socks5h` 出站代理时 core 只把主机名交给 Xray，Xray 不得本地解析该域名（outbound 必须使用远端 DNS 语义），最终解析发生在第三方代理侧，因此私网和元数据地址拒绝只能在保存和发布时对上游主机名执行一次，已发布的代理上游不会被逐请求重新校验。
 
 ## 认证
 
@@ -70,12 +70,13 @@
 
 - 默认不跟随上游 3xx；3xx 一律映射为 `502 upstream_protocol_error`，不重试，不透传 `Location`。
 - TLS 证书校验默认开启；第一期不支持自定义 CA 或跳过校验。
-- 不使用系统代理环境变量；如需代理，后续显式配置。
+- 不使用系统代理环境变量。上游可通过 `egress_proxy_id` 显式绑定出站代理；core 使用该档案的 `socks5h` 端点经 Xray 连接，未绑定则直连。代理不可用时不得回退直连。
 - HTTP/2 可由客户端库自动协商；不承诺上游必须支持 HTTP/2。
 
 ## 超时
 
 - `connect_timeout_ms`：TCP/TLS 连接。
+- 绑定出站代理时，`connect_timeout_ms` 覆盖到 Xray SOCKS5 入站的 TCP 连接与 SOCKS5 握手，以及经隧道完成的上游 TLS 握手；`first_byte_timeout_ms` 从请求经隧道写出后开始计。
 - `first_byte_timeout_ms`：发送请求到响应头/首字节。
 - `idle_timeout_ms`：两个响应 chunk 之间。
 - `request_max_duration_ms`：整个下游请求的硬上限，不是单次尝试超时；达到后不再重试。
