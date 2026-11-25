@@ -1,0 +1,99 @@
+# FR-25 compose lane: the real Xray singleton plus a recorded stand-in for the
+# third-party proxy. Stack this on the production files:
+#
+#   docker compose --env-file ops/.env \
+#     -f ops/compose.yaml \
+#     -f ops/compose.egress.yaml \
+#     -f tests/e2e/compose.egress.yaml \
+#     up -d --build
+#
+# ops/compose.egress.yaml declares Xray, the `egress` and `xray-control` networks
+# and the XRAY_* switches; this file adds only the observation points. It
+# redeclares a network so the mock upstream can be reachable by the mock proxy and
+# by nobody else.
+#
+# NOT EXECUTED by the workstation that authored it (no Docker daemon). The README
+# marks every assertion this lane is meant to produce as expected-but-unverified.
+services:
+  # The egress profile's `server` points here, so a SOCKS5/VMess/VLESS/HTTP
+  # profile really exits through a third party. Its capture proves the core handed
+  # Xray the upstream hostname rather than a pre-resolved IP, because Xray's
+  # protocol outbound preserves the domain.
+  mock-proxy:
+    build:
+      context: ./mock-proxy
+      dockerfile: Dockerfile
+    environment:
+      MOCK_PROXY_LISTEN: 0.0.0.0:1080
+      MOCK_PROXY_HTTP_LISTEN: 0.0.0.0:3128
+      MOCK_PROXY_CONTROL_LISTEN: 0.0.0.0:8081
+      # The only DNS step in the project: the alias table turns the reserved
+      # upstream name into the mock upstream's address.
+      MOCK_PROXY_RESOLVE: upstream.test=mock-upstream:8080
+      # The core pushes usage through this process so the emitted egress
+      # attribution stays observable while ingest still runs for real.
+      MOCK_PROXY_RELAY_TO: http://api:8080
+      MOCK_PROXY_RELAY_LISTEN: 0.0.0.0:8082
+    expose:
+      - "1080"
+      - "3128"
+      - "8081"
+      - "8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      # `egress` is declared by ops/compose.egress.yaml; `core-control` by
+      # ops/compose.yaml. Keys, not literal names, are referenced so the merge
+      # uses the networks those files already define.
+      - egress
+      - core-control
+      - proxy-upstream
+
+  # The deterministic upstream. It is on `proxy-upstream` only: not `egress`, not
+  # `edge`, not `data`. A direct fallback from a core is therefore impossible by
+  # construction rather than by assertion — the core cannot resolve the name the
+  # configured upstream URL uses, and cannot reach this container at all.
+  mock-upstream:
+    build:
+      context: ./mock-upstream
+      dockerfile: Dockerfile
+    environment:
+      MOCK_UPSTREAM_LISTEN: 0.0.0.0:8080
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    networks:
+      - proxy-upstream
+
+  api:
+    environment:
+      # The core reaches the control plane through the relay, so the usage batch it
+      # emits is captured before ingest. `PUBLIC_ORIGIN`, `CONTROL_PLANE_URL` as a
+      # browser target and every Caddy setting stay untouched: only the core's own
+      # control-plane client is relayed.
+      CONTROL_PLANE_URL: http://mock-proxy:8082
+      # A short grace keeps the drill fast; the same value is documented in the
+      # README so the expected wait is not a guess.
+      CORE_AUTO_PRUNE_GRACE_SECONDS: ${CORE_AUTO_PRUNE_GRACE_SECONDS:-60}
+    depends_on:
+      mock-proxy:
+        condition: service_healthy
+      mock-upstream:
+        condition: service_healthy
+    networks:
+      - egress
+      - core-control
+
+networks:
+  egress:
+    name: token_ne_egress
+  # Private to this lane: the mock proxy is the only member besides the upstream.
+  proxy-upstream:
+    name: token_ne_e2e_proxy_upstream
