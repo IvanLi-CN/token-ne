@@ -765,7 +765,7 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "insert into core_deployments(id,from_version_id,to_version_id,state,target_weights,progress)
    values('$OWNER_DEPLOYMENT','$OLD_VERSION_ID','$VERSION_ID','completed','{}','{}'),
          ('$RETIRING_DEPLOYMENT','$OLD_VERSION_ID','$VERSION_ID','completed','{}',
-          '{\"stage\":3,\"from\":{\"$PRUNE_READY_ID\":100,\"$PRUNE_FRESH_ID\":100,\"$PRUNE_SPOOL_ID\":100,\"$PRUNE_MANUAL_ID\":100},\"to\":{}}')"
+          '{\"stage\":3,\"from_weights\":{\"$PRUNE_READY_ID\":100,\"$PRUNE_FRESH_ID\":100,\"$PRUNE_SPOOL_ID\":100,\"$PRUNE_MANUAL_ID\":100},\"to\":{}}')"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "update core_deployments set updated_at=now()-interval '25 minutes' where id='$RETIRING_DEPLOYMENT'"
 
