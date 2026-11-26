@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { usePhaseFeatures } from "../../app/phase";
 import type { Column } from "../../components/data-table";
-import { FieldFailure } from "../../components/field-errors";
+import { FieldFailure, fieldInvalid } from "../../components/field-errors";
 import { Button, ErrorState, PageTitle, Spinner, StatusBadge } from "../../components/primitives";
 import { ApiError, type CatalogSyncBatchItem, catalogApi } from "../../lib/api";
 import { queryKeys } from "../../lib/query-client";
@@ -16,9 +16,16 @@ import {
   FormError,
 } from "../models/management";
 import { ManagementTable } from "../models/management-table";
-import { type TestResult, type Upstream, type UpstreamUpdate, upstreamsApi } from "./api";
+import {
+  egressApi,
+  type TestResult,
+  type Upstream,
+  type UpstreamUpdate,
+  upstreamsApi,
+} from "./api";
 import { CapabilityEditor } from "./capability-editor";
 import { UpstreamCatalogDialog } from "./catalog";
+import { EgressProxySection, egressAvailable, upstreamEgressLabel } from "./egress";
 
 const timeouts = [
   ["connect_timeout_ms", "连接超时（ms）", 600000],
@@ -32,6 +39,7 @@ function editable(upstream: Upstream): UpstreamUpdate {
     base_url: upstream.base_url,
     auth_style: upstream.auth_style,
     enabled: upstream.enabled,
+    egress_proxy_id: upstream.egress_proxy_id ?? null,
     models: upstream.models,
     capabilities_revision: upstream.capabilities_revision,
     ...Object.fromEntries(
@@ -53,6 +61,12 @@ function UpstreamEditor({
   const models = useQuery({
     queryKey: queryKeys.models,
     queryFn: ({ signal }) => modelsApi.list(signal),
+  });
+  // 直连是默认值；选中档案后保存提交 egress_proxy_id。
+  const [egressProxyId, setEgressProxyId] = useState(upstream?.egress_proxy_id ?? "");
+  const egressProxies = useQuery({
+    queryKey: queryKeys.egressProxies,
+    queryFn: ({ signal }) => egressApi.list(signal),
   });
   const [capabilities, setCapabilities] = useState(upstream?.models ?? []);
   const [dirty, setDirty] = useState(false);
@@ -90,6 +104,7 @@ function UpstreamEditor({
       base_url: String(data.get("base_url")),
       auth_style: data.get("auth_style") === "api_key" ? "api_key" : "bearer",
       enabled: data.has("enabled"),
+      egress_proxy_id: egressProxyId || null,
       models: capabilities,
       ...(secondPhase ? { capabilities_revision: revision } : {}),
       ...Object.fromEntries(
@@ -210,6 +225,56 @@ function UpstreamEditor({
               </Field>
             ))}
           </section>
+          <section className="grid gap-3" aria-label="出站代理选择">
+            <div>
+              <h3>出站代理</h3>
+              <p className="muted">
+                直连是默认值。选择档案后，该上游的请求、目录同步与测试都经它出站；代理不可用时上游没有候选，不会回退直连。
+              </p>
+            </div>
+            {egressProxies.isPending ? (
+              <Spinner label="正在加载出站代理档案" />
+            ) : egressProxies.isError ? (
+              <ErrorState
+                message={errorMessage(egressProxies.error) ?? "出站代理档案加载失败"}
+                onRetry={() => void egressProxies.refetch()}
+              />
+            ) : (
+              <>
+                <Field label="出站方式" hint="保存到不可用档案是允许的；该上游会保持无候选。">
+                  <select
+                    className="input rounded-xl"
+                    name="egress_proxy_id"
+                    value={egressProxyId}
+                    aria-invalid={fieldInvalid(error, "egress_proxy_id")}
+                    onChange={(event) => {
+                      setEgressProxyId(event.target.value);
+                      setDirty(true);
+                    }}
+                  >
+                    <option value="">直连（不经过出站代理）</option>
+                    {(egressProxies.data ?? []).map((proxy) => (
+                      <option key={proxy.id} value={proxy.id}>
+                        {`${proxy.name} · ${proxy.protocol} · ${egressAvailable(proxy) ? "可用" : "不可用"}`}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {(() => {
+                  const selected = egressProxyId
+                    ? egressProxies.data?.find((proxy) => proxy.id === egressProxyId)
+                    : undefined;
+                  if (!selected || egressAvailable(selected)) return null;
+                  const state = selected.enabled ? selected.runtime_state : "已停用";
+                  return (
+                    <p role="status" className="text-sm text-[var(--warning)]">
+                      {`所选档案「${selected.name}」当前不可用（${state}）。保存仍然允许，但该上游保持无候选，不会回退直连。`}
+                    </p>
+                  );
+                })()}
+              </>
+            )}
+          </section>
           {models.isPending ? (
             <Spinner label="正在加载模型选项" />
           ) : models.isError ? (
@@ -303,6 +368,10 @@ export default function UpstreamsPage() {
   const upstreams = useQuery({
     queryKey: queryKeys.upstreams,
     queryFn: ({ signal }) => upstreamsApi.list(signal),
+  });
+  const egressProxies = useQuery({
+    queryKey: queryKeys.egressProxies,
+    queryFn: ({ signal }) => egressApi.list(signal),
   });
   const [editor, setEditor] = useState<Upstream | null | undefined>();
   const [catalog, setCatalog] = useState<Upstream>();
@@ -428,6 +497,14 @@ export default function UpstreamsPage() {
                 ),
               },
               {
+                key: "egress",
+                header: "出站",
+                cell: (upstream) => {
+                  const egress = upstreamEgressLabel(upstream, egressProxies.data);
+                  return <StatusBadge tone={egress.tone}>{egress.label}</StatusBadge>;
+                },
+              },
+              {
                 key: "capabilities",
                 header: "能力数量",
                 cell: (upstream) => upstream.models.length,
@@ -454,7 +531,11 @@ export default function UpstreamsPage() {
                     <DangerAction
                       label={upstream.enabled ? "禁用" : "启用"}
                       title={`${upstream.enabled ? "禁用" : "启用"} ${upstream.name}？`}
-                      description="禁用后该上游的所有能力停止接收新流量。"
+                      description={`禁用后该上游的所有能力停止接收新流量。${
+                        upstream.egress_proxy_id
+                          ? "出站代理绑定保留；代理不可用时该上游没有候选，不会回退直连。"
+                          : ""
+                      }`}
                       action={async () => {
                         const current = await upstreamsApi.get(upstream.id);
                         await upstreamsApi.update(upstream.id, {
@@ -495,6 +576,7 @@ export default function UpstreamsPage() {
           onCapabilitiesChanged={refresh}
         />
       )}
+      <EgressProxySection upstreams={upstreams.data} proxies={egressProxies.data} />
     </>
   );
 }

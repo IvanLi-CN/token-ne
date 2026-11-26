@@ -8,11 +8,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const upstreamColumns = "id::text,name,kind,base_url,auth_style,api_key_hint,enabled,connect_timeout_ms,first_byte_timeout_ms,idle_timeout_ms,created_at,updated_at,api_key_ciphertext,api_key_nonce"
+const upstreamColumns = "id::text,name,kind,base_url,auth_style,api_key_hint,enabled,connect_timeout_ms,first_byte_timeout_ms,idle_timeout_ms,created_at,updated_at,api_key_ciphertext,api_key_nonce,egress_proxy_id::text"
 
 func scanUpstream(row pgx.Row) (Upstream, error) {
 	var u Upstream
-	e := row.Scan(&u.ID, &u.Name, &u.Kind, &u.BaseURL, &u.AuthStyle, &u.Hint, &u.Enabled, &u.Connect, &u.FirstByte, &u.Idle, &u.Created, &u.Updated, &u.Ciphertext, &u.Nonce)
+	e := row.Scan(&u.ID, &u.Name, &u.Kind, &u.BaseURL, &u.AuthStyle, &u.Hint, &u.Enabled, &u.Connect, &u.FirstByte, &u.Idle, &u.Created, &u.Updated, &u.Ciphertext, &u.Nonce, &u.EgressProxyID)
 	u.LastFour = u.Hint
 	u.Masked = auth.Mask(u.Hint)
 	u.Models = []Capability{}
@@ -74,12 +74,23 @@ func (s *Store) SaveUpstream(ctx context.Context, u Upstream, create bool, a Aud
 	}
 	models := u.Models
 	e := s.mutate(ctx, a, func(tx pgx.Tx) error {
-		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,updated_at=now() where id=$1 returning "
+		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,egress_proxy_id=$13,updated_at=now() where id=$1 returning "
 		if create {
-			q = "insert into upstreams(id,name,kind,base_url,auth_style,api_key_hint,enabled,connect_timeout_ms,first_byte_timeout_ms,idle_timeout_ms,api_key_ciphertext,api_key_nonce) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning "
+			q = "insert into upstreams(id,name,kind,base_url,auth_style,api_key_hint,enabled,connect_timeout_ms,first_byte_timeout_ms,idle_timeout_ms,api_key_ciphertext,api_key_nonce,egress_proxy_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning "
+		}
+		// A dangling binding is a field error so the API can answer 422 with
+		// details[].path instead of a bare reference failure.
+		if u.EgressProxyID != nil {
+			var bound bool
+			if err := tx.QueryRow(ctx, "select exists(select 1 from egress_proxies where id=$1)", *u.EgressProxyID).Scan(&bound); err != nil {
+				return err
+			}
+			if !bound {
+				return &FieldError{Path: "egress_proxy_id", Reason: "referenced egress proxy does not exist", Kind: ErrReference}
+			}
 		}
 		var err error
-		u, err = scanUpstream(tx.QueryRow(ctx, q+upstreamColumns, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce))
+		u, err = scanUpstream(tx.QueryRow(ctx, q+upstreamColumns, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce, u.EgressProxyID))
 		if err != nil {
 			return err
 		}

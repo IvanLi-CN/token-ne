@@ -5,7 +5,7 @@ import { Button, ErrorState, Spinner } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { displayMoney, displayMs, displayNumber, displayTime } from "../overview/usage";
 import { requestsApi } from "./api";
-import { RequestStatus } from "./presentation";
+import { egressLabel, RequestStatus } from "./presentation";
 
 // Only map structured error classes to local text. Upstream messages can contain private data.
 const errorSummaries: Record<string, string> = {
@@ -24,7 +24,6 @@ const errorSummaries: Record<string, string> = {
 function errorSummary(code?: string | null) {
   return code && Object.hasOwn(errorSummaries, code) ? errorSummaries[code] : "—";
 }
-
 function Details({ title, rows }: { title: string; rows: [string, ReactNode][] }) {
   return (
     <section className="rounded-xl border border-border p-4">
@@ -100,6 +99,7 @@ export function RequestDrawer({
                       ["请求模型", row.requested_model],
                       ["上游模型", row.upstream_model],
                       ["上游标识", row.upstream_id],
+                      ["出站方式", egressLabel(row)],
                       ["请求模式", row.stream == null ? "—" : row.stream ? "流式" : "非流式"],
                     ]}
                   />

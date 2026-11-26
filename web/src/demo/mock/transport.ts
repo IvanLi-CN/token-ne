@@ -1,7 +1,9 @@
+import type { EgressProxyInput } from "../../features/upstreams/api";
 import type { AdminError, AuthSettingsInput, LoginRequest } from "../../lib/api";
 import { config, login, logout, me } from "./auth";
 import {
   applyAuthSettings,
+  createEgressProxy,
   createKey,
   createModel,
   createUpstream,
@@ -9,17 +11,21 @@ import {
   type DeployInput,
   deployVersion,
   drainInstance,
+  egressReferences,
   fixtureId,
   pruneInstances,
   pullVersion,
   recordMutation,
   registerVersion,
+  removeEgressProxy,
   removeKey,
   removeModel,
   removeUpstream,
   rollbackDeployment,
   rotateKey,
   shiftDeployment,
+  testEgressProxy,
+  updateEgressProxy,
   updateKey,
   updateModel,
   updatePolicy,
@@ -323,6 +329,72 @@ const routes: Route[] = [
     method: "POST",
     pattern: /^\/upstreams\/([^/]+)\/test$/,
     handler: () => json({ ok: true, status: 200, duration_ms: 42, error: null }),
+  },
+  {
+    method: "GET",
+    pattern: /^\/egress-proxies$/,
+    handler: (state) => json({ data: state.egressProxies }),
+  },
+  {
+    method: "POST",
+    pattern: /^\/egress-proxies$/,
+    handler: (state, call) => {
+      const body = call.body as EgressProxyInput;
+      return {
+        response: json(createEgressProxy(state, body), 201),
+        label: `创建出站代理 ${body.name}`,
+      };
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/egress-proxies\/([^/]+)$/,
+    handler: (state, call) => {
+      const id = decodeURIComponent(call.path.split("/")[2]);
+      const proxy = state.egressProxies.find((row) => row.id === id);
+      return proxy ? json(proxy) : notFound("出站代理档案");
+    },
+  },
+  {
+    method: "PUT",
+    pattern: /^\/egress-proxies\/([^/]+)$/,
+    handler: (state, call) => {
+      const id = decodeURIComponent(call.path.split("/")[2]);
+      const updated = updateEgressProxy(state, id, call.body as EgressProxyInput);
+      return updated
+        ? { response: json(updated), label: `更新出站代理 ${updated.name}` }
+        : notFound("出站代理档案");
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/egress-proxies\/([^/]+)$/,
+    handler: (state, call) => {
+      const id = decodeURIComponent(call.path.split("/")[2]);
+      // 被上游引用的档案与真实 API 一致：409 + egress_proxy_id 字段路径。
+      const bound = egressReferences(state, id);
+      if (bound.length > 0)
+        return failure(409, "conflict", "出站代理档案与现有状态冲突", [
+          {
+            path: "egress_proxy_id",
+            reason: `upstream ${bound[0].id} still binds this profile`,
+          },
+        ]);
+      return removeEgressProxy(state, id)
+        ? { response: new Response(null, { status: 204 }), label: `删除出站代理 ${id}` }
+        : notFound("出站代理档案");
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/egress-proxies\/([^/]+)\/test$/,
+    handler: (state, call) => {
+      const id = decodeURIComponent(call.path.split("/")[2]);
+      const result = testEgressProxy(state, id);
+      return result
+        ? { response: json(result), label: `测试出站代理 ${id}` }
+        : notFound("出站代理档案");
+    },
   },
   {
     method: "GET",

@@ -17,39 +17,45 @@ const (
 )
 
 type Event struct {
-	EventID             string    `json:"event_id"`
-	RequestID           string    `json:"request_id"`
-	OccurredAt          time.Time `json:"occurred_at"`
-	CoreVersion         string    `json:"core_version"`
-	CoreInstance        string    `json:"core_instance"`
-	DownstreamKeyID     *string   `json:"downstream_key_id"`
-	UpstreamID          *string   `json:"upstream_id"`
-	Endpoint            string    `json:"endpoint"`
-	RequestedModel      *string   `json:"requested_model"`
-	ResolvedModel       *string   `json:"resolved_model"`
-	UpstreamModel       *string   `json:"upstream_model"`
-	Stream              bool      `json:"stream"`
-	HTTPStatus          *int      `json:"http_status"`
-	StatusRewrittenFrom *int      `json:"status_rewritten_from"`
-	Outcome             string    `json:"outcome"`
-	ErrorClass          *string   `json:"error_class"`
-	ErrorCode           *string   `json:"error_code"`
-	ErrorMessage        *string   `json:"error_message"`
-	AttemptCount        int       `json:"attempt_count"`
-	InputTokens         *int64    `json:"input_tokens"`
-	CachedInputTokens   *int64    `json:"cached_input_tokens"`
-	CacheWriteTokens    *int64    `json:"cache_write_tokens"`
-	AudioInputTokens    *int64    `json:"audio_input_tokens"`
-	AudioOutputTokens   *int64    `json:"audio_output_tokens"`
-	OutputTokens        *int64    `json:"output_tokens"`
-	ReasoningTokens     *int64    `json:"reasoning_tokens"`
-	TotalTokens         *int64    `json:"total_tokens"`
-	TTFT                *int      `json:"ttft_ms"`
-	UpstreamTTFB        *int      `json:"upstream_ttfb_ms"`
-	Duration            *int      `json:"duration_ms"`
-	UpstreamDuration    *int      `json:"upstream_duration_ms"`
-	RequestBytes        *int64    `json:"request_bytes"`
-	ResponseBytes       *int64    `json:"response_bytes"`
+	EventID         string    `json:"event_id"`
+	RequestID       string    `json:"request_id"`
+	OccurredAt      time.Time `json:"occurred_at"`
+	CoreVersion     string    `json:"core_version"`
+	CoreInstance    string    `json:"core_instance"`
+	DownstreamKeyID *string   `json:"downstream_key_id"`
+	UpstreamID      *string   `json:"upstream_id"`
+	Endpoint        string    `json:"endpoint"`
+	RequestedModel  *string   `json:"requested_model"`
+	ResolvedModel   *string   `json:"resolved_model"`
+	UpstreamModel   *string   `json:"upstream_model"`
+	// EgressMode and EgressProxyID record the egress of the attempt that
+	// produced the terminal state; a request that retried across direct and
+	// proxied candidates carries only the terminal attempt's value. Events with
+	// no upstream attempt omit both.
+	EgressMode          *string `json:"egress_mode"`
+	EgressProxyID       *string `json:"egress_proxy_id"`
+	Stream              bool    `json:"stream"`
+	HTTPStatus          *int    `json:"http_status"`
+	StatusRewrittenFrom *int    `json:"status_rewritten_from"`
+	Outcome             string  `json:"outcome"`
+	ErrorClass          *string `json:"error_class"`
+	ErrorCode           *string `json:"error_code"`
+	ErrorMessage        *string `json:"error_message"`
+	AttemptCount        int     `json:"attempt_count"`
+	InputTokens         *int64  `json:"input_tokens"`
+	CachedInputTokens   *int64  `json:"cached_input_tokens"`
+	CacheWriteTokens    *int64  `json:"cache_write_tokens"`
+	AudioInputTokens    *int64  `json:"audio_input_tokens"`
+	AudioOutputTokens   *int64  `json:"audio_output_tokens"`
+	OutputTokens        *int64  `json:"output_tokens"`
+	ReasoningTokens     *int64  `json:"reasoning_tokens"`
+	TotalTokens         *int64  `json:"total_tokens"`
+	TTFT                *int    `json:"ttft_ms"`
+	UpstreamTTFB        *int    `json:"upstream_ttfb_ms"`
+	Duration            *int    `json:"duration_ms"`
+	UpstreamDuration    *int    `json:"upstream_duration_ms"`
+	RequestBytes        *int64  `json:"request_bytes"`
+	ResponseBytes       *int64  `json:"response_bytes"`
 }
 
 type Batch struct {
@@ -179,6 +185,9 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 	if e.AttemptCount < 0 || e.AttemptCount > 10 || e.AttemptCount == 0 && e.Outcome != "local_error" {
 		return "attempt_count", "must be 1 to 10, or 0 for a local error"
 	}
+	if e.AttemptCount == 0 && (e.EgressMode != nil || e.EgressProxyID != nil) {
+		return "egress_mode", "must be omitted when no upstream attempt was made"
+	}
 	if e.ErrorMessage != nil && *e.ErrorMessage != "" && e.Outcome == "success" {
 		return "error_message", "success cannot carry an error message"
 	}
@@ -194,6 +203,23 @@ func (e Event) validate(instance string, now time.Time) (string, string) {
 	}
 	if e.HTTPStatus != nil && (*e.HTTPStatus < 100 || *e.HTTPStatus > 599) {
 		return "http_status", "must be between 100 and 599"
+	}
+	// The egress pair must agree, and an event that never made an upstream
+	// attempt must not claim one: PostgreSQL's check constraint cannot catch a
+	// NULL comparison on its own, and a claimed proxy that never ran would
+	// misattribute usage.
+	switch {
+	case e.EgressMode == nil && e.EgressProxyID != nil:
+		return "egress_proxy_id", "requires egress_mode proxy"
+	case e.EgressMode != nil && *e.EgressMode == "direct" && e.EgressProxyID != nil:
+		return "egress_proxy_id", "must be null for direct egress"
+	case e.EgressMode != nil && *e.EgressMode == "proxy" && e.EgressProxyID == nil:
+		return "egress_proxy_id", "is required for proxy egress"
+	case e.EgressMode != nil && *e.EgressMode != "direct" && *e.EgressMode != "proxy":
+		return "egress_mode", `must be "direct" or "proxy"`
+	}
+	if e.EgressProxyID != nil && !CanonicalUUID(*e.EgressProxyID, false) {
+		return "egress_proxy_id", "must be a canonical UUID"
 	}
 	if from := e.StatusRewrittenFrom; from != nil {
 		if *from < 100 || *from > 599 || e.HTTPStatus == nil || *from == *e.HTTPStatus {

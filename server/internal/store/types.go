@@ -101,6 +101,10 @@ type Upstream struct {
 	Updated    time.Time    `json:"updated_at"`
 	Ciphertext []byte       `json:"-"`
 	Nonce      []byte       `json:"-"`
+	// EgressProxyID binds the upstream to one egress profile; nil is direct
+	// egress. Disabling the profile keeps the binding: the upstream simply has
+	// no candidate.
+	EgressProxyID *string `json:"egress_proxy_id"`
 }
 type Key struct {
 	ID          string     `json:"id"`
@@ -159,6 +163,48 @@ type Cursor struct {
 	Time time.Time `json:"t"`
 	ID   string    `json:"id"`
 }
+
+// EgressProxy is one outbound proxy profile. Transport and TLS carry the
+// closed, non-secret option objects. Credentials are write-only: only
+// EgressProxyCredential can reveal them and neither the ciphertext nor the
+// plaintext is part of this JSON shape.
+type EgressProxy struct {
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Protocol       string          `json:"protocol"`
+	Server         string          `json:"server"`
+	Port           int             `json:"port"`
+	Transport      json.RawMessage `json:"transport,omitempty"`
+	TLS            json.RawMessage `json:"tls,omitempty"`
+	Enabled        bool            `json:"enabled"`
+	Effective      bool            `json:"effective_enabled"`
+	RuntimeState   string          `json:"runtime_state"`
+	SwapPhase      *string         `json:"swap_phase"`
+	InboundPort    int             `json:"inbound_port"`
+	LastError      *string         `json:"last_error"`
+	HasCredentials bool            `json:"has_credentials"`
+	Created        time.Time       `json:"created_at"`
+	Updated        time.Time       `json:"updated_at"`
+	Ciphertext     []byte          `json:"-"`
+	Nonce          []byte          `json:"-"`
+}
+
+// EgressProxyState is the runtime projection the reconciler owns. The control
+// plane writes it through SetEgressProxyState instead of the profile save path
+// so a reconcile result never races the admin's desired state.
+type EgressProxyState struct {
+	RuntimeState string
+	SwapPhase    *string
+	LastError    *string
+}
+
+// PortRange is the configured pool of internal SOCKS5 inbound ports. A profile
+// keeps its port for the lifetime of its row.
+type PortRange struct {
+	Min int
+	Max int
+}
+
 type Repository interface {
 	Ping(context.Context) error
 	AdminByUsername(context.Context, string) (Admin, error)
@@ -186,4 +232,10 @@ type Repository interface {
 	RecordAudit(context.Context, Audit) error
 	StreamUsageInjection(context.Context) (bool, error)
 	SetStreamUsageInjection(context.Context, bool, Audit) error
+	EgressProxies(context.Context) ([]EgressProxy, error)
+	EgressProxy(context.Context, string) (EgressProxy, error)
+	SaveEgressProxy(context.Context, EgressProxy, bool, PortRange, Audit) (EgressProxy, error)
+	DeleteEgressProxy(context.Context, string, Audit) error
+	SetEgressProxyState(context.Context, string, EgressProxyState, Audit) error
+	EgressProxyCredential(context.Context, string, []byte) (json.RawMessage, error)
 }

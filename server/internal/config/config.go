@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"time"
+
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 )
 
 type AuthEnvSet struct {
@@ -33,6 +36,17 @@ type Config struct {
 	OIDCClientSecret string
 	OIDCScopes       []string
 	OIDCCaFile       string
+	// XrayProxyPortMin and XrayProxyPortMax bound the internal SOCKS5 inbound
+	// ports the control plane allocates to egress proxy profiles. A profile keeps
+	// its port until it is deleted, so enable/disable never reallocates.
+	XrayProxyPortMin int
+	XrayProxyPortMax int
+	// XrayAPIURL is the gRPC API of the Xray singleton on the xray-control
+	// network. The control plane is its only writer.
+	XrayAPIURL string
+	// XrayReconcileIntervalSeconds is the egress reconcile period. It is a count,
+	// not a Duration, so the env override and its bounds stay explicit.
+	XrayReconcileIntervalSeconds int
 
 	LocalLoginEnabled bool
 	SessionTTLHours   int
@@ -60,6 +74,11 @@ func Load() (Config, error) {
 		OIDCScopes:        []string{"openid", "profile", "email"},
 		LocalLoginEnabled: true,
 		SessionTTLHours:   720,
+		XrayProxyPortMin:  15000,
+		XrayProxyPortMax:  15999,
+		XrayAPIURL:        xray.DefaultAPIAddress,
+
+		XrayReconcileIntervalSeconds: int(xray.DefaultReconcileInterval / time.Second),
 	}
 	var e error
 	c.MasterKey, e = base64.StdEncoding.DecodeString(os.Getenv("MASTER_KEY"))
@@ -110,6 +129,24 @@ func Load() (Config, error) {
 		}
 	}
 	c.OIDCCaFile = os.Getenv("OIDC_CA_FILE")
+	if v, ok := lookup("XRAY_PROXY_PORT_MIN"); ok {
+		if c.XrayProxyPortMin, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_PROXY_PORT_MIN must be an integer")
+		}
+	}
+	if v, ok := lookup("XRAY_PROXY_PORT_MAX"); ok {
+		if c.XrayProxyPortMax, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_PROXY_PORT_MAX must be an integer")
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("XRAY_API_URL")); v != "" {
+		c.XrayAPIURL = v
+	}
+	if v, ok := lookup("XRAY_RECONCILE_INTERVAL_SECONDS"); ok {
+		if c.XrayReconcileIntervalSeconds, e = strconv.Atoi(v); e != nil {
+			return c, errors.New("XRAY_RECONCILE_INTERVAL_SECONDS must be an integer")
+		}
+	}
 	c.StreamUsageInjection = true
 	if s := os.Getenv("STREAM_USAGE_INJECTION"); s != "" {
 		c.StreamUsageInjection, e = strconv.ParseBool(s)
@@ -208,6 +245,17 @@ func (c Config) Validate() error {
 		if _, err := os.ReadFile(c.OIDCCaFile); err != nil {
 			return errors.New("OIDC_CA_FILE must be readable")
 		}
+	}
+	if c.XrayProxyPortMin < 1024 || c.XrayProxyPortMax > 65535 || c.XrayProxyPortMin > c.XrayProxyPortMax {
+		return errors.New("XRAY_PROXY_PORT_MIN and XRAY_PROXY_PORT_MAX must define a range inside 1024 to 65535")
+	}
+	if _, port, err := net.SplitHostPort(c.XrayAPIURL); err != nil {
+		return errors.New("XRAY_API_URL must be host:port")
+	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return errors.New("XRAY_API_URL port must be between 1 and 65535")
+	}
+	if c.XrayReconcileIntervalSeconds < 5 || c.XrayReconcileIntervalSeconds > 3600 {
+		return errors.New("XRAY_RECONCILE_INTERVAL_SECONDS must be between 5 and 3600")
 	}
 	return nil
 }

@@ -104,3 +104,49 @@ func TestCoreAutoPruneMetricHasBoundedResults(t *testing.T) {
 		t.Fatalf("unbounded auto-prune labels: %s", body)
 	}
 }
+
+func TestEgressMetricsStayBoundedAndSkipDirectEgress(t *testing.T) {
+	r := New()
+	proxyID := "0193f0c2-7b1a-7c3e-9f00-000000000008"
+	mode, direct := "proxy", "direct"
+	class := "connect_error"
+	r.Committed(usage.Result{Inserted: []usage.AcceptedEvent{
+		{Event: usage.Event{EgressMode: &mode, EgressProxyID: &proxyID, Outcome: "success", AttemptCount: 1, ErrorClass: &class}, VersionLabel: "0.2.0"},
+		{Event: usage.Event{EgressMode: &direct, Outcome: "success", AttemptCount: 1}, VersionLabel: "0.2.0"},
+		{Event: usage.Event{Outcome: "success", AttemptCount: 1}, VersionLabel: "0.2.0"},
+	}}, 0, time.Now())
+	r.ObserveXrayReconcile("success")
+	r.ObserveXrayReconcile("unreachable")
+	// An unknown state must not create an unbounded label.
+	r.ObserveEgressProxyStates(map[string]int{"ready": 2, "bogus": 1})
+
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	r.Handler("secret", nil)(page, req)
+	body := page.Body.String()
+	for _, want := range []string{
+		`token_ne_egress_proxy_requests_total{proxy="` + proxyID + `",core_version="0.2.0"} 1`,
+		`token_ne_egress_proxy_connect_errors_total{proxy="` + proxyID + `",class="connect_error"} 1`,
+		`token_ne_egress_proxy_state{state="ready"} 2`,
+		`token_ne_egress_proxy_state{state="degraded"} 1`,
+		`token_ne_xray_reconcile_total{result="success"} 1`,
+		`token_ne_xray_reconcile_total{result="unreachable"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in %s", want, body)
+		}
+	}
+	if strings.Contains(body, "state=\"bogus\"") {
+		t.Fatalf("unbounded egress state label: %s", body)
+	}
+
+	// The gauge reports the current state, not a running total: a second pass with
+	// the same two profiles must still read 2, not 4.
+	r.ObserveEgressProxyStates(map[string]int{"ready": 2})
+	page = httptest.NewRecorder()
+	r.Handler("secret", nil)(page, req)
+	if !strings.Contains(page.Body.String(), `token_ne_egress_proxy_state{state="ready"} 2`) {
+		t.Fatalf("the state gauge accumulated across passes: %s", page.Body.String())
+	}
+}

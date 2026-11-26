@@ -663,11 +663,21 @@ func TestSnapshotUpstreamBaseURLCanonicalization(t *testing.T) {
 }
 
 func TestSnapshotGenerationStableAcrossRestart(t *testing.T) {
-	var saved generation
+	generations := map[string]generation{}
 	db := &fakeDB{}
 	db.row = func(q string, args []any) fakeRow {
 		switch {
+		// The per-instance fingerprint query must be matched before the shared
+		// counter, because it also mentions the counter's key in its own name.
+		case strings.Contains(q, "select value from system_state where key=$1"):
+			key, _ := args[0].(string)
+			saved := generations[key]
+			if saved.Revision == 0 {
+				return fakeRow{err: pgx.ErrNoRows}
+			}
+			return fakeRow{values: []any{saved}}
 		case strings.Contains(q, "core_config_generation"):
+			saved := generations["core_config_generation"]
 			if saved.Revision == 0 {
 				return fakeRow{err: pgx.ErrNoRows}
 			}
@@ -681,7 +691,12 @@ func TestSnapshotGenerationStableAcrossRestart(t *testing.T) {
 	}
 	db.exec = func(q string, args []any) error {
 		if strings.Contains(q, "insert into system_state") {
-			saved = args[0].(generation)
+			if len(args) == 2 {
+				key, _ := args[0].(string)
+				generations[key] = args[1].(generation)
+			} else {
+				generations["core_config_generation"] = args[0].(generation)
+			}
 		}
 		return nil
 	}

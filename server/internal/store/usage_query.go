@@ -52,12 +52,16 @@ type RequestSummary struct {
 	PriceRevisionID *string   `json:"price_revision_id"`
 	UpstreamModel   *string   `json:"upstream_model"`
 	UpstreamID      *string   `json:"upstream_id"`
-	Stream          bool      `json:"stream"`
-	HTTPStatus      *int      `json:"http_status"`
-	Outcome         string    `json:"outcome"`
-	AttemptCount    int       `json:"attempt_count"`
-	TTFT            *int      `json:"ttft_ms"`
-	Duration        *int      `json:"duration_ms,omitempty"`
+	// EgressMode and EgressProxyID are the terminal attempt's egress; both are
+	// absent for a phase-one event or an event with no upstream attempt.
+	EgressMode    *string `json:"egress_mode"`
+	EgressProxyID *string `json:"egress_proxy_id"`
+	Stream        bool    `json:"stream"`
+	HTTPStatus    *int    `json:"http_status"`
+	Outcome       string  `json:"outcome"`
+	AttemptCount  int     `json:"attempt_count"`
+	TTFT          *int    `json:"ttft_ms"`
+	Duration      *int    `json:"duration_ms,omitempty"`
 }
 
 type RequestDetail struct {
@@ -147,11 +151,11 @@ func (s *Store) UsageBreakdown(ctx context.Context, r UsageRange, group string) 
 }
 
 const requestColumns = `u.event_id::text,u.request_id,u.occurred_at,u.endpoint,u.requested_model,u.resolved_model,
- u.price_revision_id,u.upstream_model,u.upstream_id::text,u.stream,u.http_status,u.outcome,u.attempt_count,u.ttft_ms,u.duration_ms`
+u.price_revision_id,u.upstream_model,u.upstream_id::text,u.egress_mode,u.egress_proxy_id::text,u.stream,u.http_status,u.outcome,u.attempt_count,u.ttft_ms,u.duration_ms`
 
 func (v *RequestSummary) fields() []any {
 	return []any{&v.EventID, &v.RequestID, &v.OccurredAt, &v.Endpoint, &v.RequestedModel, &v.ResolvedModel,
-		&v.PriceRevisionID, &v.UpstreamModel, &v.UpstreamID, &v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
+		&v.PriceRevisionID, &v.UpstreamModel, &v.UpstreamID, &v.EgressMode, &v.EgressProxyID, &v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
 }
 
 func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSummary, error) {

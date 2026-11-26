@@ -10,6 +10,8 @@ export type RequestSummary = {
   requested_model?: string | null;
   upstream_model?: string | null;
   upstream_id?: string | null;
+  egress_mode?: "direct" | "proxy" | null;
+  egress_proxy_id?: string | null;
   stream?: boolean;
   http_status?: number | null;
   outcome: string;

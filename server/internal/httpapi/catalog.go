@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -335,16 +334,10 @@ func (a *API) fetchUpstreamModels(ctx context.Context, u store.Upstream) ([]stor
 	} else {
 		req.Header.Set("x-api-key", key)
 	}
-	dial := safeDial(a.cfg.AllowPrivateUpstreams)
-	transport := &http.Transport{
-		Proxy: nil,
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			ctx, cancel := context.WithTimeout(ctx, time.Duration(u.Connect)*time.Millisecond)
-			defer cancel()
-			return dial(ctx, network, address)
-		},
-		TLSHandshakeTimeout:   time.Duration(u.Connect) * time.Millisecond,
-		ResponseHeaderTimeout: time.Duration(u.FirstByte) * time.Millisecond,
+	// A bound upstream must reach its proxy; there is no direct fallback.
+	transport, err := a.upstreamTransport(ctx, u)
+	if err != nil {
+		return nil, err
 	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

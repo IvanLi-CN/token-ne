@@ -1,41 +1,47 @@
 # Web Demo 实现状态
 
+> 当前有效规范仍以 `./SPEC.md` 为准；这里记录实现覆盖、交付进度与 rollout 事实。
+
 ## 当前状态
 
-未开始。本文档记录已确认的落地边界与缺口，不代表任何代码已存在。
+已实现 mock 运行时、独立构建目标、场景与 Inspector。静态托管与 Playwright 配置仍是缺口。
 
-仓库现状（已核实）：
+已核实（`web/` 内）：
 
-- `web/` 只有生产入口 `web/src/main.tsx` 与 `web/index.html`；无 `demo.html`、无 `web/src/demo/`。
-- `web/src/lib/api.ts` 的 `apiRequest` 是**唯一** fetch 边界，固定请求 `fetch("/api" + path)`，因此 mock 只需替换 `window.fetch`。
-- `web/src/app/router.tsx` 导出的 `routes` 可直接交给任意 `createXRouter`，`App.tsx` 已支持注入 `router`；demo 需要 `basename=/demo` 与真实 history，因此用 `createBrowserRouter` 而不是 memory router。
-- 已有同类先例：`web/src/features/overview/observability.visual-fixture.tsx` 等 5 个 `*.visual-fixture.tsx` + `*.visual.test.html`，用 `window.fetch` 伪造 `/api/*` 并 seed `QueryClient`。demo 应吸收这一模式，而不是引入 service worker。
-- `web/package.json` 有 `test:e2e: playwright test`，但仓库内**没有** `playwright.config.*` 与 `web/e2e/`，该脚本当前无法运行。
-- 无 `.github/workflows/pages.yml`、无 `docs-site/`；`/demo` 目前没有静态托管。
-- `server/internal/web/static.go` 对未命中嵌入文件的路径（含 `/demo/**`）回退到生产 `index.html`；它不为 demo 服务，也不应为此增加分支，demo 由独立静态托管提供。
+- `web/src/main.tsx` 只引用生产入口，不引用 `web/src/demo/`；生产 bundle 中不存在 `demo-scene-` 标识（`grep -r demo-scene- web/dist` 无输出）。
+- `web/src/lib/api.ts` 的 `apiRequest` 是唯一 fetch 边界，固定请求 `fetch("/api" + path)`，因此 mock 只替换 `window.fetch` 即可覆盖全部页面。
+- `web/src/demo/mock/transport.ts` 在首次渲染前安装，未映射的 `/api/*` 返回结构化 404 且不回落真实网络；非 `/api` 请求放行。
+- `web/src/demo/mock/auth.ts` 覆盖 `GET /api/auth/me`、`GET /api/auth/config`、`POST /api/auth/login`；`session-expired` 场景在演示登录前返回 401，刷新后重新布防，登录后回到管理面。OIDC 启动端点保持不可用。
+- `web/src/demo/entry.tsx` 以 `createBrowserRouter(routes, { basename: "/demo" })` 启动正式 `App`，并在每次 location 变化后把 `demo` 与 `d_*` 合并写回 search，保留其他 query 与 hash。
+- Inspector 的面板形态只存 `localStorage`；写操作标注 `simulated` 并记录在近期变更列表。
+- `web/vite.config.ts` 的 demo 模式使用 `base=/demo/`、`outDir=dist-demo`，并以 `generateBundle` 守卫拒绝生产构建中出现 `src/demo/` 模块。
 
-## 落地顺序
+## 实现覆盖
 
-1. `web/src/demo/mock/transport.ts` + `web/src/demo/mock/auth.ts`：`window.fetch` 拦截，`/api/*` fail-closed；`auth.ts` 覆盖 `/api/auth/me`、`/api/auth/config` 与 `/api/auth/login`，并让 `session-expired` 在演示登录前返回 `401`。
-2. `web/src/demo/scenes/`：覆盖总览、请求、Models、Upstreams、Downstream Keys 与系统子页（Cores、设置）所需数据，按 `web/src/features/*/api.ts` 的类型对齐。因为未映射接口 fail-closed（REQ-DEMO-002），缺任一页数据该页就无法渲染，所以场景覆盖必须与 FR-26 验收的页面清单一致（总览、请求、Models、Upstreams、Downstream Keys、Cores、设置）。
-3. `web/src/demo/entry.tsx`：安装 mock → 从 `window.location` 读取 `demo`/`d_*` 初始化状态 → 构建 `QueryClient` → 以 `createBrowserRouter(routes, { basename: "/demo" })` 渲染 → 订阅 location 变化，把最近一次的 `demo`/`d_*` 合并回新的 search（正式 `Link` 只带 `to`，导航会清空 query）。不要用 `createMemoryRouter`：它不读写地址栏，无法满足 REQ-DEMO-006 的刷新保持与 REQ-DEMO-008 的深链恢复。
-4. `web/demo.html` + `build:demo` + `base=/demo/`；构建产物是 `dist-demo/demo.html`，托管回退必须指向这个文件名（或显式改成 `index.html`）。同时要把 `token-ne-version-artifact` 的输出路径改为从 `configResolved` 读取 `build.outDir`（demo 模式写 `dist-demo/version.json`）；否则 `build:demo` 在干净树上会因 `dist/` 不存在而失败，或把 `version.json` 写进生产 `web/dist`。
-5. Inspector：REQ-DEMO-004 的 `simulated` 标记与近期变更列表 + REQ-DEMO-007 的面板形态。
-6. 静态托管与深链恢复（REQ-DEMO-008）。
-7. Playwright demo 规格（依赖补 `playwright.config.ts`）。
+| Requirement | Implementation | Tests |
+| --- | --- | --- |
+| `REQ-DEMO-001` | `web/src/demo/entry.tsx`、复用 `App.tsx`/`app/router.tsx` | `web/src/demo/mount.test.tsx` |
+| `REQ-DEMO-002` | `web/src/demo/mock/transport.ts` | `web/src/demo/mock/transport.test.ts`（未映射路径 fail-closed） |
+| `REQ-DEMO-003` | `web/src/demo/mock/auth.ts`、`web/src/demo/scenes/` | `web/src/demo/session.test.tsx`（401 → 登录 → 回到管理面） |
+| `REQ-DEMO-004` | `web/src/demo/mock/state.ts`、`web/src/demo/inspector/` | Inspector 的 `simulated` 标记与变更列表 |
+| `REQ-DEMO-005` | `web/package.json`（`build:demo`）、`web/vite.config.ts`、`web/demo.html` | `bun run build:demo` → `dist-demo/demo.html` |
+| `REQ-DEMO-006` | `web/src/demo/share-state.ts`、`web/src/demo/runtime.ts` | 刷新与客户端导航后保留 `demo`/`d_*` |
+| `REQ-DEMO-007` | `web/src/demo/inspector/` | 面板形态持久化在 `localStorage` |
+| `REQ-DEMO-008` | 托管配置（仓库外） | 未实现，见缺口 |
+| `REQ-DEMO-009` | `web/vite.config.ts`（`generateBundle` 守卫）、`web/index.html` | `grep -r demo-scene- web/dist` 无输出 |
+| `REQ-DEMO-010` | `web/src/demo/scenes/` | 场景只含合成数据 |
 
 ## 与生产交付的边界
 
 - `web/dist-demo` 不进入 `server/Dockerfile`；`COPY web/dist ./internal/web/dist` 保持不变。
 - `web/src/main.tsx` 不引用 `demo/`；demo 通过独立 HTML 入口引入。
-- 生产 bundle 不得包含 scene 标识（REQ-DEMO-009 的验证点）。
+- 生产 bundle 不包含 scene 标识。
 
 ## 剩余缺口
 
-- 无 Playwright 配置：页面级 demo 证据暂时只能靠手工快照。
-- 无 Pages/静态托管：REQ-DEMO-008 未满足，公开分享链接尚不可用。
+- 无 `playwright.config.ts` 与 `web/e2e/`；页面级 demo 证据目前靠一次性浏览器脚本与手工快照。
+- 无 Pages/静态托管：`REQ-DEMO-008` 未满足，`/demo/**` 深链恢复尚无部署实现。本地已验证：以 `demo.html` 为回退的静态服务下 `/demo`、`/demo/`、已知路由均返回 200，`/demo/assets/` 下未命中资源返回 404。
 - 未做：demo 产物大小预算、CI 中的 `build:demo` 冒烟、Inspector 的 reduced-motion 分支测试。
-- 场景尚未覆盖全部页面时，受 fail-closed 影响，未覆盖页会直接报错；补齐场景是页面级验收的前置条件，不是可延后的优化。
 
 ## 不做什么
 

@@ -74,6 +74,10 @@ var families = []family{
 	{"core_config_signature_invalid_total", "counter", "Invalid core signature reports."},
 	{"core_config_override_active", "gauge", "Whether a core configuration override is active."},
 	{"core_auto_prune_total", "counter", "Automatic retired core destruction attempts by result."},
+	{"xray_reconcile_total", "counter", "Xray reconciliation passes by bounded result."},
+	{"egress_proxy_state", "gauge", "Egress proxy profiles by runtime state."},
+	{"egress_proxy_requests_total", "counter", "Requests whose terminal attempt used a proxy profile."},
+	{"egress_proxy_connect_errors_total", "counter", "Proxy connect failures before commit by profile and class."},
 	{"caddy_apply_total", "counter", "Caddy apply attempts by result."},
 	{"db_pool_connections", "gauge", "Database pool connections by state."},
 }
@@ -112,6 +116,22 @@ func (r *Registry) mutate(name, key string, value float64, hist bool) {
 			}
 		}
 	}
+}
+
+// setGauge assigns a gauge instead of accumulating into it. `mutate` adds, which
+// is right for counters; a gauge re-observed on every reconcile pass would
+// otherwise grow without bound (2, 4, 6, ... after an hour) and stop describing
+// the current state.
+func (r *Registry) setGauge(name, key string, value float64) {
+	group := r.data[name]
+	if group == nil {
+		group = make(map[string]*sample)
+		r.data[name] = group
+	}
+	if _, exists := group[key]; !exists && len(group) >= 4096 {
+		return
+	}
+	group[key] = &sample{value: value}
 }
 
 func (r *Registry) BeginIngest() func() {
@@ -195,6 +215,15 @@ func (r *Registry) Committed(result usage.Result, elapsed time.Duration, now tim
 		if e.StatusRewrittenFrom != nil {
 			r.mutate("proxy_status_rewrites_total", labels("core_version", e.VersionLabel, "from", httpStatus(e.StatusRewrittenFrom), "to", status, "reason", class), 1, false)
 		}
+		// The contract asks for per-profile proxy request and connect-error counts.
+		// A profile id is a bounded, non-secret identity; nothing from the profile's
+		// protocol, server or credentials may become a label.
+		if e.EgressMode != nil && *e.EgressMode == "proxy" && e.EgressProxyID != nil {
+			r.mutate("egress_proxy_requests_total", labels("proxy", *e.EgressProxyID, "core_version", e.VersionLabel), 1, false)
+			if class == "connect_error" || class == "dns_error" || class == "tls_error" {
+				r.mutate("egress_proxy_connect_errors_total", labels("proxy", *e.EgressProxyID, "class", class), 1, false)
+			}
+		}
 		r.mutate("usage_ingest_lag_seconds", "", max(0, now.Sub(e.OccurredAt).Seconds()), true)
 	}
 }
@@ -249,6 +278,35 @@ func (r *Registry) ObserveCoreAutoPrune(result string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.mutate("core_auto_prune_total", labels("result", result), 1, false)
+}
+
+// ObserveXrayReconcile records one reconciliation pass. The contract asks for
+// Xray API apply and reconcile results, so the label set stays bounded and never
+// carries a profile id or an error string.
+func (r *Registry) ObserveXrayReconcile(result string) {
+	switch result {
+	case "success", "rejected", "unreachable":
+	default:
+		result = "rejected"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mutate("xray_reconcile_total", labels("result", result), 1, false)
+}
+
+// ObserveEgressProxyStates publishes the count of profiles per runtime state.
+// Xray exposes no trustworthy per-profile stats, so the contract makes the
+// reconcile result the source of availability; this gauge mirrors it.
+func (r *Registry) ObserveEgressProxyStates(states map[string]int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	known := map[string]bool{"pending": true, "swapping": true, "ready": true, "degraded": true, "disabled": true}
+	for state, count := range states {
+		if !known[state] {
+			state = "degraded"
+		}
+		r.setGauge("egress_proxy_state", labels("state", state), float64(count))
+	}
 }
 
 func (r *Registry) Handler(token string, source Source) http.HandlerFunc {

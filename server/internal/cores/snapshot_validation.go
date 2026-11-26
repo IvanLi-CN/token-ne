@@ -3,7 +3,9 @@ package cores
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -48,6 +50,17 @@ var policyFieldSet = map[string]bool{
 	"upstream_id": true, "default_action": true, "allow_patterns": true, "deny_patterns": true,
 }
 
+var proxyFieldSet = map[string]bool{"id": true, "endpoint": true, "enabled": true}
+
+// upstreamFieldSet is the closed set the publisher emits for an upstream. The
+// core tolerates unknown upstream fields for forward compatibility, so a
+// misspelled `egressProxyId` would silently mean direct egress there; the
+// publisher must reject it instead.
+var upstreamFieldSet = map[string]bool{
+	"id": true, "name": true, "base_url": true, "auth_style": true, "api_key": true, "enabled": true,
+	"connect_timeout_ms": true, "first_byte_timeout_ms": true, "idle_timeout_ms": true, "egress_proxy_id": true,
+}
+
 type snapshotRoute struct {
 	ID            string  `json:"id"`
 	Pattern       string  `json:"pattern"`
@@ -71,11 +84,16 @@ type snapshotEnvelope struct {
 	Models   []struct {
 		ModelID string `json:"model_id"`
 	} `json:"models"`
-	Upstreams []struct {
-		ID string `json:"id"`
-	} `json:"upstreams"`
+	Upstreams        []map[string]json.RawMessage `json:"upstreams"`
 	ModelRoutes      []map[string]json.RawMessage `json:"model_routes"`
 	UpstreamPolicies []map[string]json.RawMessage `json:"upstream_policies"`
+	EgressProxies    []map[string]json.RawMessage `json:"egress_proxies"`
+}
+
+type snapshotProxy struct {
+	ID       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+	Enabled  *bool  `json:"enabled"`
 }
 
 // ValidateSnapshot applies the second-phase semantic rules the core enforces
@@ -118,6 +136,11 @@ func ValidateSnapshot(body []byte) error {
 			if raw, ok := item[field]; ok && string(raw) == "null" {
 				return snapshotReject(fmt.Sprintf("upstream_policies[%d].%s", i, field), "must be an array")
 			}
+		}
+	}
+	for i, item := range envelope.EgressProxies {
+		if field, ok := firstUnknownField(item, proxyFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("egress_proxies[%d].%s", i, field), "unknown egress proxy field")
 		}
 	}
 
@@ -164,8 +187,20 @@ func ValidateSnapshot(body []byte) error {
 		models[m.ModelID] = true
 	}
 	upstreams := map[string]bool{}
-	for _, u := range envelope.Upstreams {
+	for i, item := range envelope.Upstreams {
+		if field, ok := firstUnknownField(item, upstreamFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("upstreams[%d].%s", i, field), "unknown upstream field")
+		}
+		var u struct {
+			ID string `json:"id"`
+		}
+		if err := unmarshalObject(item, &u); err != nil {
+			return snapshotReject(fmt.Sprintf("upstreams[%d]", i), "invalid upstream field type")
+		}
 		upstreams[u.ID] = true
+	}
+	if err := validateEgress(envelope); err != nil {
+		return err
 	}
 
 	seenPolicies := map[string]bool{}
@@ -293,6 +328,136 @@ func sameOptional(a, b *string) bool {
 		return a == nil && b == nil
 	}
 	return *a == *b
+}
+
+// unmarshalObject re-decodes one raw object so a typed view of it is available
+// without a second parse of the whole body.
+func unmarshalObject(item map[string]json.RawMessage, dst any) error {
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, dst)
+}
+
+// validateEgress mirrors the core's egress rules so the publisher never sends a
+// snapshot the target core answers with 422. Paths are the ones the contract
+// names: egress_proxies[<i>].<field> for a bad entry, egress_proxies for a
+// feature disagreement on the array and upstreams[<i>].egress_proxy_id for a
+// dangling binding or a feature disagreement on a binding.
+func validateEgress(envelope snapshotEnvelope) error {
+	proxies := make([]snapshotProxy, 0, len(envelope.EgressProxies))
+	for i, item := range envelope.EgressProxies {
+		var proxy snapshotProxy
+		if err := unmarshalObject(item, &proxy); err != nil {
+			return snapshotReject(fmt.Sprintf("egress_proxies[%d]", i), "invalid egress proxy field type")
+		}
+		proxies = append(proxies, proxy)
+	}
+	active, _ := featureTrue(envelope.Features, FeatureEgressProxy)
+
+	defined := map[string]bool{}
+	for i, proxy := range proxies {
+		base := fmt.Sprintf("egress_proxies[%d]", i)
+		if !UUID(proxy.ID, false) {
+			return snapshotReject(base+".id", "must be a canonical lowercase UUID")
+		}
+		if defined[proxy.ID] {
+			return snapshotReject("egress_proxies.id", "duplicate egress proxy id")
+		}
+		defined[proxy.ID] = true
+		if !validSocks5hEndpoint(proxy.Endpoint) {
+			return snapshotReject(base+".endpoint", "must be socks5h://<host>:<port> with a port between 1024 and 65535")
+		}
+		if proxy.Enabled == nil {
+			return snapshotReject(base+".enabled", "is required")
+		}
+	}
+
+	// The core checks the array/feature agreement before any binding, so a
+	// snapshot that violates both reports "egress_proxies".
+	if len(proxies) > 0 && !active {
+		return snapshotReject("egress_proxies", "feature must be true when the array is non-empty")
+	}
+
+	for i, item := range envelope.Upstreams {
+		raw, ok := item["egress_proxy_id"]
+		if !ok || !nonNullJSON(raw) {
+			continue
+		}
+		path := fmt.Sprintf("upstreams[%d].egress_proxy_id", i)
+		if !active {
+			return snapshotReject(path, "feature must be true when an upstream binds a proxy")
+		}
+		var id string
+		if err := json.Unmarshal(raw, &id); err != nil {
+			return snapshotReject(path, "must be a string or null")
+		}
+		if !defined[id] {
+			return snapshotReject(path, "referenced egress proxy does not exist in this snapshot")
+		}
+	}
+	return nil
+}
+
+// validSocks5hEndpoint accepts exactly socks5h://<host>:<port>: lowercase
+// scheme, a DNS name or a bracketed IP literal, no credentials, path, query or
+// fragment and a port inside 1024 to 65535.
+func validSocks5hEndpoint(raw string) bool {
+	authority, ok := strings.CutPrefix(raw, "socks5h://")
+	if !ok || len(raw) > 256 {
+		return false
+	}
+	// The port is the last segment: an IPv6 literal carries colons of its own.
+	i := strings.LastIndexByte(authority, ':')
+	if i <= 0 || i == len(authority)-1 {
+		return false
+	}
+	host, port := authority[:i], authority[i+1:]
+	for _, r := range port {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	// The schema pattern has no leading zero form, so accepting one here would
+	// publish bytes the schema itself rejects.
+	if len(port) > 1 && port[0] == '0' {
+		return false
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1024 || n > 65535 {
+		return false
+	}
+	if inner, ok := strings.CutPrefix(host, "["); ok {
+		inner, closed := strings.CutSuffix(inner, "]")
+		return closed && strings.Contains(inner, ":") && net.ParseIP(inner) != nil
+	}
+	if !isAlnum(host[0]) || !isAlnum(host[len(host)-1]) {
+		return false
+	}
+	for _, r := range host {
+		if !isAlnum(byte(r)) && r != '.' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlnum(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+// featureTrue reports whether a snapshot feature is explicitly true.
+func featureTrue(features map[string]json.RawMessage, name string) (bool, bool) {
+	raw, ok := features[name]
+	if !ok {
+		return false, false
+	}
+	var enabled bool
+	if json.Unmarshal(raw, &enabled) != nil {
+		return false, false
+	}
+	return enabled, true
 }
 
 // validSnapshotName mirrors the core's `text` validation for exact patterns:

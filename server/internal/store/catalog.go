@@ -585,8 +585,17 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 			// so the API can report the field instead of a bare 409.
 			return ErrUpstreamNameTaken
 		}
-		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,capabilities_revision=capabilities_revision+1,updated_at=now() where id=$1"
-		if _, err := tx.Exec(ctx, q, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce); err != nil {
+		if u.EgressProxyID != nil {
+			var bound bool
+			if err := tx.QueryRow(ctx, "select exists(select 1 from egress_proxies where id=$1)", *u.EgressProxyID).Scan(&bound); err != nil {
+				return normalize(err)
+			}
+			if !bound {
+				return &FieldError{Path: "egress_proxy_id", Reason: "referenced egress proxy does not exist", Kind: ErrReference}
+			}
+		}
+		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,egress_proxy_id=$13,capabilities_revision=capabilities_revision+1,updated_at=now() where id=$1"
+		if _, err := tx.Exec(ctx, q, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce, u.EgressProxyID); err != nil {
 			return normalize(err)
 		}
 		var err error

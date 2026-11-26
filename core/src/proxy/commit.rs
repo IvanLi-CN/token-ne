@@ -95,6 +95,9 @@ pub struct ForwardingFacts {
     /// 名称路由后的全局 Model ID；路由在转发前已完成，因此与 attempt 数无关。
     pub resolved_model: Option<String>,
     pub upstream_id: Option<String>,
+    /// 产生终态那次尝试的出口：`Some` 为代理 ID，`None` 为直连。
+    /// `attempt_count == 0` 的本地错误不携带出口，由 usage 层统一省略。
+    pub egress_proxy_id: Option<String>,
     pub upstream_model: Option<String>,
     pub stream: bool,
     pub attempts: u32,

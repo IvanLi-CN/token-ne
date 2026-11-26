@@ -1,7 +1,8 @@
 use super::{
-    attempt::{self, Failure, PROTOCOL_ERROR, UpstreamResponse},
+    attempt::{self, Failure, PROTOCOL_ERROR, Route, UpstreamResponse},
     body::RequestBody,
     commit::{self, ForwardingFacts, ForwardingObserver, Gate, Observation, Outcome},
+    egress,
     routing::{self, Candidate},
 };
 use crate::{
@@ -58,6 +59,7 @@ pub(crate) async fn forward(request: ForwardRequest<'_>) -> Response {
             requested_model: body.model.clone(),
             resolved_model: Some(model.model_id.clone()),
             upstream_id: None,
+            egress_proxy_id: None,
             upstream_model: None,
             stream: body.stream,
             attempts: 0,
@@ -120,6 +122,9 @@ pub(crate) async fn forward(request: ForwardRequest<'_>) -> Response {
         };
         observation.facts.attempts += 1;
         observation.facts.upstream_id = Some(candidate.upstream.id.clone());
+        // 出口归因在尝试开始时确定：终态只记录产生它的那次尝试的出口。
+        let probe = egress::binding(config, candidate.upstream);
+        observation.facts.egress_proxy_id = probe.map(|binding| binding.id.clone());
         observation.facts.upstream_model = Some(mapped.to_owned());
         observation.facts.upstream_ttfb = None;
         observation.facts.upstream_duration = None;
@@ -127,7 +132,10 @@ pub(crate) async fn forward(request: ForwardRequest<'_>) -> Response {
         observation.attempt_started = Some(attempt_started);
         let mut upstream = None;
         let failure = match attempt::send(
-            candidate.upstream,
+            Route {
+                upstream: candidate.upstream,
+                proxy: probe,
+            },
             options,
             &parts.uri,
             &parts.headers,

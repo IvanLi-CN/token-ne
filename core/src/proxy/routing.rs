@@ -1,3 +1,4 @@
+use super::egress;
 use crate::config::{
     Config, DownstreamKey, MatchType, Model, PolicyAction, Upstream, UpstreamModel,
 };
@@ -122,7 +123,7 @@ pub fn candidates<'a>(
             config
                 .upstreams
                 .iter()
-                .find(|u| u.id == r.upstream_id && u.enabled)
+                .find(|u| u.id == r.upstream_id && u.enabled && egress::routable(config, u))
                 .map(|u| Candidate {
                     upstream: u,
                     capability: r,
@@ -169,10 +170,9 @@ pub fn visible_models<'a>(config: &'a Config, key: &DownstreamKey) -> Vec<&'a Mo
                         && r.enabled
                         && r.weight > 0
                         && policy_allows(config, &r.upstream_id, &m.model_id)
-                        && config
-                            .upstreams
-                            .iter()
-                            .any(|u| u.id == r.upstream_id && u.enabled)
+                        && config.upstreams.iter().any(|u| {
+                            u.id == r.upstream_id && u.enabled && egress::routable(config, u)
+                        })
                 })
         })
         .collect()
