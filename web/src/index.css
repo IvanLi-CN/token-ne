@@ -308,6 +308,15 @@ h3 {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: grab;
+}
+tr[aria-grabbed="true"] {
+  opacity: 0.6;
+}
 .button-danger {
   color: var(--surface);
   background: var(--error);

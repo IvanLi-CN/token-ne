@@ -224,7 +224,8 @@ export interface ModelRoute {
   match_type: MatchType;
   target_model_id: string;
   upstream_id: string | null;
-  priority: number;
+  /** 作用域内的执行顺序，从 0 开始；由服务端维护。 */
+  position: number;
   enabled: boolean;
   description: string | null;
   created_at: string;
@@ -235,7 +236,6 @@ export interface ModelRouteInput {
   match_type: MatchType;
   target_model_id: string;
   upstream_id?: string | null;
-  priority: number;
   enabled: boolean;
   description?: string | null;
 }
@@ -373,6 +373,16 @@ export const modelRoutesApi = {
     apiRequest<ModelRoute>(`/model-routes/${encodeURIComponent(id)}`, { method: "PUT", body }),
   remove: (id: string) =>
     apiRequest<void>(`/model-routes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** 用完整 id 序列一次提交该作用域的整段顺序；失败由服务端整段回滚。 */
+  reorder: async (upstreamId: string | null, routeIds: string[]) => {
+    const result = await apiRequest<ListResponse<ModelRoute>>("/model-routes/reorder", {
+      method: "POST",
+      body: { upstream_id: upstreamId, route_ids: routeIds },
+    });
+    if (!Array.isArray(result.data))
+      throw new ApiError(502, "invalid_response", "重排响应格式无效");
+    return result.data;
+  },
   preview: (requested_model: string) =>
     apiRequest<RoutePreview>("/model-routes/preview", {
       method: "POST",
@@ -469,7 +479,7 @@ export interface PriceSourceCatalog {
 export interface SourceModelInstall {
   source_model_id: string;
   model_id: string;
-  outcome: "created" | "exists" | "conflict";
+  outcome: "created" | "exists";
   reason?: string;
 }
 

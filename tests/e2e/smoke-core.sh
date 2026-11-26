@@ -48,7 +48,7 @@ jq --arg hash "$KEY_HASH" --arg mock "http://127.0.0.1:${MOCK_PORT}" --arg spool
   | .upstreams[0].base_url = $mock
   | .upstreams[0].api_key = "sk-mock"
   | .upstreams += [.upstreams[0] | .id = "0193f0c2-7b1a-7c3e-9f00-000000000005" | .name = "mock-secondary"]
-  | .upstream_models += [.upstream_models[0] | .upstream_id = "0193f0c2-7b1a-7c3e-9f00-000000000005" | .priority = 110]
+  | .upstream_models += [.upstream_models[0] | .upstream_id = "0193f0c2-7b1a-7c3e-9f00-000000000005"]
   | .usage.endpoint = "http://127.0.0.1:18082/internal/v1/usage/batch"
   | .usage.spool.dir = $spool
 ' docs/fixtures/config.v1.json > "$TMP/config.json"

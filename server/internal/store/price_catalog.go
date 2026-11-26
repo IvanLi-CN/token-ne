@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 	"github.com/IvanLi-CN/token-ne/server/internal/pricesource"
 	"github.com/jackc/pgx/v5"
 )
@@ -128,8 +127,8 @@ func (s *Store) PriceSourceCatalog(ctx context.Context, sourceID string) (PriceS
 }
 
 // InstallPriceSourceModels creates disabled global models (with their initial
-// price revision) for the selected source rows. Existing models and names
-// reserved by route rules are reported instead of overwritten.
+// price revision) for the selected source rows. Existing models are reported
+// instead of overwritten.
 func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, ids []string, a Audit) (PriceSourceInstall, error) {
 	dataset, err := (pricesource.Builtin{}).Fetch(sourceID)
 	if err != nil {
@@ -172,29 +171,16 @@ func (s *Store) InstallPriceSourceModels(ctx context.Context, sourceID string, i
 }
 
 // ensureSourceModel creates the global model for one source entry without
-// touching an existing model or a name reserved by a route rule.
+// touching an existing model.
 func ensureSourceModel(ctx context.Context, tx pgx.Tx, sourceID string, entry pricesource.Entry) (SourceModelInstall, error) {
 	target := entry.TargetModelID()
 	out := SourceModelInstall{SourceModelID: entry.SourceModelID, ModelID: target}
-	// Same name-reservation rule as model creation and catalog import.
-	if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(target)); err != nil {
-		return out, err
-	}
 	var exists bool
 	if err := tx.QueryRow(ctx, "select exists(select 1 from models where model_id=$1)", target).Scan(&exists); err != nil {
 		return out, err
 	}
 	if exists {
 		out.Outcome = "exists"
-		return out, nil
-	}
-	var reserved bool
-	if err := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", target).Scan(&reserved); err != nil {
-		return out, err
-	}
-	if reserved {
-		out.Outcome = "conflict"
-		out.Reason = "a route rule already uses this pattern"
 		return out, nil
 	}
 	billing := Billing{
@@ -208,8 +194,8 @@ func ensureSourceModel(ctx context.Context, tx pgx.Tx, sourceID string, entry pr
 		return out, err
 	}
 	if _, err = tx.Exec(ctx, `
-insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
-values($1,false,null,null,$2,$3,$4,$5,'global')`, target, billing.Input, billing.Cached, billing.Output, revision); err != nil {
+insert into models(model_id,enabled,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
+values($1,false,null,$2,$3,$4,$5,'global')`, target, billing.Input, billing.Cached, billing.Output, revision); err != nil {
 		return out, normalize(err)
 	}
 	out.Outcome = "created"

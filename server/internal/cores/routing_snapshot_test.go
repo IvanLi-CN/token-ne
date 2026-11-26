@@ -33,7 +33,7 @@ func routingSnapshotRows() (keys, models, entries, capabilities json.RawMessage)
 		panic(err)
 	}
 	keys = json.RawMessage(`[]`)
-	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"default_upstream_model":null,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
+	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
 	entries = []byte(`[{"id":"` + routingUpstreamID + `","name":"mock","base_url":"https://mock.example.com","auth_style":"bearer","enabled":true,"connect_timeout_ms":10000,"first_byte_timeout_ms":90000,"idle_timeout_ms":300000,"cipher":"` +
 		base64.StdEncoding.EncodeToString(ciphertext) + `","nonce":"` + base64.StdEncoding.EncodeToString(nonce) + `"}]`)
 	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","upstream_model_id":"upstream-gpt-4o","model_id":"gpt-4o","enabled":true}]`)
@@ -73,10 +73,10 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 }
 
 func routingRoutes() [][]any {
-	// The SQL query orders by priority,id; the fake returns rows as given.
+	// The SQL query orders by scope then position; the fake returns rows as given.
 	return [][]any{
-		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 100, true, "primary"},
-		{uuid.NewString(), "alias", "exact", routingModelID, nil, 300, true, nil},
+		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 0, true, "primary"},
+		{uuid.NewString(), "alias", "exact", routingModelID, nil, 1, true, nil},
 	}
 }
 
@@ -138,7 +138,7 @@ func TestSnapshotRoutingContentAndAdmission(t *testing.T) {
 		if !body.Features[FeatureModelNameRouting] || !body.Features[FeatureUpstreamModelPolicy] {
 			t.Fatalf("missing feature flags: %v", body.Features)
 		}
-		if len(body.Routes) != 2 || body.Routes[0]["priority"].(float64) != 100 || body.Routes[1]["pattern"] != "alias" {
+		if len(body.Routes) != 2 || body.Routes[0]["position"].(float64) != 0 || body.Routes[1]["pattern"] != "alias" {
 			t.Fatalf("route ordering or content: %+v", body.Routes)
 		}
 		if body.Routes[0]["description"] != "primary" || body.Routes[0]["upstream_id"] == nil {
@@ -186,7 +186,7 @@ func TestSnapshotRoutingContentAndAdmission(t *testing.T) {
 	t.Run("disabled route target stays in the snapshot", func(t *testing.T) {
 		models := `[{"model_id":"enabled-model","enabled":true,"billing":{"input_usd_per_mtok":null,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":null}},{"model_id":"disabled-model","enabled":false,"billing":{"input_usd_per_mtok":null,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":null}}]`
 		declared := append(append([]string{}, coreFeaturesOnly...), FeatureModelNameRouting)
-		db := routingSnapshotDB([][]any{{uuid.NewString(), "legacy-*", "glob", "disabled-model", nil, 10, true, nil}}, nil, declared, true)
+		db := routingSnapshotDB([][]any{{uuid.NewString(), "legacy-*", "glob", "disabled-model", nil, 0, true, nil}}, nil, declared, true)
 		base := db.row
 		db.row = func(q string, args []any) fakeRow {
 			if strings.Contains(q, "jsonb_agg") {
@@ -335,7 +335,7 @@ insert into models(model_id,enabled,billing_revision_id) select $1,false,id from
 		return store.Audit{Actor: "tester", Action: action, TargetType: kind}
 	}
 	pattern := "snapshot-" + suffix
-	if _, err = s.SaveRoute(ctx, store.ModelRoute{Pattern: pattern, MatchType: "exact", TargetModelID: modelID, Priority: 10, Enabled: true}, true, audit("model_route.create", "model_route")); err != nil {
+	if _, err = s.SaveRoute(ctx, store.ModelRoute{Pattern: pattern, MatchType: "exact", TargetModelID: modelID, Enabled: true}, true, audit("model_route.create", "model_route")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.SavePolicy(ctx, upstreamID, store.UpstreamPolicy{DefaultAction: "deny", AllowPatterns: []string{modelID}}, audit("upstream_policy.replace", "upstream")); err != nil {

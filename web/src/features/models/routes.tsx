@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
@@ -18,16 +19,100 @@ import { ActionGroup, DangerAction, Editor, errorMessage, Field } from "./manage
 
 const matchLabel: Record<MatchType, string> = { exact: "精确", glob: "Glob" };
 
+function scopeOf(route: ModelRoute): string | null {
+  return route.upstream_id ?? null;
+}
+
+function inScope(routes: ModelRoute[], scope: string | null): ModelRoute[] {
+  return routes
+    .filter((route) => scopeOf(route) === scope)
+    .sort((left, right) => left.position - right.position);
+}
+
+function duplicatePatterns(routes: ModelRoute[]): string[] {
+  const seen = new Map<string, number>();
+  for (const route of routes) seen.set(route.pattern, (seen.get(route.pattern) ?? 0) + 1);
+  return [...seen.entries()].filter(([, count]) => count > 1).map(([pattern]) => pattern);
+}
+
+/**
+ * Moves one rule inside a scope and submits the whole scope order in a single
+ * request. The list is optimistically resorted; a failure restores the previous
+ * cache so the UI never claims an order the server did not store.
+ */
+function useScopeReorder(scope: string | null) {
+  const client = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<unknown>();
+
+  const applyPositions = (ids: string[]) =>
+    client.setQueryData<ModelRoute[]>(queryKeys.modelRoutes, (current) =>
+      current?.map((route) => {
+        const index = ids.indexOf(route.id);
+        return index >= 0 && scopeOf(route) === scope ? { ...route, position: index } : route;
+      }),
+    );
+
+  /** Reorders one scope to `ids` and submits that sequence in a single request. */
+  const submitOrder = async (ids: string[]) => {
+    if (pending) return;
+    const previous = client.getQueryData<ModelRoute[]>(queryKeys.modelRoutes) ?? [];
+    setPending(true);
+    setError(undefined);
+    applyPositions(ids);
+    try {
+      const saved = await modelRoutesApi.reorder(scope, ids);
+      // The response is the authoritative full list of this scope.
+      client.setQueryData<ModelRoute[]>(queryKeys.modelRoutes, (current) =>
+        current ? [...current.filter((item) => scopeOf(item) !== scope), ...saved] : saved,
+      );
+    } catch (failure) {
+      client.setQueryData(queryKeys.modelRoutes, previous);
+      setError(failure);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const move = async (route: ModelRoute, delta: number) => {
+    const all = client.getQueryData<ModelRoute[]>(queryKeys.modelRoutes) ?? [];
+    const ids = inScope(all, scope).map((item) => item.id);
+    const index = ids.indexOf(route.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    const next = [...ids];
+    next[index] = ids[target];
+    next[target] = ids[index];
+    await submitOrder(next);
+  };
+
+  /** Drops `draggedId` at `targetId`'s slot inside this scope. */
+  const drop = async (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    const all = client.getQueryData<ModelRoute[]>(queryKeys.modelRoutes) ?? [];
+    const ids = inScope(all, scope).map((item) => item.id);
+    const from = ids.indexOf(draggedId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, draggedId);
+    await submitOrder(next);
+  };
+
+  return { move, drop, pending, error };
+}
+
 function RouteEditor({
   route,
   models,
-  upstreams,
+  scopeUpstreamId,
   onClose,
   onSaved,
 }: {
   route: ModelRoute | null;
   models: Model[];
-  upstreams: Upstream[];
+  scopeUpstreamId: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -38,7 +123,7 @@ function RouteEditor({
   const [targetModelId, setTargetModelId] = useState(
     route?.target_model_id ?? models[0]?.model_id ?? "",
   );
-  const [upstreamId, setUpstreamId] = useState(route?.upstream_id ?? "");
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -46,9 +131,8 @@ function RouteEditor({
     const body: ModelRouteInput = {
       pattern: String(data.get("pattern")).trim(),
       match_type: matchType,
-      target_model_id: String(data.get("target_model_id")),
-      upstream_id: String(data.get("upstream_id")) || null,
-      priority: Number(data.get("priority")),
+      target_model_id: targetModelId,
+      upstream_id: scopeUpstreamId,
       enabled: data.has("enabled"),
       description: String(data.get("description")).trim() || null,
     };
@@ -66,10 +150,11 @@ function RouteEditor({
       setPending(false);
     }
   }
+
   return (
     <Editor
       title={route ? "编辑路由规则" : "创建路由规则"}
-      description="规则把请求模型名解析为全局模型。精确规则按 pattern 唯一；Glob 只允许 * 与 ?，区分大小写，同优先级重叠且目标不同会被拒绝。"
+      description="同一作用域内按列表顺序逐条尝试，第一条命中即生效；同一作用域允许重复或重叠 pattern，界面会提示但不阻止保存。"
       onClose={onClose}
       dirty={dirty}
       pending={pending}
@@ -87,10 +172,9 @@ function RouteEditor({
               ]}
             />
           </Field>
-          <input type="hidden" name="match_type" value={matchType} />
           <Field
             label="Pattern"
-            hint="exact 为全局 Model ID 或精确别名；glob 只支持 * 与 ?，方括号、花括号和反斜线非法。"
+            hint="exact 为请求模型名或精确别名；glob 只支持 * 与 ?，方括号、花括号和反斜线非法。"
           >
             <input
               className="input rounded-xl"
@@ -102,41 +186,15 @@ function RouteEditor({
               placeholder={matchType === "glob" ? "gpt-*" : "global-model-id"}
             />
           </Field>
-          <Field label="目标全局模型">
+          <Field label="目标系统模型">
             <Select
-              label="目标全局模型"
+              label="目标系统模型"
               value={targetModelId}
               onValueChange={setTargetModelId}
               options={models.map((model) => ({
                 value: model.model_id,
                 label: model.model_id,
               }))}
-            />
-          </Field>
-          <input type="hidden" name="target_model_id" value={targetModelId} />
-          <Field label="上游限制" hint="限制候选只来自该上游；不改变目标模型。">
-            <Select
-              label="上游限制"
-              value={upstreamId}
-              onValueChange={setUpstreamId}
-              options={[
-                { value: "", label: "不限制上游" },
-                ...upstreams.map((upstream) => ({ value: upstream.id, label: upstream.name })),
-              ]}
-            />
-          </Field>
-          <input type="hidden" name="upstream_id" value={upstreamId} />
-          <Field label="优先级" hint="按升序匹配；数字越小越先判定。">
-            <input
-              className="input rounded-xl"
-              name="priority"
-              type="number"
-              required
-              min={0}
-              max={100000}
-              step={1}
-              defaultValue={route?.priority ?? 0}
-              aria-invalid={fieldInvalid(error, "priority")}
             />
           </Field>
           <Field label="说明">
@@ -193,9 +251,9 @@ function PreviewResult({
   if (!preview.resolved_model)
     return (
       <div className="flex flex-col gap-3">
-        <EmptyState title="未解析到全局模型">
-          “{preview.requested_model}”不匹配任何全局模型 ID、启用的精确规则或启用的 Glob
-          规则；下游请求会返回 404。检查规则优先级、启用状态与 pattern 冲突。
+        <EmptyState title="未解析到系统模型">
+          “{preview.requested_model}”不匹配全局作用域中任何启用的规则；下游请求会返回
+          404。检查规则顺序与启用状态。
         </EmptyState>
         <p className="muted">命中规则：无 · 候选上游：0</p>
       </div>
@@ -205,7 +263,7 @@ function PreviewResult({
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone="success">已解析</StatusBadge>
         <span>
-          请求名 <code>{preview.requested_model}</code> → 全局模型{" "}
+          请求名 <code>{preview.requested_model}</code> → 系统模型{" "}
           <code>{preview.resolved_model}</code>
         </span>
       </div>
@@ -216,7 +274,7 @@ function PreviewResult({
             {preview.matched_rule ? (
               <MatchedRule preview={preview} routes={routes} />
             ) : (
-              "全局模型 ID 直接匹配"
+              "无命中规则"
             )}
           </p>
         </div>
@@ -271,7 +329,13 @@ function PreviewResult({
   );
 }
 
-function RoutePreviewPanel({ upstreams, routes }: { upstreams: Upstream[]; routes: ModelRoute[] }) {
+export function RoutePreviewPanel({
+  upstreams,
+  routes,
+}: {
+  upstreams: Upstream[];
+  routes: ModelRoute[];
+}) {
   const [name, setName] = useState("");
   const preview = useMutation({
     mutationFn: (requested: string) => modelRoutesApi.preview(requested),
@@ -282,7 +346,7 @@ function RoutePreviewPanel({ upstreams, routes }: { upstreams: Upstream[]; route
         <div>
           <h2>路由预览</h2>
           <p className="muted">
-            输入下游请求模型名，查看解析后的全局模型、命中规则与候选上游；预览不产生配置变更。
+            输入下游请求模型名，查看解析后的系统模型、命中规则与候选上游；预览不产生配置变更。
           </p>
         </div>
       </div>
@@ -322,12 +386,27 @@ function RoutePreviewPanel({ upstreams, routes }: { upstreams: Upstream[]; route
   );
 }
 
-export function ModelRoutesSection({
+/**
+ * One scope's route list: create, edit, delete and reorder. `scopeUpstreamId`
+ * is `null` for the global scope (Models page) and an upstream id inside the
+ * upstream editor.
+ */
+export function ModelRouteScopePanel({
+  caption,
+  title,
+  description,
+  scopeUpstreamId,
   models,
   upstreams,
+  showPreview = false,
 }: {
+  caption: string;
+  title: string;
+  description: string;
+  scopeUpstreamId: string | null;
   models: Model[] | undefined;
-  upstreams: Upstream[] | undefined;
+  upstreams?: Upstream[] | undefined;
+  showPreview?: boolean;
 }) {
   const client = useQueryClient();
   const routes = useQuery({
@@ -335,19 +414,20 @@ export function ModelRoutesSection({
     queryFn: ({ signal }) => modelRoutesApi.list(signal),
   });
   const [editor, setEditor] = useState<ModelRoute | null | undefined>();
-  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+  const ordered = inScope(routes.data ?? [], scopeUpstreamId);
+  const duplicates = duplicatePatterns(ordered);
+  const { move, drop, pending: reordering, error: reorderError } = useScopeReorder(scopeUpstreamId);
+  const [dragging, setDragging] = useState<string | null>(null);
   const availableModels = models ?? [];
-  const availableUpstreams = upstreams ?? [];
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+
   return (
     <>
-      <section className="surface-card">
+      <section className="surface-card" aria-label={caption}>
         <div className="panel-heading">
           <div>
-            <h2>模型路由</h2>
-            <p className="muted">
-              精确 ID 与精确规则先于 Glob 规则；冲突规则不能静默保存。pattern
-              等于已有或之后新建的全局 Model ID 会被拒绝。
-            </p>
+            <h2>{title}</h2>
+            <p className="muted">{description}</p>
           </div>
           <Button
             className="rounded-xl"
@@ -358,16 +438,73 @@ export function ModelRoutesSection({
           </Button>
         </div>
         <div className="px-5 pb-5">
+          {duplicates.length > 0 && (
+            <p className="muted mb-3 text-xs" role="status">
+              本作用域存在重复 pattern：{duplicates.join("、")}
+              。允许保存，按列表顺序逐条尝试，第一条命中即生效。
+            </p>
+          )}
+          <FieldFailure error={reorderError} />
           <DataTable
-            caption="模型路由规则"
-            rows={routes.data ?? []}
+            caption={`${caption}列表`}
+            rows={ordered}
             rowKey={(route) => route.id}
             loading={routes.isPending}
             error={routes.error ? errorMessage(routes.error) : undefined}
             onRetry={() => void routes.refetch()}
             emptyTitle="暂无路由规则"
-            emptyDescription="全局 Model ID 直接解析；需要别名或通配时创建规则。"
+            emptyDescription="需要别名或通配时创建规则；列表顺序就是尝试顺序。"
+            rowAttrs={(route) => ({
+              draggable: !reordering,
+              "aria-grabbed": dragging === route.id,
+              onDragStart: () => setDragging(route.id),
+              onDragEnd: () => setDragging(null),
+              onDragOver: (event) => {
+                if (dragging && dragging !== route.id) event.preventDefault();
+              },
+              onDrop: (event) => {
+                event.preventDefault();
+                if (dragging) void drop(dragging, route.id);
+                setDragging(null);
+              },
+            })}
             columns={[
+              {
+                key: "order",
+                header: "顺序",
+                width: "7rem",
+                cell: (route) => {
+                  const index = ordered.findIndex((item) => item.id === route.id);
+                  return (
+                    <div className="flex items-center gap-1">
+                      <span className="drag-handle" aria-hidden="true">
+                        <GripVertical size={14} />
+                      </span>
+                      <span className="tabular-nums">{index + 1}</span>
+                      <Button
+                        variant="secondary"
+                        ghost
+                        aria-label={`上移 ${route.pattern}`}
+                        title="上移"
+                        disabled={reordering || index === 0}
+                        onClick={() => void move(route, -1)}
+                      >
+                        <ArrowUp aria-hidden size={14} />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        ghost
+                        aria-label={`下移 ${route.pattern}`}
+                        title="下移"
+                        disabled={reordering || index === ordered.length - 1}
+                        onClick={() => void move(route, 1)}
+                      >
+                        <ArrowDown aria-hidden size={14} />
+                      </Button>
+                    </div>
+                  );
+                },
+              },
               {
                 key: "pattern",
                 header: "Pattern / 模式",
@@ -380,20 +517,9 @@ export function ModelRoutesSection({
               },
               {
                 key: "target",
-                header: "目标全局模型",
+                header: "目标系统模型",
                 cell: (route) => <code>{route.target_model_id}</code>,
               },
-              {
-                key: "upstream",
-                header: "上游限制",
-                cell: (route) =>
-                  route.upstream_id ? (
-                    upstreamName(availableUpstreams, route.upstream_id)
-                  ) : (
-                    <span className="muted">不限制</span>
-                  ),
-              },
-              { key: "priority", header: "优先级", cell: (route) => route.priority },
               {
                 key: "enabled",
                 header: "状态",
@@ -423,7 +549,7 @@ export function ModelRoutesSection({
                     <DangerAction
                       label="删除"
                       title={`删除规则 ${route.pattern}？`}
-                      description="删除后该名称不再解析到目标模型；正在使用的请求不受影响。"
+                      description="删除后该规则不再参与解析；正在使用的请求不受影响。"
                       action={async () => {
                         await modelRoutesApi.remove(route.id);
                         await refresh();
@@ -436,21 +562,41 @@ export function ModelRoutesSection({
           />
           {routes.isError && (
             <p className="muted mt-3 text-xs">
-              路由规则不可用时不要新建冲突规则；先重试加载以对齐服务端状态。
+              路由规则不可用时不要新建规则；先重试加载以对齐服务端状态。
             </p>
           )}
         </div>
+        {editor !== undefined && (
+          <RouteEditor
+            route={editor}
+            models={availableModels}
+            scopeUpstreamId={scopeUpstreamId}
+            onClose={() => setEditor(undefined)}
+            onSaved={refresh}
+          />
+        )}
       </section>
-      <RoutePreviewPanel upstreams={availableUpstreams} routes={routes.data ?? []} />
-      {editor !== undefined && (
-        <RouteEditor
-          route={editor}
-          models={availableModels}
-          upstreams={availableUpstreams}
-          onClose={() => setEditor(undefined)}
-          onSaved={refresh}
-        />
-      )}
+      {showPreview && <RoutePreviewPanel upstreams={upstreams ?? []} routes={routes.data ?? []} />}
     </>
+  );
+}
+
+export function ModelRoutesSection({
+  models,
+  upstreams,
+}: {
+  models: Model[] | undefined;
+  upstreams: Upstream[] | undefined;
+}) {
+  return (
+    <ModelRouteScopePanel
+      caption="模型路由（全局）"
+      title="模型路由（全局）"
+      description="全局作用域内的规则按列表顺序逐条尝试，第一条命中即生效；未命中任何规则时请求返回 404。上游作用域的规则在上游编辑页维护，未命中时回退到这里。"
+      scopeUpstreamId={null}
+      models={models}
+      upstreams={upstreams}
+      showPreview
+    />
   );
 }

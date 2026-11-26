@@ -132,7 +132,7 @@ type routeRule struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      int     `json:"priority"`
+	Position      int     `json:"position"`
 	Enabled       bool    `json:"enabled"`
 	Description   *string `json:"description"`
 }
@@ -164,9 +164,10 @@ type generation struct {
 }
 
 // modelRoutes reads the enabled rules in the same order the core resolves
-// them: ascending priority, with the ID as a deterministic tie-break.
+// them: scope key, then position. The unique (scope, position) index makes the
+// order total.
 func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, error) {
-	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,priority,enabled,description from model_route_rules where enabled order by priority,id`)
+	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,position,enabled,description from model_route_rules where enabled order by coalesce(upstream_id,'00000000-0000-0000-0000-000000000000'::uuid),position`)
 	if e != nil {
 		return nil, e
 	}
@@ -174,7 +175,7 @@ func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, er
 	var out []routeRule
 	for rows.Next() {
 		var r routeRule
-		if e = rows.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Priority, &r.Enabled, &r.Description); e != nil {
+		if e = rows.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Position, &r.Enabled, &r.Description); e != nil {
 			return nil, e
 		}
 		out = append(out, r)
@@ -307,7 +308,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	var entries []byte
 	e = tx.QueryRow(ctx, `select
  (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'sha256',encode(key_sha256,'hex'),'enabled',enabled,'allowed_models',allowed_models,'max_inflight',max_inflight) order by id),'[]') from downstream_api_keys),
- (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
+ (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
   'created_at',extract(epoch from created_at)::bigint,
   'billing',jsonb_build_object('input_usd_per_mtok',input_usd_per_mtok,'cached_input_usd_per_mtok',cached_input_usd_per_mtok,'output_usd_per_mtok',output_usd_per_mtok)) order by model_id),'[]') from models),
 	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,

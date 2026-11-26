@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -19,7 +18,6 @@ var (
 	ErrCapabilitiesRevisionStale = errors.New("capabilities revision is stale")
 	ErrCatalogBindingConflict    = errors.New("catalog item or capability is bound to another model")
 	ErrTargetModelExists         = errors.New("target model already exists")
-	ErrModelNameTaken            = errors.New("model name is already used by a route rule")
 	ErrUpstreamNameTaken         = errors.New("upstream name is already in use")
 )
 
@@ -392,9 +390,9 @@ func (s *Store) CatalogRun(ctx context.Context, upstreamID, runID string) (Catal
 }
 
 // ImportCatalogModel creates a disabled model or attaches a disabled
-// capability to an existing model. The upstream row lock, the name advisory
-// lock and the catalog checks all run in one transaction with the capabilities
-// revision bump, so a stale editor form cannot overwrite a concurrent import.
+// capability to an existing model. The upstream row lock and the catalog checks
+// run in one transaction with the capabilities revision bump, so a stale editor
+// form cannot overwrite a concurrent import.
 func (s *Store) ImportCatalogModel(ctx context.Context, upstreamID string, in CatalogImport, a Audit) (CatalogImportResult, error) {
 	var out CatalogImportResult
 	tx, e := s.Pool.Begin(ctx)
@@ -410,10 +408,6 @@ func (s *Store) ImportCatalogModel(ctx context.Context, upstreamID string, in Ca
 	if in.ExpectedRevision != nil && *in.ExpectedRevision != revision {
 		return out, ErrCapabilitiesRevisionStale
 	}
-	if _, e = tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(in.ModelID)); e != nil {
-		return out, normalize(e)
-	}
-
 	var catalogExists bool
 	if e = tx.QueryRow(ctx, `
 select exists(select 1 from upstream_model_catalog where upstream_id=$1 and upstream_model_id=$2)`,
@@ -445,20 +439,13 @@ select model_id from upstream_models where upstream_id=$1 and catalog_model_id=$
 		if modelExists {
 			return out, ErrTargetModelExists
 		}
-		var nameTaken bool
-		if e = tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", in.ModelID).Scan(&nameTaken); e != nil {
-			return out, normalize(e)
-		}
-		if nameTaken {
-			return out, ErrModelNameTaken
-		}
 		priceRevision, err := AppendGlobalRevision(ctx, tx, in.ModelID, Billing{}, "manual", nil, false)
 		if err != nil {
 			return out, err
 		}
 		if _, err = tx.Exec(ctx, `
-insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
-values($1,false,null,null,null,null,null,$2,'global')`, in.ModelID, priceRevision); err != nil {
+insert into models(model_id,enabled,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
+values($1,false,null,null,null,null,$2,'global')`, in.ModelID, priceRevision); err != nil {
 			return out, normalize(err)
 		}
 		if err := insertCatalogCapability(ctx, tx, upstreamID, in.ModelID, in.UpstreamModelID); err != nil {
@@ -571,6 +558,11 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 		if err = tx.QueryRow(ctx, "select capabilities_revision from upstreams where id=$1", u.ID).Scan(&revision); err != nil {
 			return normalize(err)
 		}
+		// The editor lists one row per system model, so that pair is the identity
+		// to retain: renaming an upstream model keeps the catalog link and the
+		// creation time. Removed bindings go first, then the survivors are
+		// detached from their old names so a rename or a swap between two rows
+		// never trips the (upstream_id, upstream_model_id) primary key.
 		ids := make([]string, 0, len(models))
 		for _, c := range models {
 			ids = append(ids, c.ModelID)
@@ -578,12 +570,15 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 		if _, err = tx.Exec(ctx, "delete from upstream_models where upstream_id=$1 and not (model_id = any($2::text[]))", u.ID, ids); err != nil {
 			return normalize(err)
 		}
+		if _, err = tx.Exec(ctx, "update upstream_models set upstream_model_id='pending:'||gen_random_uuid()::text where upstream_id=$1", u.ID); err != nil {
+			return normalize(err)
+		}
 		for _, c := range models {
 			if _, err = tx.Exec(ctx, `
 insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled)
 values($1,$2,$3,$4)
-on conflict (upstream_id,upstream_model_id) do update
-set model_id=excluded.model_id,enabled=excluded.enabled,updated_at=now()`,
+on conflict (upstream_id,model_id) do update
+set upstream_model_id=excluded.upstream_model_id,enabled=excluded.enabled,updated_at=now()`,
 				u.ID, c.UpstreamModelID, c.ModelID, c.Enabled); err != nil {
 				return normalize(err)
 			}

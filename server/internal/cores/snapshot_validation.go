@@ -41,7 +41,7 @@ func snapshotReject(path, reason string) *SnapshotValidationError {
 
 var routeFieldSet = map[string]bool{
 	"id": true, "pattern": true, "match_type": true, "target_model_id": true,
-	"upstream_id": true, "priority": true, "enabled": true, "description": true,
+	"upstream_id": true, "position": true, "enabled": true, "description": true,
 }
 
 var policyFieldSet = map[string]bool{
@@ -54,7 +54,7 @@ type snapshotRoute struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      *int    `json:"priority"`
+	Position      *int    `json:"position"`
 	Enabled       bool    `json:"enabled"`
 	Description   *string `json:"description"`
 }
@@ -179,7 +179,7 @@ func ValidateSnapshot(body []byte) error {
 	}
 
 	seenIDs := map[string]bool{}
-	exact := map[string]bool{}
+	positions := map[string]map[int]bool{}
 	for i, route := range routes {
 		base := fmt.Sprintf("model_routes[%d]", i)
 		if seenIDs[route.ID] {
@@ -201,48 +201,30 @@ func ValidateSnapshot(body []byte) error {
 		default:
 			return snapshotReject(base+".match_type", "must be exact or glob")
 		}
-		if models[route.Pattern] {
-			return snapshotReject(base+".pattern", "pattern is reserved by a global model id")
-		}
 		if !models[route.TargetModelID] {
 			return snapshotReject(base+".target_model_id", "referenced model does not exist")
 		}
 		if route.UpstreamID != nil && !upstreams[*route.UpstreamID] {
 			return snapshotReject(base+".upstream_id", "referenced upstream does not exist")
 		}
-		if route.Priority == nil || *route.Priority < 0 || *route.Priority > 100000 {
-			return snapshotReject(base+".priority", "must be between 0 and 100000")
+		if route.Position == nil || *route.Position < 0 {
+			return snapshotReject(base+".position", "must be zero or greater")
 		}
 		if route.Description != nil && utf8.RuneCountInString(*route.Description) > 1024 {
 			return snapshotReject(base+".description", "maximum length is 1024")
 		}
-		if route.Enabled && route.MatchType == "exact" {
-			if exact[route.Pattern] {
-				return snapshotReject(base+".pattern", "duplicate enabled exact rule")
-			}
-			exact[route.Pattern] = true
+		// Positions are unique inside a scope only; two scopes never compete.
+		scope := ""
+		if route.UpstreamID != nil {
+			scope = *route.UpstreamID
 		}
-	}
-	// Two enabled glob rules at the same priority must agree on their target,
-	// or which one wins depends on iteration order. The core enforces this too,
-	// so publishing such a snapshot would fail every instance.
-	for i, a := range routes {
-		if !a.Enabled || a.MatchType != "glob" {
-			continue
+		if positions[scope] == nil {
+			positions[scope] = map[int]bool{}
 		}
-		for j := i + 1; j < len(routes); j++ {
-			b := routes[j]
-			if !b.Enabled || b.MatchType != "glob" || a.Priority == nil || b.Priority == nil || *a.Priority != *b.Priority {
-				continue
-			}
-			overlap, err := modelglob.Overlaps(a.Pattern, b.Pattern)
-			if err != nil {
-				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), err.Error())
-			}
-			if overlap && (a.TargetModelID != b.TargetModelID || !sameOptional(a.UpstreamID, b.UpstreamID)) {
-				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), "overlaps a same-priority glob rule with a different target or upstream")
-			}
+		if positions[scope][*route.Position] {
+			return snapshotReject(base+".position", "duplicate position in scope")
 		}
+		positions[scope][*route.Position] = true
 	}
 	return nil
 }
@@ -262,13 +244,6 @@ func firstUnknownField(item map[string]json.RawMessage, allowed map[string]bool)
 	}
 	sort.Strings(unknown)
 	return unknown[0], true
-}
-
-func sameOptional(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
 
 // validSnapshotName mirrors the core's `text` validation for exact patterns:

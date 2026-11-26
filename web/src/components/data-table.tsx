@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { Button, EmptyState, ErrorState, Spinner } from "./primitives";
 export interface Column<T> {
   key: string;
@@ -20,6 +20,7 @@ export function DataTable<T>({
   nextCursor,
   onNext,
   onPrevious,
+  rowAttrs,
 }: {
   caption: string;
   columns: Column<T>[];
@@ -33,6 +34,8 @@ export function DataTable<T>({
   nextCursor?: string | null;
   onNext?: (cursor: string) => void;
   onPrevious?: () => void;
+  /** Row-level attributes, e.g. native HTML5 drag handlers for an ordered list. */
+  rowAttrs?: (row: T) => ComponentPropsWithoutRef<"tr"> | undefined;
 }) {
   if (loading) return <Spinner label={`正在加载${caption}`} />;
   if (error) return <ErrorState message={error} onRetry={onRetry} />;
@@ -54,7 +57,7 @@ export function DataTable<T>({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={rowKey(row)}>
+              <tr key={rowKey(row)} {...rowAttrs?.(row)}>
                 {columns.map((column) => (
                   <td
                     key={column.key}

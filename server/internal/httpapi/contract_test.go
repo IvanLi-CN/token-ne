@@ -508,7 +508,7 @@ func TestConfigSchemaRestrictsGlobRoutes(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	route := `{"id":"0192f2f4-0000-7000-8000-000000000001","match_type":"%s","pattern":"%s","target_model_id":"gpt-4o","priority":10,"enabled":true}`
+	route := `{"id":"0192f2f4-0000-7000-8000-000000000001","match_type":"%s","pattern":"%s","target_model_id":"gpt-4o","position":0,"enabled":true}`
 	for _, tc := range []struct {
 		matchType string
 		pattern   string
@@ -587,7 +587,7 @@ func TestAdminOpenAPIContracts(t *testing.T) {
 	run("POST", "/api/models", "/api/models", `{"model_id":"model-a","enabled":true,"billing":{"input_usd_per_mtok":1.2,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":3}}`, 201)
 	run("GET", "/api/models", "/api/models", "", 200)
 	run("GET", "/api/models/model-a", "/api/models/{model_id}", "", 200)
-	run("PUT", "/api/models/model-a", "/api/models/{model_id}", `{"enabled":false,"default_upstream_model":"actual-model","shutdown_date":"2027-01-01"}`, 200)
+	run("PUT", "/api/models/model-a", "/api/models/{model_id}", `{"enabled":false,"shutdown_date":"2027-01-01"}`, 200)
 	w := run("POST", "/api/upstreams", "/api/upstreams", `{"name":"upstream-a","kind":"api_key","base_url":"https://api.example/v1","auth_style":"bearer","api_key":"secret-value-1234","enabled":true,"models":[{"upstream_model_id":"model-a","model_id":"model-a","enabled":true}]}`, 201)
 	var u store.Upstream
 	_ = json.Unmarshal(w.Body.Bytes(), &u)

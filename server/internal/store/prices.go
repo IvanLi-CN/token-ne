@@ -7,7 +7,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/IvanLi-CN/token-ne/server/internal/modelglob"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -127,28 +126,15 @@ func boolean(p *bool) bool { return p != nil && *p }
 // unchanged; any price or lock transition appends a new immutable revision.
 func saveModel(ctx context.Context, tx pgx.Tx, m Model, create bool) (Model, error) {
 	if create {
-		// Model creation reserves its name in the same namespace as route
-		// patterns. The advisory lock keeps a concurrent rule save from
-		// occupying the name between this check and the insert.
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(m.ID)); err != nil {
-			return Model{}, err
-		}
-		var nameTaken bool
-		if err := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1)", m.ID).Scan(&nameTaken); err != nil {
-			return Model{}, err
-		}
-		if nameTaken {
-			return Model{}, ErrModelNameTaken
-		}
 		revision, err := AppendGlobalRevision(ctx, tx, m.ID, m.Billing, "manual", nil, boolean(m.BillingLocked))
 		if err != nil {
 			return Model{}, err
 		}
 		r := roundedBilling(m.Billing)
 		_, err = tx.Exec(ctx, `
-insert into models(model_id,enabled,default_upstream_model,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
-values($1,$2,$3,$4::text::date,$5,$6,$7,$8,'global')`,
-			m.ID, m.Enabled, m.Mapping, m.Shutdown, r.input, r.cached, r.output, revision)
+insert into models(model_id,enabled,shutdown_date,input_usd_per_mtok,cached_input_usd_per_mtok,output_usd_per_mtok,billing_revision_id,billing_revision_scope)
+values($1,$2,$3::text::date,$4,$5,$6,$7,'global')`,
+			m.ID, m.Enabled, m.Shutdown, r.input, r.cached, r.output, revision)
 		if err != nil {
 			return Model{}, normalize(err)
 		}
@@ -187,11 +173,11 @@ where m.model_id=$1 for update of m`, m.ID).Scan(&current.Input, &current.Cached
 		r := roundedBilling(m.Billing)
 		tag, err := tx.Exec(ctx, `
 update models
-set enabled=$2,default_upstream_model=$3,shutdown_date=$4::text::date,
-    input_usd_per_mtok=$5,cached_input_usd_per_mtok=$6,output_usd_per_mtok=$7,
-    billing_revision_id=$8,billing_revision_scope='global',updated_at=now()
+set enabled=$2,shutdown_date=$3::text::date,
+    input_usd_per_mtok=$4,cached_input_usd_per_mtok=$5,output_usd_per_mtok=$6,
+    billing_revision_id=$7,billing_revision_scope='global',updated_at=now()
 where model_id=$1`,
-			m.ID, m.Enabled, m.Mapping, m.Shutdown, r.input, r.cached, r.output, revisionID)
+			m.ID, m.Enabled, m.Shutdown, r.input, r.cached, r.output, revisionID)
 		if err != nil {
 			return Model{}, normalize(err)
 		}

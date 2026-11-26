@@ -378,7 +378,7 @@ Idempotency-Key: <batch_id>
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
 - `models[].model_id` 非空且全局唯一；不接受任何上游命名或映射字段；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
 - `upstream_models[]` 的 `(upstream_id, upstream_model_id)` 与 `(upstream_id, model_id)` 必须各自唯一；引用必须存在；`upstream_model_id` 非空且不超过 256 字符。
-- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。每条规则带作用域与作用域内顺序 `position`：核先按请求归属上游的作用域顺序逐条尝试，未命中再按全局作用域顺序尝试，第一条命中即生效。不设 `pattern` 唯一性或重叠约束，重复规则由顺序决定；`pattern` 等于系统模型 ID 也不算冲突。同一作用域内的 `position` 必须唯一。
+- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。每条规则带作用域与作用域内顺序 `position`：核先按 `upstream_id` 升序逐个尝试上游作用域（各自按 `position`，第一条命中即锁定该上游），全部未命中再按全局作用域顺序尝试，最后按系统模型 ID 兜底；第一条命中即生效。不设 `pattern` 唯一性或重叠约束，重复规则由顺序决定；`pattern` 等于系统模型 ID 也不算冲突。同一作用域内的 `position` 必须唯一。
 - `upstream_policies[]` 按 `upstream_id` 唯一，`default_action` 取 `allow` 或 `deny`。两个列表分别校验受限 Glob 语法及去重。发布方必须为每个存在策略行的上游导出一条策略；快照是控制面当前状态的完整函数，省略某个上游的策略表示该上游当前没有策略，核心不得沿用上一份快照中的策略，也不得继续沿用已清空的黑名单。没有策略行的上游等价于 `default_action=allow` 且两个列表为空。
 - 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。

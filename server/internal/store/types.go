@@ -45,7 +45,6 @@ type PriceTier struct {
 type Model struct {
 	ID            string              `json:"model_id"`
 	Enabled       bool                `json:"enabled"`
-	Mapping       *string             `json:"default_upstream_model"`
 	Shutdown      *string             `json:"shutdown_date"`
 	Billing       Billing             `json:"billing"`
 	BillingState  *PriceRevisionState `json:"billing_state,omitempty"`
@@ -76,6 +75,7 @@ type PriceProfile struct {
 	UpstreamID string `json:"upstream_id"`
 	Scope      string `json:"scope,omitempty"`
 }
+
 // Capability binds one upstream-reported model ID to the global model it
 // serves. The upstream receives UpstreamModelID verbatim; there is no separate
 // name override.

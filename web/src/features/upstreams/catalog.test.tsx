@@ -11,7 +11,6 @@ const timestamp = "2026-11-22T00:00:00Z";
 const model = {
   model_id: "example",
   enabled: true,
-  default_upstream_model: null,
   shutdown_date: null,
   billing: { input_usd_per_mtok: 1, cached_input_usd_per_mtok: 0, output_usd_per_mtok: 2 },
   created_at: timestamp,
@@ -123,6 +122,7 @@ function base(overrides: { catalog?: CatalogView; policy?: UpstreamPolicy } = {}
     if (url === "/api/version") return response(phase());
     if (url === "/api/models") return response({ data: [model] });
     if (url === "/api/upstreams") return response({ data: [upstream, secondary] });
+    if (url === "/api/model-routes") return response({ data: [] });
     if (url === `/api/upstreams/${upstream.id}/models/catalog`)
       return response(overrides.catalog ?? catalog);
     if (url === `/api/upstreams/${upstream.id}/model-policy`)

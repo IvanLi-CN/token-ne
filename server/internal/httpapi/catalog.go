@@ -278,8 +278,6 @@ func catalogError(w http.ResponseWriter, r *http.Request, err error) {
 		fail(w, r, 409, "conflict", "capabilities revision is stale", detail("capabilities_revision", "version is stale; reload the upstream and merge capabilities"))
 	case errors.Is(err, store.ErrTargetModelExists):
 		fail(w, r, 409, "conflict", "target model already exists", detail("model_id", "target model already exists"))
-	case errors.Is(err, store.ErrModelNameTaken):
-		fail(w, r, 409, "conflict", "model name is already used by a route rule", detail("model_id", "a route rule already uses this pattern"))
 	case errors.Is(err, store.ErrCatalogBindingConflict):
 		fail(w, r, 409, "conflict", "catalog item or capability is already bound to another model", detail("upstream_model_id", "already bound to another model"))
 	case errors.Is(err, store.ErrReference):

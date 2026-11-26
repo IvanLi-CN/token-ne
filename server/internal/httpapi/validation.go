@@ -48,9 +48,6 @@ func ValidateModel(m store.Model) []Detail {
 	if !validName(m.ID, 256) {
 		return detail("model_id", "must contain 1 to 256 characters")
 	}
-	if m.Mapping != nil && utf8.RuneCountInString(*m.Mapping) > 256 {
-		return detail("default_upstream_model", "maximum length is 256")
-	}
 	if m.Shutdown != nil {
 		if _, e := time.Parse(time.DateOnly, *m.Shutdown); e != nil {
 			return detail("shutdown_date", "must be YYYY-MM-DD")

@@ -125,7 +125,6 @@ export function PriceSourceCatalogSection() {
 
   const created = result?.data.filter((row) => row.outcome === "created").length ?? 0;
   const existed = result?.data.filter((row) => row.outcome === "exists").length ?? 0;
-  const conflicts = result?.data.filter((row) => row.outcome === "conflict") ?? [];
 
   return (
     <>
@@ -238,19 +237,7 @@ export function PriceSourceCatalogSection() {
           <FieldFailure error={installError} />
           {result && (
             <div role="status" className="rounded-xl border border-[var(--border)] p-3 text-sm">
-              已创建 {created} 个，已存在 {existed} 个
-              {conflicts.length ? `，冲突 ${conflicts.length} 个` : ""}
-              。新建的模型默认不启用，价格取快照值。
-              {conflicts.length > 0 && (
-                <ul className="mt-2 list-disc pl-5">
-                  {conflicts.map((row) => (
-                    <li key={row.source_model_id}>
-                      <code title={row.source_model_id}>{row.source_model_id}</code>：
-                      {row.reason ?? "无法添加"}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              已创建 {created} 个，已存在 {existed} 个。新建的模型默认不启用，价格取快照值。
             </div>
           )}
         </div>

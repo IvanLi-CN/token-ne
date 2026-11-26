@@ -79,7 +79,7 @@ func TestCatalogSyncSnapshotIntegration(t *testing.T) {
 	routePattern := "p4-route-" + suffix
 	catalogCleanup(t, ctx, s, []string{upstreamID}, []string{modelID}, []string{routePattern})
 	testModel(t, ctx, s, modelID, Billing{})
-	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority) values($1,$2,'exact',$3,10)", uuid.NewString(), routePattern, modelID); err != nil {
+	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,0)", uuid.NewString(), routePattern, modelID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'provider-b',$2,true)", upstreamID, modelID); err != nil {
@@ -458,7 +458,9 @@ func TestCatalogImportBindingRulesIntegration(t *testing.T) {
 	}
 }
 
-func TestCatalogImportNameOccupancyIntegration(t *testing.T) {
+// TestCatalogImportIgnoresRoutePatternIntegration pins the removed name
+// namespace: a rule that matches the imported model name no longer blocks it.
+func TestCatalogImportIgnoresRoutePatternIntegration(t *testing.T) {
 	ctx, s := priceTestStore(t)
 	suffix := uuid.NewString()[:8]
 	target := "p4-occupied-" + suffix
@@ -467,20 +469,20 @@ func TestCatalogImportNameOccupancyIntegration(t *testing.T) {
 	catalogCleanup(t, ctx, s, []string{upstreamID}, []string{target, holder}, []string{target})
 	catalogDiscover(t, ctx, s, upstreamID, catalogModel("provider-name"))
 	testModel(t, ctx, s, holder, Billing{})
-	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority) values($1,$2,'exact',$3,10)", uuid.NewString(), target, holder); err != nil {
+	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,0)", uuid.NewString(), target, holder); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ImportCatalogModel(ctx, upstreamID, CatalogImport{
 		UpstreamModelID: "provider-name", Mode: CatalogImportCreateModel, ModelID: target,
-	}, Audit{Actor: "test", Action: "catalog.import", Payload: []byte(`{}`)}); !errors.Is(err, ErrModelNameTaken) {
-		t.Fatalf("name occupancy error = %v, want ErrModelNameTaken", err)
+	}, Audit{Actor: "test", Action: "catalog.import", Payload: []byte(`{}`)}); err != nil {
+		t.Fatalf("import named by a route pattern = %v, want success", err)
 	}
 	var models int
 	if err := s.Pool.QueryRow(ctx, "select count(*) from models where model_id=$1", target).Scan(&models); err != nil {
 		t.Fatal(err)
 	}
-	if models != 0 {
-		t.Fatal("rejected import created the model")
+	if models != 1 {
+		t.Fatalf("import created %d models, want 1", models)
 	}
 }
 

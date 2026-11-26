@@ -105,6 +105,7 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("GET /api/model-routes", a.protect(a.listModelRoutes))
 	m.HandleFunc("POST /api/model-routes", a.protect(a.saveModelRoute))
 	m.HandleFunc("POST /api/model-routes/preview", a.protect(a.previewModelRoute))
+	m.HandleFunc("POST /api/model-routes/reorder", a.protect(a.reorderModelRoutes))
 	m.HandleFunc("PUT /api/model-routes/{route_id}", a.protect(a.saveModelRoute))
 	m.HandleFunc("DELETE /api/model-routes/{route_id}", a.protect(a.deleteModelRoute))
 	m.HandleFunc("GET /api/upstreams/{upstream_id}/model-policy", a.protect(a.getUpstreamModelPolicy))
@@ -194,11 +195,6 @@ func storageError(w http.ResponseWriter, r *http.Request, e error, field string)
 		fail(w, r, 404, "not_found", "resource not found", nil)
 	case errors.As(e, &conflict):
 		fail(w, r, 409, "conflict", "resource is still referenced", referenceDetails(conflict.Refs))
-	case errors.Is(e, store.ErrModelNameTaken):
-		if field == "" {
-			field = "model_id"
-		}
-		fail(w, r, 409, "conflict", "model name is already used by a route rule", detail(field, "a route rule already uses this pattern"))
 	case errors.Is(e, store.ErrConflict):
 		fail(w, r, 409, "conflict", "resource conflicts with an existing resource or reference", nil)
 	case errors.Is(e, store.ErrReference):
@@ -234,6 +230,23 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, required ...string)
 	return decodeWithNullable(w, r, dst, required, nil)
 }
 
+// decodeStrict rejects the named keys outright. Route writes refuse `position`
+// and `priority`: order belongs to the reorder endpoint, and silently ignoring a
+// caller-supplied priority would make the saved rule land at a surprise slot.
+func decodeStrict(w http.ResponseWriter, r *http.Request, dst any, forbidden []string, required ...string) bool {
+	obj, b, ok := readObject(w, r)
+	if !ok {
+		return false
+	}
+	for _, key := range forbidden {
+		if _, present := obj[key]; present {
+			fail(w, r, 400, "malformed_request", "unknown request field", detail(key, "is not accepted; order routes through /api/model-routes/reorder"))
+			return false
+		}
+	}
+	return decodeObject(w, r, obj, b, dst, required, nil)
+}
+
 // registerUnavailable keeps a phase-two surface addressable when the configured
 // repository does not implement it. A silent 404 would look like a client bug
 // instead of a server capability gap.
@@ -247,10 +260,20 @@ func registerUnavailable(m *http.ServeMux, a *API, patterns ...string) {
 }
 
 func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, required []string, nullable map[string]bool) bool {
+	obj, b, ok := readObject(w, r)
+	if !ok {
+		return false
+	}
+	return decodeObject(w, r, obj, b, dst, required, nullable)
+}
+
+// readObject enforces the shared transport rules (JSON media type, 1 MiB cap,
+// object root) and returns the raw body with its decoded top-level keys.
+func readObject(w http.ResponseWriter, r *http.Request) (map[string]json.RawMessage, []byte, bool) {
 	ct, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || ct != "application/json" {
 		fail(w, r, 400, "malformed_request", "Content-Type must be application/json", nil)
-		return false
+		return nil, nil, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	b, e := io.ReadAll(r.Body)
@@ -261,13 +284,18 @@ func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, require
 		} else {
 			fail(w, r, 400, "malformed_request", "cannot read request", nil)
 		}
-		return false
+		return nil, nil, false
 	}
 	var obj map[string]json.RawMessage
 	if e = json.Unmarshal(b, &obj); e != nil || obj == nil {
 		fail(w, r, 400, "malformed_request", "request must be a JSON object", nil)
-		return false
+		return nil, nil, false
 	}
+	return obj, b, true
+}
+
+// decodeObject applies the shared per-field rules and then decodes into dst.
+func decodeObject(w http.ResponseWriter, r *http.Request, obj map[string]json.RawMessage, b []byte, dst any, required []string, nullable map[string]bool) bool {
 	for _, p := range required {
 		v, ok := obj[p]
 		if !ok || string(v) == "null" && !nullable[p] {
@@ -303,7 +331,7 @@ func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, require
 			}
 		}
 	}
-	if e = json.Unmarshal(b, dst); e != nil {
+	if e := json.Unmarshal(b, dst); e != nil {
 		var field *json.UnmarshalTypeError
 		var d []Detail
 		if errors.As(e, &field) {

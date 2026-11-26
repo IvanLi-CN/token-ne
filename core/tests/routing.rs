@@ -34,7 +34,6 @@ fn model(model_id: &str, enabled: bool) -> Value {
     json!({
         "model_id": model_id,
         "enabled": enabled,
-        "default_upstream_model": null,
         "shutdown_date": null,
         "created_at": 1764806400,
         "billing": {
@@ -44,14 +43,14 @@ fn model(model_id: &str, enabled: bool) -> Value {
         }
     })
 }
-fn route(pattern: &str, match_type: &str, target: &str, priority: u32, enabled: bool) -> Value {
+fn route(pattern: &str, match_type: &str, target: &str, position: u32, enabled: bool) -> Value {
     json!({
         "id": Uuid::now_v7().to_string(),
         "pattern": pattern,
         "match_type": match_type,
         "target_model_id": target,
         "upstream_id": null,
-        "priority": priority,
+        "position": position,
         "enabled": enabled
     })
 }
@@ -163,19 +162,27 @@ fn config_rejects_phase_two_semantic_errors_with_paths() {
     f["upstream_policies"] = json!([policy(UPSTREAM, "maybe", &[], &[])]);
     rejected(&f, "upstream_policies[0].default_action");
 
-    // 全局 Model ID 保留给 Model，规则不能占用同名 pattern。
+    // pattern 等于系统模型 ID 不是冲突，重复 pattern 也允许：顺序决定生效者。
     let mut f = base();
     f["model_routes"] = json!([route("gpt-5", "exact", "text-embedding-3-small", 10, true)]);
-    rejected(&f, "model_routes[0].pattern");
+    assert!(parse(&f).is_ok());
 
     let mut f = base();
     f["model_routes"] = json!([
         route("chat-fast", "exact", "gpt-5", 10, true),
-        route("chat-fast", "exact", "text-embedding-3-small", 10, true)
+        route("chat-fast", "exact", "text-embedding-3-small", 11, true)
     ]);
-    rejected(&f, "model_routes[1].pattern");
+    assert!(parse(&f).is_ok());
 
-    // 同优先级 Glob 重叠且目标不同：保存会静默改变路由含义。
+    // 同一作用域内 position 必须唯一；跨作用域可以重号。
+    let mut f = base();
+    f["model_routes"] = json!([
+        route("chat-fast", "exact", "gpt-5", 10, true),
+        route("chat-slow", "exact", "text-embedding-3-small", 10, true)
+    ]);
+    rejected(&f, "model_routes[1].position");
+
+    // 重叠 Glob 也不再是错误：顺序即语义。
     let mut f = base();
     f["models"]
         .as_array_mut()
@@ -183,9 +190,9 @@ fn config_rejects_phase_two_semantic_errors_with_paths() {
         .push(model("gpt-4o-mini", true));
     f["model_routes"] = json!([
         route("gpt-*", "glob", "gpt-5", 10, true),
-        route("gpt-4*", "glob", "gpt-4o-mini", 10, true)
+        route("gpt-4*", "glob", "gpt-4o-mini", 11, true)
     ]);
-    rejected(&f, "model_routes[1].pattern");
+    assert!(parse(&f).is_ok());
 
     let mut f = base();
     let mut unknown = route("chat-fast", "exact", "gpt-5", 10, true);
@@ -198,29 +205,10 @@ fn config_rejects_phase_two_semantic_errors_with_paths() {
     unknown["action"] = "deny".into();
     f["upstream_policies"] = json!([unknown]);
     rejected(&f, "upstream_policies[0].action");
-
-    // 同优先级重叠但目标与上游限制一致：允许。
-    let mut f = base();
-    f["model_routes"] = json!([
-        route("gpt-*", "glob", "gpt-5", 10, true),
-        route("gpt-4*", "glob", "gpt-5", 10, true)
-    ]);
-    assert!(parse(&f).is_ok());
-    // 不同优先级允许指向不同目标。
-    let mut f = base();
-    f["models"]
-        .as_array_mut()
-        .unwrap()
-        .push(model("gpt-4o-mini", true));
-    f["model_routes"] = json!([
-        route("gpt-*", "glob", "gpt-5", 10, true),
-        route("gpt-4*", "glob", "gpt-4o-mini", 20, true)
-    ]);
-    assert!(parse(&f).is_ok());
 }
 
 #[test]
-fn resolve_prefers_global_id_then_exact_then_priority() {
+fn resolve_follows_scope_then_position_then_model_id() {
     let mut f = base();
     f["models"]
         .as_array_mut()
@@ -230,56 +218,57 @@ fn resolve_prefers_global_id_then_exact_then_priority() {
         .as_array_mut()
         .unwrap()
         .push(model("gpt-4o-mini-retired", false));
-    let mut restricted = route("restricted", "exact", "gpt-4o-mini", 100, true);
+    f["upstream_models"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"upstream_id":UPSTREAM,"model_id":"gpt-4o-mini","upstream_model_id":"gpt-4o-mini","enabled":true}));
+    let mut restricted = route("restricted", "exact", "gpt-4o-mini", 5, true);
     restricted["upstream_id"] = UPSTREAM.into();
     f["model_routes"] = json!([
-        route("chat-fast", "exact", "gpt-4o-mini", 100, true),
+        // 同一作用域内顺序即语义：位置小的先尝试，即使它匹配的范围更宽。
         route("chat-*", "glob", "gpt-5", 10, true),
-        route("chat-4*", "glob", "gpt-4o-mini", 5, true),
-        route("prio-*", "glob", "gpt-5", 20, true),
-        route("prio-a*", "glob", "gpt-4o-mini", 10, true),
-        route("off-*", "glob", "gpt-4o-mini-retired", 10, true),
-        route("gpt-*", "glob", "gpt-5", 50, true),
-        route("disabled", "exact", "gpt-4o-mini", 1, false),
+        route("chat-4*", "glob", "gpt-4o-mini", 11, true),
+        route("chat-fast", "exact", "gpt-4o-mini", 12, true),
+        // 重复 pattern 允许存在，由位置裁决。
+        route("dup", "exact", "gpt-4o-mini", 21, true),
+        route("dup", "exact", "gpt-5", 20, true),
+        // 目标未启用、规则未启用都不参与解析。
+        route("off-*", "glob", "gpt-4o-mini-retired", 30, true),
+        route("disabled", "exact", "gpt-4o-mini", 31, false),
         restricted
     ]);
     let config = parse(&f).unwrap();
 
+    // 系统模型 ID 不再短路路由：这里没有匹配规则，才按 ID 兜底。
     let global = routing::resolve(&config, "gpt-5").unwrap();
     assert_eq!(global.model.model_id, "gpt-5");
     assert_eq!(global.upstream_id, None);
 
-    // 精确规则优先于任意 priority 的 Glob。
-    let exact = routing::resolve(&config, "chat-fast").unwrap();
-    assert_eq!(exact.model.model_id, "gpt-4o-mini");
-    // Glob 按 priority 升序：5 的 chat-4* 先于 10 的 chat-*。
+    // 更宽但更靠前的 Glob 先命中，后面的精确规则不再参与。
     assert_eq!(
-        routing::resolve(&config, "chat-4x").unwrap().model.model_id,
-        "gpt-4o-mini"
-    );
-    assert_eq!(
-        routing::resolve(&config, "chat-9").unwrap().model.model_id,
+        routing::resolve(&config, "chat-fast").unwrap().model.model_id,
         "gpt-5"
     );
     assert_eq!(
-        routing::resolve(&config, "prio-abc")
-            .unwrap()
-            .model
-            .model_id,
-        "gpt-4o-mini"
+        routing::resolve(&config, "chat-4x").unwrap().model.model_id,
+        "gpt-5"
+    );
+    // 位置 20 的重复 pattern 先于位置 21。
+    assert_eq!(
+        routing::resolve(&config, "dup").unwrap().model.model_id,
+        "gpt-5"
     );
     // 目标未启用、规则未启用、无命中都返回 None（调用方 404）。
     assert!(routing::resolve(&config, "off-1").is_none());
     assert!(routing::resolve(&config, "disabled").is_none());
-    // 禁用的全局 Model ID 不能被 "gpt-*" 之类的 Glob 接管。
+    // 禁用的模型 ID 不会被 Glob 接管，也不会被自身兜底。
     assert!(routing::resolve(&config, "gpt-4o-mini-retired").is_none());
     assert!(routing::resolve(&config, "Chat-fast").is_none());
     assert!(routing::resolve(&config, "missing").is_none());
-    // 规则的上游限制随解析结果返回，只缩小候选范围。
-    assert_eq!(
-        routing::resolve(&config, "restricted").unwrap().upstream_id,
-        Some(UPSTREAM)
-    );
+    // 上游作用域先于全局作用域，并把候选锁定到该上游。
+    let scoped = routing::resolve(&config, "restricted").unwrap();
+    assert_eq!(scoped.model.model_id, "gpt-4o-mini");
+    assert_eq!(scoped.upstream_id, Some(UPSTREAM));
 }
 
 #[test]

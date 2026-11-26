@@ -81,7 +81,7 @@ _Avoid_: Upstream model name override, capability flag
 _Avoid_: Binding, installed flag, enabled state
 
 **Resolved model**:
-请求模型名经过精确模型 ID 或启用的名称路由规则解析后的全局模型 ID；下游 Key 权限和候选选择使用该名称。
+请求模型名经过启用的名称路由规则解析后的系统模型 ID：先按上游作用域顺序、再按全局作用域顺序试着匹配，都未命中才按系统模型 ID 兜底。下游 Key 权限、计费和候选选择都使用该名称。
 _Avoid_: Requested model, effective model name
 
 **Model route rule**:

@@ -18,7 +18,6 @@ const setFetch = (fetch: Handler) => {
 const model = {
   model_id: "example",
   enabled: true,
-  default_upstream_model: null,
   shutdown_date: null,
   billing: { input_usd_per_mtok: null, cached_input_usd_per_mtok: 0, output_usd_per_mtok: 2 },
   created_at: "2026-11-22T00:00:00Z",
@@ -71,7 +70,13 @@ function mock(
             ? response(upstream, init.method === "POST" ? 201 : 200)
             : response({
                 data:
-                  url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [key],
+                  url === "/api/models"
+                    ? [model]
+                    : url === "/api/upstreams"
+                      ? [upstream]
+                      : url === "/api/model-routes"
+                        ? []
+                        : [key],
               })),
     ),
   );
@@ -86,7 +91,14 @@ function modelFetch() {
         !url.endsWith("/model-policy") &&
         !url.endsWith("/models/fetch")
         ? response({
-            data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [],
+            data:
+              url === "/api/models"
+                ? [model]
+                : url === "/api/upstreams"
+                  ? [upstream]
+                  : url === "/api/model-routes"
+                    ? []
+                    : [],
           })
         : (undefined as unknown as Response),
     ),
@@ -122,13 +134,7 @@ afterEach(() => {
 
 describe("models management", () => {
   it.each([
-    [
-      ModelsPage,
-      "全局模型",
-      "example",
-      ["接受", "路由", "全局映射", "停用日期", "上游模型数"],
-      "example",
-    ],
+    [ModelsPage, "系统模型", "example", ["接受", "路由", "停用日期", "上游模型数"], "example"],
     [
       UpstreamsPage,
       "上游列表",
@@ -183,7 +189,7 @@ describe("models management", () => {
     expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("1 个上游模型在用，禁止删除")).toBeTruthy();
   });
-  it("shows no upstream owner for a model that only has a global mapping", async () => {
+  it("shows no upstream owner for an accepted model without upstream models", async () => {
     mock((url) =>
       url === "/api/upstreams" ? response({ data: [{ ...upstream, models: [] }] }) : undefined,
     );
@@ -226,14 +232,12 @@ describe("models management", () => {
     fireEvent.click(screen.getByRole("button", { name: "创建模型" }));
     fireEvent.change(screen.getByLabelText("模型 ID"), { target: { value: "new-model" } });
     fireEvent.change(screen.getByLabelText("缓存输入价格"), { target: { value: "0" } });
-    fireEvent.change(screen.getByLabelText("全局映射"), { target: { value: "upstream-name" } });
     fireEvent.change(screen.getByLabelText("停用日期"), { target: { value: "2027-01-01" } });
     fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const call = fetch.mock.calls.find(([, init]) => init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
       model_id: "new-model",
-      default_upstream_model: "upstream-name",
       shutdown_date: "2027-01-01",
       billing: {
         input_usd_per_mtok: null,
@@ -561,7 +565,14 @@ describe("upstreams management", () => {
       init.method === "PUT"
         ? response(upstream)
         : response({
-            data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [],
+            data:
+              url === "/api/models"
+                ? [model]
+                : url === "/api/upstreams"
+                  ? [upstream]
+                  : url === "/api/model-routes"
+                    ? []
+                    : [],
           }),
     );
     const { client } = mount(UpstreamsPage);

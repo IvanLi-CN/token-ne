@@ -147,7 +147,10 @@ function ImportDialog({
           </label>
         </fieldset>
         {mode === "create_model" ? (
-          <Field label="新全局模型 ID" hint="不得与已有全局模型或已保存的路由 pattern 冲突。">
+          <Field
+            label="新全局模型 ID"
+            hint="不得与已有系统模型 ID 重复；路由 pattern 不占用模型 ID。"
+          >
             <input
               className="input rounded-xl"
               name="target_model_id"
@@ -179,10 +182,7 @@ function ImportDialog({
           <p className="field-error">没有可关联的系统模型；先创建模型或使用“新建全局模型”。</p>
         )}
         {error instanceof ApiError && error.status === 409 && (
-          <p className="field-error">
-            冲突：该目录项已关联其他系统模型，或目标模型 ID 与已有路由 pattern
-            冲突；刷新目录后重试。
-          </p>
+          <p className="field-error">冲突：该目录项已关联其他系统模型；刷新目录后重试。</p>
         )}
         <FieldFailure error={error} />
         <div className="dialog-actions">

@@ -372,17 +372,17 @@ func TestUpstreamCatalogImportHTTP(t *testing.T) {
 	if w = request(env.router, env.cfg, env.cookie, "POST", "/api/models", occupierBody); w.Code != 201 {
 		t.Fatalf("holder model: %d %s", w.Code, w.Body.String())
 	}
-	if _, err := env.store.Pool.Exec(env.ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority) values($1,$2,'exact',$3,10)", uuid.NewString(), "p4-http-route-"+suffix, occupier); err != nil {
+	// A rule matching the imported name no longer reserves it: the catalog
+	// creates the model and the rule keeps its own target.
+	routePattern := "p4-http-route-" + suffix
+	env.models = append(env.models, routePattern)
+	if _, err := env.store.Pool.Exec(env.ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,0)", uuid.NewString(), routePattern, occupier); err != nil {
 		t.Fatal(err)
 	}
 	w = request(env.router, env.cfg, env.cookie, "POST", "/api/upstreams/"+upstreamID+"/models/import",
-		`{"upstream_model_id":"provider-name","mode":"create_model","model_id":"p4-http-route-`+suffix+`"}`)
-	if w.Code != 409 {
-		t.Fatalf("name occupancy: %d %s", w.Code, w.Body.String())
-	}
-	failure = catalogFailure(t, w)
-	if len(failure.Details) != 1 || failure.Details[0].Path != "model_id" {
-		t.Fatalf("name occupancy error = %+v", failure)
+		`{"upstream_model_id":"provider-name","mode":"create_model","model_id":"`+routePattern+`"}`)
+	if w.Code != 200 {
+		t.Fatalf("import named by a route pattern: %d %s", w.Code, w.Body.String())
 	}
 }
 

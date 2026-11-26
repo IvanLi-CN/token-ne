@@ -662,6 +662,7 @@ paths:
       tags: [models]
       summary: 列出模型名称路由规则
       operationId: listModelRoutes
+      description: 按作用域键（`coalesce(upstream_id)`, 全局作用域用全零 UUID）升序、再按 `position` 升序返回全部规则。
       security:
         - cookieAuth: []
       responses:
@@ -689,6 +690,7 @@ paths:
       tags: [models]
       summary: 创建模型名称路由规则
       operationId: createModelRoute
+      description: 新规则落在该作用域末尾，服务端在事务内把它设为该作用域当前最大 `position` 加一（无规则时为 0）；请求体不接受 `position`。
       security:
         - cookieAuth: []
       requestBody:
@@ -725,6 +727,7 @@ paths:
       tags: [models]
       summary: 预览模型名称解析
       operationId: previewModelRoute
+      description: "`resolved_model` 取全局作用域按 `position` 顺序第一条命中的目标模型，`matched_rule`、`rule_kind` 对应那条规则；系统模型 ID 不再短路路由。`candidates` 逐个启用上游计算：先查该上游作用域、未命中再查全局作用域，取第一条命中的规则，目标模型须启用、绑定须启用且承接策略须允许。"
       security:
         - cookieAuth: []
       requestBody:
@@ -746,6 +749,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoutePreview"
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/model-routes/reorder:
+    post:
+      tags: [models]
+      summary: 重排某个作用域内的路由规则
+      operationId: reorderModelRoutes
+      description: 在一次事务内把该作用域的 position 重写为 0..n-1，顺序即 route_ids 顺序；route_ids 必须精确覆盖该作用域的全部规则，否则整段回滚并返回 422。
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelRouteReorderInput"
+      responses:
+        "200":
+          description: 该作用域重排后的完整规则列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModelRoute"
         "400":
           $ref: "#/components/responses/AdminBadRequest"
         "413":
@@ -3057,9 +3101,6 @@ components:
           maxLength: 256
         enabled:
           type: boolean
-        default_upstream_model:
-          type: [string, "null"]
-          maxLength: 256
         shutdown_date:
           type: [string, "null"]
           format: date
@@ -3085,9 +3126,6 @@ components:
         enabled:
           type: boolean
           default: true
-        default_upstream_model:
-          type: [string, "null"]
-          maxLength: 256
         shutdown_date:
           type: [string, "null"]
           format: date
@@ -3098,9 +3136,6 @@ components:
       properties:
         enabled:
           type: boolean
-        default_upstream_model:
-          type: [string, "null"]
-          maxLength: 256
         shutdown_date:
           type: [string, "null"]
           format: date
@@ -3128,7 +3163,7 @@ components:
           type: boolean
     ModelRoute:
       type: object
-      required: [id, pattern, match_type, target_model_id, priority, enabled, created_at, updated_at]
+      required: [id, pattern, match_type, target_model_id, position, enabled, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3137,7 +3172,7 @@ components:
           type: string
           minLength: 1
           maxLength: 256
-          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 等于已存在或之后新建/导入的全局 Model ID 时视为冲突。
+          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 不设唯一性或重叠约束：同作用域内可以重复或重叠，由 position 决定谁生效；pattern 等于系统模型 ID 也不冲突。
         match_type:
           type: string
           enum: [exact, glob]
@@ -3147,10 +3182,10 @@ components:
         upstream_id:
           type: [string, "null"]
           format: uuid
-        priority:
+        position:
           type: integer
           minimum: 0
-          maximum: 100000
+          description: 作用域内的解析顺序；数值小的先尝试，第一条命中即生效。由重排接口维护，写入接口不接受该字段。
         enabled:
           type: boolean
         description:
@@ -3164,13 +3199,13 @@ components:
           format: date-time
     ModelRouteInput:
       type: object
-      required: [pattern, match_type, target_model_id, priority, enabled]
+      required: [pattern, match_type, target_model_id, enabled]
       properties:
         pattern:
           type: string
           minLength: 1
           maxLength: 256
-          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 等于已有或之后新建/导入的全局 Model ID 时按冲突处理。
+          description: exact 为全局 Model ID 或精确别名；glob 使用完整字符串 Glob，只允许 * 与 ? 通配、区分大小写，拒绝方括号、花括号、反斜线和控制字符。pattern 不设唯一性或重叠约束：同作用域内可以重复或重叠，由 position 决定谁生效；pattern 等于系统模型 ID 也不冲突。
         match_type:
           type: string
           enum: [exact, glob]
@@ -3181,10 +3216,6 @@ components:
         upstream_id:
           type: [string, "null"]
           format: uuid
-        priority:
-          type: integer
-          minimum: 0
-          maximum: 100000
         enabled:
           type: boolean
         description:
@@ -3193,6 +3224,21 @@ components:
       allOf:
         - if: { properties: { match_type: { const: glob } }, required: [match_type] }
           then: { properties: { pattern: { $ref: "#/components/schemas/GlobPattern" } } }
+    ModelRouteReorderInput:
+      type: object
+      required: [route_ids]
+      properties:
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+          description: 目标作用域；null 表示全局作用域。
+        route_ids:
+          type: array
+          minItems: 1
+          description: 该作用域内全部规则的新顺序，必须与库中集合完全一致且不重复。
+          items:
+            type: string
+            format: uuid
     GlobPattern:
       type: string
       minLength: 1
@@ -3603,7 +3649,8 @@ components:
           type: string
         outcome:
           type: string
-          enum: [created, exists, conflict]
+          enum: [created, exists]
+          description: 只创建缺失的系统模型；已存在的模型原样保留，不因路由规则占用名称而失败。
         reason:
           type: string
     Upstream:

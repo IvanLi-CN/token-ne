@@ -53,7 +53,7 @@ const MODEL_ROUTE_FIELDS: [&str; 8] = [
     "match_type",
     "target_model_id",
     "upstream_id",
-    "priority",
+    "position",
     "enabled",
     "description",
 ];
@@ -163,7 +163,6 @@ pub struct DownstreamKey {
 pub struct Model {
     pub model_id: String,
     pub enabled: bool,
-    pub default_upstream_model: Option<String>,
     pub shutdown_date: Option<String>,
     // OpenAI 目录的 `created` 取自模型创建时间（Unix 秒）；缺失时按 0 发布。
     pub created_at: Option<i64>,
@@ -224,8 +223,10 @@ pub struct ModelRoute {
     pub pattern: String,
     pub match_type: MatchType,
     pub target_model_id: String,
+    // 作用域：空表示全局；非空表示该上游专属并覆盖全局。
     pub upstream_id: Option<String>,
-    pub priority: u32,
+    // 作用域内的尝试顺序；数组顺序即语义，字段只用于快照自检。
+    pub position: u32,
     pub enabled: bool,
     pub description: Option<String>,
 }
@@ -416,9 +417,6 @@ impl Config {
         }
         for m in &self.models {
             text(&m.model_id, 256, "models.model_id")?;
-            if let Some(s) = &m.default_upstream_model {
-                require(s.chars().count() <= 256, "models.default_upstream_model")?;
-            }
             if let Some(t) = m.created_at {
                 require((0..=253_402_300_799).contains(&t), "models.created_at")?;
             }
@@ -687,7 +685,8 @@ impl Config {
             self.model_routes.iter().map(|r| r.id.as_str()),
             "model_routes.id",
         )?;
-        let mut exact_patterns = HashSet::new();
+        // 同一作用域内 position 唯一；跨作用域可以重号，因为作用域互不竞争。
+        let mut positions = HashSet::new();
         for (i, route) in self.model_routes.iter().enumerate() {
             let base = format!("model_routes[{i}]");
             let pattern = format!("{base}.pattern");
@@ -697,11 +696,6 @@ impl Config {
                 MatchType::Exact => text(&route.pattern, 256, &pattern)?,
                 MatchType::Glob => require(glob::validate(&route.pattern), &pattern)?,
             }
-            // 全局 Model ID 保留给对应 Model，任何 match_type 都不能占用同名 pattern。
-            require(
-                !self.models.iter().any(|m| m.model_id == route.pattern),
-                &pattern,
-            )?;
             require(
                 self.models
                     .iter()
@@ -714,36 +708,15 @@ impl Config {
                     &format!("{base}.upstream_id"),
                 )?;
             }
-            range(
-                route.priority.into(),
-                0,
-                100000,
-                &format!("{base}.priority"),
+            // pattern 不再与系统模型 ID 互斥，也不设唯一性或重叠约束：顺序决定谁生效。
+            require(
+                positions.insert((route.upstream_id.as_deref(), route.position)),
+                &format!("{base}.position"),
             )?;
-            if route.enabled && route.match_type == MatchType::Exact {
-                require(exact_patterns.insert(route.pattern.as_str()), &pattern)?;
-            }
             if let Some(description) = &route.description {
                 require(
                     description.chars().count() <= 1024,
                     &format!("{base}.description"),
-                )?;
-            }
-        }
-        // 同优先级 Glob 重叠时目标与上游限制必须一致，否则会静默改变路由含义。
-        for (i, a) in self.model_routes.iter().enumerate() {
-            if !a.enabled || a.match_type != MatchType::Glob {
-                continue;
-            }
-            for (j, b) in self.model_routes.iter().enumerate().skip(i + 1) {
-                if !b.enabled || b.match_type != MatchType::Glob || a.priority != b.priority {
-                    continue;
-                }
-                require(
-                    !glob::overlap(&a.pattern, &b.pattern)
-                        || (a.target_model_id == b.target_model_id
-                            && a.upstream_id == b.upstream_id),
-                    &format!("model_routes[{j}].pattern"),
                 )?;
             }
         }

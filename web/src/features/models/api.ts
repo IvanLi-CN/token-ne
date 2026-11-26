@@ -10,7 +10,6 @@ export type { Billing } from "../../lib/api";
 export interface ModelInput {
   model_id: string;
   enabled: boolean;
-  default_upstream_model: string | null;
   shutdown_date: string | null;
   billing: Billing;
 }
@@ -22,7 +21,6 @@ export interface Model extends ModelInput {
 }
 export interface ModelUpdateInput {
   enabled?: boolean;
-  default_upstream_model?: string | null;
   shutdown_date?: string | null;
   billing?: Billing;
   billing_locked?: boolean;

@@ -27,10 +27,13 @@ alter table upstream_models
   drop column priority,
   drop column weight;
 
+-- The binding is keyed by the two real names: one upstream model serves one
+-- system model, and one system model is served by one upstream model. The old
+-- primary key (upstream_id, model_id) becomes the unique constraint instead.
 alter table upstream_models
+  drop constraint upstream_models_pkey,
+  add primary key (upstream_id, upstream_model_id),
   add constraint upstream_models_model_id_unique unique (upstream_id, model_id);
-
-create index upstream_models_name on upstream_models(upstream_id, upstream_model_id);
 
 -- +goose Down
 alter table upstream_models
@@ -43,6 +46,6 @@ set upstream_model_name = case when upstream_model_id = model_id then null else 
 
 alter table upstream_models
   drop constraint upstream_models_model_id_unique,
+  drop constraint upstream_models_pkey,
+  add primary key (upstream_id, model_id),
   drop column upstream_model_id;
-
-drop index if exists upstream_models_name;

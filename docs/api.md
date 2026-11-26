@@ -46,7 +46,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - 上游绑定 `upstream_models` 决定候选。每条绑定是 `(upstream_id, upstream_model_id, model_id)`，`upstream_model_id` 原样发往上游；同一上游内两个方向各自唯一。
 - 上游模型目录只保存上游最近一次成功发现结果；同步失败保留旧快照，stale 项不自动删除或停用绑定。
 - 目录项必须通过显式导入或绑定才会产生 Model 或能力关系；新建的 Model 和新建绑定默认不接流量，`bind_existing` 不改变已有绑定的上游模型 ID 与启用状态。
-- 模型名称先按本上游作用域的规则顺序逐条尝试，未命中再按全局作用域的顺序逐条尝试，第一条命中即生效；两处都未命中返回 `404`。系统模型 ID 不短路路由。Key 权限按解析后的系统 `model_id` 检查。
+- 模型名称先按 `upstream_id` 升序逐个尝试上游作用域的规则顺序，全部未命中再按全局作用域顺序尝试，最后按系统模型 ID 兜底；第一条命中即生效，仍无则返回 `404`。系统模型 ID 不短路路由。Key 权限按解析后的系统 `model_id` 检查。
 - 路由规则只能指向系统模型，不能直接指向裸上游模型名。
 - 上游策略按全局 Model ID 使用完整字符串 Glob；deny 命中优先于 allow，未命中时使用 `default_action`，策略不创建绑定。
 - 有效名称：绑定的 `upstream_model_id`（必填），这是唯一的命名转换层；系统模型上不存在第二层映射。
@@ -64,9 +64,9 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 模型路由 API
 
-- `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则。
+- `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则；`POST /api/model-routes/reorder` 用 `{upstream_id, route_ids}` 一次提交某作用域的新顺序，任一条失败整段回滚。创建与更新的请求体不含 `position`：创建时服务端追加到该作用域末尾，更新时位置不变。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、作用域 `upstream_id`（空表示全局）、`position`、`enabled` 和描述。`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。`pattern` 不设机器唯一性约束：同作用域内允许重复或重叠，由 `position` 决定生效顺序；`pattern` 等于既有系统模型 ID 也不再视为冲突。
-- `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的全局 Model、命中规则、候选上游和有效上游模型名；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
+- `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的系统模型、命中规则、候选上游和发往上游的模型 ID；解析顺序为上游作用域优先（按 `upstream_id` 升序逐个尝试）、再全局作用域、最后系统模型 ID 兜底；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
 - 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有规则使用同一 `pattern`，同样拒绝并返回 `409` 和字段路径 `model_id`。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
 - 路由规则写入、Model 创建和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。
 
@@ -87,7 +87,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `POST /api/price-sources/{source_id}/models/install` 接收 `source_model_ids`（1–200 个，去重），写入同步标记并在同一事务内为缺失的行创建 `enabled=false` 的系统模型和一条 `source=price_source` 的初始价格修订，逐条返回 `created` 或 `exists`。已存在的模型和未知的来源行都不会被覆盖；`exists` 行不写标记。
 - `POST /api/price-sources/{source_id}/models/unsync` 接收 `source_model_ids`（1–200 个，去重），只清除同步标记并返回 `cleared` 数量：不删除全局模型，不修改价格修订，不改变 `enabled`。
 - 系统模型的接受状态由 `PUT /api/models/{model_id}` 的 `enabled` 控制，与目录同步标记互相独立；`DELETE /api/models/{model_id}` 删除模型后，对应目录行因为模型缺失而显示为关闭，目录刷新不会按标记重建。
-- 该接口只创建全局模型，不创建上游绑定、路由规则或承接策略；新建模型沿用名称保留规则，未知来源返回 `404`。
+- 该接口只创建系统模型，不创建上游绑定、路由规则或承接策略；名称已被既有系统模型占用时返回 `exists`，未知来源返回 `404`。
 
 ## 出站代理 API
 

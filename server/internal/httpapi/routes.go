@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
@@ -15,6 +16,7 @@ import (
 type routeRepository interface {
 	Routes(context.Context) ([]store.ModelRoute, error)
 	SaveRoute(context.Context, store.ModelRoute, bool, store.Audit) (store.ModelRoute, error)
+	ReorderRoutes(context.Context, *string, []string, store.Audit) ([]store.ModelRoute, error)
 	DeleteRoute(context.Context, string, store.Audit) error
 	PreviewRoute(context.Context, string) (store.RoutePreview, error)
 }
@@ -24,7 +26,6 @@ type routeInput struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      int     `json:"priority"`
 	Enabled       bool    `json:"enabled"`
 	Description   *string `json:"description"`
 }
@@ -63,11 +64,11 @@ func (a *API) saveModelRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body routeInput
-	if !decode(w, r, &body, "pattern", "match_type", "target_model_id", "priority", "enabled") {
+	if !decodeStrict(w, r, &body, []string{"position", "priority"}, "pattern", "match_type", "target_model_id", "enabled") {
 		return
 	}
 	route := store.ModelRoute{Pattern: body.Pattern, MatchType: body.MatchType, TargetModelID: body.TargetModelID,
-		UpstreamID: body.UpstreamID, Priority: body.Priority, Enabled: body.Enabled, Description: body.Description}
+		UpstreamID: body.UpstreamID, Enabled: body.Enabled, Description: body.Description}
 	action, status := "model_route.update", 200
 	if create {
 		route.ID = uuid.NewString()
@@ -101,6 +102,55 @@ func (a *API) deleteModelRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+// reorderModelRoutes commits one scope's whole order at once. The body carries
+// the scope (`upstream_id`, null for global) and every rule id in its new order.
+func (a *API) reorderModelRoutes(w http.ResponseWriter, r *http.Request) {
+	repo := a.routeStore(w, r)
+	if repo == nil {
+		return
+	}
+	var body struct {
+		UpstreamID *string  `json:"upstream_id"`
+		RouteIDs   []string `json:"route_ids"`
+	}
+	if !decode(w, r, &body, "route_ids") {
+		return
+	}
+	if body.UpstreamID != nil {
+		if _, e := uuid.Parse(*body.UpstreamID); e != nil {
+			fail(w, r, 422, "validation_failed", "invalid reorder request", detail("upstream_id", "must be a UUID"))
+			return
+		}
+	}
+	if len(body.RouteIDs) == 0 {
+		fail(w, r, 422, "validation_failed", "invalid reorder request", detail("route_ids", "must list at least one route"))
+		return
+	}
+	seen := make(map[string]bool, len(body.RouteIDs))
+	for i, id := range body.RouteIDs {
+		if _, e := uuid.Parse(id); e != nil {
+			fail(w, r, 422, "validation_failed", "invalid reorder request", detail(fmt.Sprintf("route_ids[%d]", i), "must be a UUID"))
+			return
+		}
+		if seen[id] {
+			fail(w, r, 422, "validation_failed", "invalid reorder request", detail(fmt.Sprintf("route_ids[%d]", i), "must be unique"))
+			return
+		}
+		seen[id] = true
+	}
+	audi := auditFor(r, "model_route.reorder", "model_route", "")
+	audi.Payload = mutationPayload(map[string]any{"upstream_id": body.UpstreamID, "route_ids": body.RouteIDs})
+	rows, e := repo.ReorderRoutes(r.Context(), body.UpstreamID, body.RouteIDs, audi)
+	if e != nil {
+		writeFieldFailure(w, r, e)
+		return
+	}
+	if rows == nil {
+		rows = []store.ModelRoute{}
+	}
+	writeJSON(w, 200, map[string]any{"data": rows})
 }
 
 func (a *API) previewModelRoute(w http.ResponseWriter, r *http.Request) {

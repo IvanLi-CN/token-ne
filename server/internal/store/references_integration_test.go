@@ -56,7 +56,7 @@ insert into models(model_id,enabled,billing_revision_id) select $1,true,id from 
 	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,$2,$2,true)", upstreamA, modelID); e != nil {
 		t.Fatalf("insert capability: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,priority,enabled) values($1,$2,'exact',$3,$4,10,true)", routeID, "alias-"+suffix, modelID, upstreamB); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,position,enabled) values($1,$2,'exact',$3,$4,10,true)", routeID, "alias-"+suffix, modelID, upstreamB); e != nil {
 		t.Fatalf("insert route: %v", e)
 	}
 	if _, e = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,upstream_id,scope,source,locked) values(gen_random_uuid(),$1,$2,'upstream','manual',false) returning id)
@@ -107,9 +107,9 @@ insert into model_prices(id,model_id,upstream_id,price_revision_id) select gen_r
 	}
 }
 
-// TestModelCreateRejectsRoutePatternIntegration keeps the shared name
-// namespace enforced for POST /api/models, not only for catalog import.
-func TestModelCreateRejectsRoutePatternIntegration(t *testing.T) {
+// TestModelCreateIgnoresRoutePatternsIntegration pins the removed name
+// namespace: a model may reuse a pattern that a rule already matches.
+func TestModelCreateIgnoresRoutePatternsIntegration(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -134,11 +134,13 @@ func TestModelCreateRejectsRoutePatternIntegration(t *testing.T) {
 insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, target); e != nil {
 		t.Fatalf("insert target model: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority,enabled) values($1,$2,'glob',$3,10,true)", routeID, alias, target); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position,enabled) values($1,$2,'glob',$3,0,true)", routeID, alias, target); e != nil {
 		t.Fatal(e)
 	}
-	_, e = s.SaveModel(ctx, Model{ID: alias, Enabled: true}, true, audit)
-	if !errors.Is(e, ErrModelNameTaken) {
-		t.Fatalf("create model named by a route pattern = %v, want ErrModelNameTaken", e)
+	if _, e = s.SaveModel(ctx, Model{ID: alias, Enabled: true}, true, audit); e != nil {
+		t.Fatalf("create model named by a route pattern = %v, want success", e)
+	}
+	if _, e = s.Pool.Exec(ctx, "delete from models where model_id=$1", alias); e != nil {
+		t.Fatal(e)
 	}
 }

@@ -14,7 +14,6 @@ const models = [
   {
     model_id: "chat-pro",
     enabled: true,
-    default_upstream_model: "provider-chat-pro",
     shutdown_date: null,
     billing: { input_usd_per_mtok: 2.5, cached_input_usd_per_mtok: 0.5, output_usd_per_mtok: 10 },
     billing_state: {
@@ -31,7 +30,6 @@ const models = [
   {
     model_id: "embed-small",
     enabled: true,
-    default_upstream_model: null,
     shutdown_date: "2027-02-01",
     billing: {
       input_usd_per_mtok: null,
@@ -94,14 +92,14 @@ const upstreams = [
 // arrays and every later GET reflects them.
 let modelsState: Array<Record<string, unknown>> = [...models];
 let upstreamsState: Array<Record<string, unknown>> = [...upstreams];
-const routeRules = [
+let routeRules: Array<Record<string, unknown>> = [
   {
     id: routeId,
     pattern: "chat-*",
     match_type: "glob",
     target_model_id: "chat-pro",
     upstream_id: null,
-    priority: 10,
+    position: 0,
     enabled: true,
     description: "对话系列别名",
     created_at: timestamp,
@@ -113,7 +111,7 @@ const routeRules = [
     match_type: "exact",
     target_model_id: "chat-pro",
     upstream_id: primaryId,
-    priority: 0,
+    position: 0,
     enabled: true,
     description: "只允许主上游",
     created_at: timestamp,
@@ -443,6 +441,58 @@ window.fetch = async (input, init) => {
       ],
     });
   }
+  if (url === "/api/model-routes/reorder" && method === "POST") {
+    const body = init?.body ? JSON.parse(String(init.body)) : { route_ids: [] };
+    const scope = body.upstream_id ?? null;
+    const scoped = (body.route_ids as string[])
+      .map((id) => routeRules.find((rule) => rule.id === id))
+      .filter((rule) => rule !== undefined);
+    routeRules = [
+      ...routeRules.filter((rule) => (rule.upstream_id ?? null) !== scope),
+      ...scoped.map((rule, position) => ({ ...rule, position })),
+    ];
+    return json({
+      data: routeRules
+        .filter((rule) => (rule.upstream_id ?? null) === scope)
+        .sort((left, right) => Number(left.position) - Number(right.position)),
+    });
+  }
+  if (url === "/api/model-routes" && method === "POST") {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const scope = body.upstream_id ?? null;
+    const position = routeRules.filter((rule) => (rule.upstream_id ?? null) === scope).length;
+    const created: Record<string, unknown> = {
+      id: `fixture-route-${routeRules.length + 1}`,
+      pattern: body.pattern ?? "fixture-*",
+      match_type: body.match_type ?? "exact",
+      target_model_id: body.target_model_id ?? "chat-pro",
+      upstream_id: scope,
+      position,
+      enabled: body.enabled ?? true,
+      description: body.description ?? null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    routeRules = [...routeRules, created];
+    return json(created, 201);
+  }
+  const routeUpdate = /^\/api\/model-routes\/([^/]+)$/.exec(url);
+  if (routeUpdate && method === "PUT") {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const index = routeRules.findIndex((rule) => rule.id === routeUpdate[1]);
+    if (index < 0)
+      return json(
+        { error: { code: "not_found", message: "规则不存在", request_id: "fixture", details: [] } },
+        404,
+      );
+    const updated = { ...routeRules[index], ...body, updated_at: timestamp };
+    routeRules = routeRules.map((rule, position) => (position === index ? updated : rule));
+    return json(updated);
+  }
+  if (routeUpdate && method === "DELETE") {
+    routeRules = routeRules.filter((rule) => rule.id !== routeUpdate[1]);
+    return new Response(null, { status: 204 });
+  }
   if (url === "/api/price-sources/builtin/sync") return json(priceRun, 202);
   if (url === `/api/price-sync-runs/${priceRun.id}/apply`) {
     const failure = search.get("apply");
@@ -491,7 +541,6 @@ window.fetch = async (input, init) => {
     const created: Record<string, unknown> = {
       model_id: body.model_id,
       enabled: body.enabled ?? false,
-      default_upstream_model: body.default_upstream_model ?? null,
       shutdown_date: body.shutdown_date ?? null,
       billing: body.billing ?? {
         input_usd_per_mtok: null,

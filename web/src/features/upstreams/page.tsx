@@ -23,6 +23,7 @@ import {
   FormError,
 } from "../models/management";
 import { ManagementTable } from "../models/management-table";
+import { ModelRouteScopePanel } from "../models/routes";
 import { type TestResult, type Upstream, type UpstreamUpdate, upstreamsApi } from "./api";
 import { BindingEditor } from "./binding-editor";
 import { UpstreamCatalogDialog } from "./catalog";
@@ -175,7 +176,6 @@ function UpstreamEditor({
           await modelsApi.create({
             model_id: modelId,
             enabled: false,
-            default_upstream_model: null,
             shutdown_date: null,
             billing: {
               input_usd_per_mtok: null,
@@ -345,6 +345,16 @@ function UpstreamEditor({
           </Button>
         </div>
       </form>
+      {secondPhase && upstream && (
+        <ModelRouteScopePanel
+          caption={`模型路由（${upstream.name}）`}
+          title="模型路由"
+          description={`只列出属于 ${upstream.name} 的规则，按列表顺序逐条尝试，第一条命中即生效；未命中时回退全局路由。`}
+          scopeUpstreamId={upstream.id}
+          models={models.data}
+          upstreams={[upstream]}
+        />
+      )}
     </Editor>
   );
 }

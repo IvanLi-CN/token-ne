@@ -234,7 +234,6 @@ function ModelEditor({
     const body: ModelInput = {
       model_id: String(data.get("model_id")),
       enabled: data.has("enabled"),
-      default_upstream_model: String(data.get("default_upstream_model")).trim() || null,
       shutdown_date: String(data.get("shutdown_date")) || null,
       billing,
     };
@@ -255,7 +254,6 @@ function ModelEditor({
     }
     const update: ModelUpdateInput = {
       enabled: body.enabled,
-      default_upstream_model: body.default_upstream_model,
       shutdown_date: body.shutdown_date,
       billing: body.billing,
     };
@@ -287,14 +285,6 @@ function ModelEditor({
               maxLength={256}
               defaultValue={model?.model_id}
               readOnly={!!model}
-            />
-          </Field>
-          <Field label="全局映射" hint="留空回退为模型 ID；映射不创建候选。">
-            <input
-              className="input rounded-xl"
-              name="default_upstream_model"
-              maxLength={256}
-              defaultValue={model?.default_upstream_model ?? ""}
             />
           </Field>
           <Field label="停用日期">
@@ -480,7 +470,7 @@ export default function ModelsPage() {
     return {
       label: "可路由",
       tone: "success",
-      title: `${allowed.length} 个候选，按上游稳定升序尝试；路由规则的上游限制请在下方的规则表核对。`,
+      title: `${allowed.length} 个候选；路由按作用域规则顺序解析，详见下方的模型路由。`,
     };
   };
   const references = (id: string) =>
@@ -502,9 +492,9 @@ export default function ModelsPage() {
       <section className="surface-card">
         <div className="panel-heading">
           <div>
-            <h2>模型目录</h2>
+            <h2>系统模型</h2>
             <p className="muted">
-              价格在「价格」页维护；这里调整模型是否被接受，以及它当前是否可路由。
+              价格在「价格」页维护；这里调整系统模型是否被接受，以及它当前是否可路由。
             </p>
           </div>
           <div className="panel-controls">
@@ -533,7 +523,7 @@ export default function ModelsPage() {
         <div className="px-5 pb-5">
           <FieldFailure error={toggleError} />
           <ManagementTable
-            caption="全局模型"
+            caption="系统模型"
             rows={(models.data ?? []).filter(
               (model) => filter === "all" || model.enabled === (filter === "enabled"),
             )}
@@ -547,7 +537,7 @@ export default function ModelsPage() {
             columns={[
               {
                 key: "id",
-                header: "模型",
+                header: "系统模型",
                 minWidth: "13rem",
                 cell: (model) => <ModelName value={model.model_id} />,
               },
@@ -581,11 +571,6 @@ export default function ModelsPage() {
                 },
               },
               ...billingColumns,
-              {
-                key: "mapping",
-                header: "全局映射",
-                cell: (model) => model.default_upstream_model || "使用模型 ID",
-              },
               {
                 key: "shutdown",
                 header: "停用日期",

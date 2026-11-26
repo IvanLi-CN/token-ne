@@ -11,7 +11,6 @@ const timestamp = "2026-11-22T00:00:00Z";
 const model = {
   model_id: "example",
   enabled: true,
-  default_upstream_model: null,
   shutdown_date: null,
   billing: { input_usd_per_mtok: 1, cached_input_usd_per_mtok: 0, output_usd_per_mtok: 2 },
   billing_state: {
