@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -167,5 +168,96 @@ func TestEnsureStateDirPropagatesHelperFailure(t *testing.T) {
 	e := engine.EnsureStateDir(context.Background(), "/srv/cores", uuid.NewString())
 	if e == nil || !strings.Contains(e.Error(), "exited with status 1") {
 		t.Fatalf("helper exit status ignored: %v", e)
+	}
+}
+
+func TestRemoveStateDirRunsHelperAndRejectsNonUUID(t *testing.T) {
+	var create map[string]any
+	removed := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/containers/create"):
+			if e := json.NewDecoder(r.Body).Decode(&create); e != nil {
+				t.Error(e)
+			}
+			w.WriteHeader(201)
+			_, _ = w.Write([]byte(`{"Id":"helper"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/containers/helper/start":
+			w.WriteHeader(204)
+		case r.Method == http.MethodPost && r.URL.Path == "/containers/helper/wait":
+			_, _ = w.Write([]byte(`{"StatusCode":0}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/containers/helper":
+			removed = true
+			w.WriteHeader(204)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	engine := &Engine{HTTP: srv.Client(), Base: srv.URL, StateInitImage: "busybox:1.37"}
+	id := uuid.NewString()
+	if e := engine.RemoveStateDir(context.Background(), "/srv/cores", id); e != nil {
+		t.Fatal(e)
+	}
+	if !removed {
+		t.Fatal("removal helper container was not cleaned up")
+	}
+	host := create["HostConfig"].(map[string]any)
+	binds := host["Binds"].([]any)
+	if len(binds) != 1 || binds[0] != "/srv/cores:/state" || host["NetworkMode"] != "none" {
+		t.Fatalf("unsafe removal mount: %#v", host)
+	}
+	cmd := create["Cmd"].([]any)
+	if got := cmd[2].(string); got != "rm -rf /state/"+id {
+		t.Fatalf("removal command: %q", got)
+	}
+
+	unreachable := &Engine{HTTP: http.DefaultClient, Base: "http://127.0.0.1:1", StateInitImage: "busybox:1.37"}
+	for _, tc := range []struct{ hostDir, instance string }{
+		{"relative/state", id},
+		{"/srv/cores", "not-a-uuid"},
+		{"/srv/cores", ""},
+		{"/srv/cores", "../../etc"},
+		{"", id},
+	} {
+		if e := unreachable.RemoveStateDir(context.Background(), tc.hostDir, tc.instance); !errors.Is(e, ErrInvalid) {
+			t.Fatalf("guard %q %q: %v", tc.hostDir, tc.instance, e)
+		}
+		if _, e := unreachable.StateDirExists(context.Background(), tc.hostDir, tc.instance); !errors.Is(e, ErrInvalid) {
+			t.Fatalf("directory probe guard %q %q: %v", tc.hostDir, tc.instance, e)
+		}
+	}
+	unreachable.StateInitImage = ""
+	if e := unreachable.RemoveStateDir(context.Background(), "/srv/cores", id); !errors.Is(e, ErrInvalid) {
+		t.Fatalf("missing helper image: %v", e)
+	}
+}
+
+func TestStateDirExistsReportsHelperStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   bool
+	}{{0, true}, {1, false}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/containers/create"):
+				w.WriteHeader(201)
+				_, _ = w.Write([]byte(`{"Id":"helper"}`))
+			case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/start"):
+				w.WriteHeader(204)
+			case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/wait"):
+				_, _ = w.Write([]byte(`{"StatusCode":` + strconv.Itoa(tc.status) + `}`))
+			case r.Method == http.MethodDelete:
+				w.WriteHeader(204)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		engine := &Engine{HTTP: srv.Client(), Base: srv.URL, StateInitImage: "busybox:1.37"}
+		exists, e := engine.StateDirExists(context.Background(), "/srv/cores", uuid.NewString())
+		srv.Close()
+		if e != nil || exists != tc.want {
+			t.Fatalf("status %d: exists=%t err=%v", tc.status, exists, e)
+		}
 	}
 }

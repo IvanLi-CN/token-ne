@@ -73,6 +73,7 @@ var families = []family{
 	{"core_config_source", "gauge", "Active source of a core configuration."},
 	{"core_config_signature_invalid_total", "counter", "Invalid core signature reports."},
 	{"core_config_override_active", "gauge", "Whether a core configuration override is active."},
+	{"core_auto_prune_total", "counter", "Automatic retired core destruction attempts by result."},
 	{"caddy_apply_total", "counter", "Caddy apply attempts by result."},
 	{"db_pool_connections", "gauge", "Database pool connections by state."},
 }
@@ -234,6 +235,20 @@ func (r *Registry) ObserveCaddyApply(success bool) {
 		result = "success"
 	}
 	r.mutate("caddy_apply_total", labels("result", result), 1, false)
+}
+
+// ObserveCoreAutoPrune counts one automatic destruction decision. The result is
+// bounded to the four outcomes the contract names; the instance identity never
+// becomes a label.
+func (r *Registry) ObserveCoreAutoPrune(result string) {
+	switch result {
+	case "success", "failed", "blocked", "labels_incomplete":
+	default:
+		result = "failed"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mutate("core_auto_prune_total", labels("result", result), 1, false)
 }
 
 func (r *Registry) Handler(token string, source Source) http.HandlerFunc {

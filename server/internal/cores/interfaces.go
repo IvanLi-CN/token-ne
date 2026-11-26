@@ -26,6 +26,12 @@ func (r *Runtime) database() Database {
 
 type Docker interface {
 	EnsureStateDir(context.Context, string, string) error
+	// RemoveStateDir deletes a per-instance host state directory through the
+	// one-shot helper. The API container never mounts the state root.
+	RemoveStateDir(context.Context, string, string) error
+	// StateDirExists reports whether the per-instance state directory is still
+	// present. Rollback branches on it instead of container existence.
+	StateDirExists(context.Context, string, string) (bool, error)
 	Create(context.Context, ContainerSpec) (Container, error)
 	Start(context.Context, string) error
 	Stop(context.Context, string, time.Duration) error
@@ -36,7 +42,13 @@ type Docker interface {
 	PullImage(context.Context, string) (Image, error)
 }
 
-func shouldRestart(state, actual string) bool {
+// shouldRestart decides whether reconciliation restarts a managed core. A
+// cleanup-blocked instance is excluded: the contract stops automatic restarts
+// once the spool fails to reach zero before the cleanup max age.
+func shouldRestart(state, actual string, blocked bool) bool {
+	if blocked {
+		return false
+	}
 	return actual != "running" && (state == "pending" || state == "running" || state == "warming")
 }
 

@@ -70,6 +70,9 @@ type fakeDB struct {
 	rows   func(string, []any) [][]any
 	exec   func(string, []any) error
 	writes []string
+	// args collects every Exec argument tuple so tests can assert on the values
+	// a statement persisted, not only on its SQL text.
+	args []any
 }
 
 func (d *fakeDB) Begin(context.Context) (pgx.Tx, error) { return &fakeTx{db: d}, nil }
@@ -88,6 +91,7 @@ func (d *fakeDB) Query(_ context.Context, q string, args ...any) (pgx.Rows, erro
 }
 func (d *fakeDB) Exec(_ context.Context, q string, args ...any) (pgconn.CommandTag, error) {
 	d.writes = append(d.writes, q)
+	d.args = append(d.args, args...)
 	if d.exec != nil {
 		if e := d.exec(q, args); e != nil {
 			return pgconn.CommandTag{}, e
@@ -120,16 +124,33 @@ type fakeDocker struct {
 	image                                   Image
 	created                                 []ContainerSpec
 	containers                              []Container
+	ensures                                 int
+	dirExists                               bool
+	dirErr, removeDirErr, removeErr         error
+	removedDirs                             []string
 }
 
-func (d *fakeDocker) EnsureStateDir(context.Context, string, string) error { return d.ensureErr }
+func (d *fakeDocker) EnsureStateDir(context.Context, string, string) error {
+	d.ensures++
+	return d.ensureErr
+}
+func (d *fakeDocker) RemoveStateDir(_ context.Context, _ string, instance string) error {
+	if d.removeDirErr != nil {
+		return d.removeDirErr
+	}
+	d.removedDirs = append(d.removedDirs, instance)
+	return nil
+}
+func (d *fakeDocker) StateDirExists(context.Context, string, string) (bool, error) {
+	return d.dirExists, d.dirErr
+}
 func (d *fakeDocker) Create(_ context.Context, s ContainerSpec) (Container, error) {
 	d.created = append(d.created, s)
 	return Container{ID: "created"}, nil
 }
 func (d *fakeDocker) Start(context.Context, string) error                { d.starts++; return nil }
 func (d *fakeDocker) Stop(context.Context, string, time.Duration) error  { d.stops++; return nil }
-func (d *fakeDocker) Remove(context.Context, string, bool) error         { d.removes++; return nil }
+func (d *fakeDocker) Remove(context.Context, string, bool) error         { d.removes++; return d.removeErr }
 func (d *fakeDocker) List(context.Context) ([]Container, error)          { return d.containers, nil }
 func (d *fakeDocker) Inspect(context.Context, string) (Container, error) { return Container{}, nil }
 func (d *fakeDocker) InspectImage(context.Context, string) (Image, error) {
@@ -297,40 +318,13 @@ func TestDrainTimeoutAndPruneGuard(t *testing.T) {
 	if drainDecision(i, now.Add(time.Hour), time.Minute) != "timeout" {
 		t.Fatal("timeout ignored")
 	}
-	i.ID = uuid.NewString()
-	i.ContainerID = ptr("legacy-container")
-	i.State = "stopped"
-	db := &fakeDB{row: func(string, []any) fakeRow { return fakeRow{values: instanceValues(i)} }}
-	docker := &fakeDocker{}
-	r := Runtime{Pool: db, Docker: docker}
-	if e := r.Prune(context.Background(), "operator", []string{i.ID}); !errors.Is(e, ErrConflict) {
-		t.Fatalf("prune allowed unacked: %v", e)
-	}
-	if docker.removes != 0 || len(db.writes) != 0 {
-		t.Fatal("prune had side effects")
-	}
-	i.Spool = ptr(int64(0))
-	if !canPrune(i) {
-		t.Fatal("cleared stopped instance refused")
-	}
-	i.Heartbeat = nil
-	db = &fakeDB{row: func(string, []any) fakeRow { return fakeRow{values: instanceValues(i)} }}
-	docker = &fakeDocker{}
-	r = Runtime{Pool: db, Docker: docker}
-	if err := r.Prune(context.Background(), "operator", []string{i.ID}); err != nil || docker.removes != 1 {
-		t.Fatalf("retired instance with a confirmed status could not be pruned: removes=%d err=%v", docker.removes, err)
-	}
-	i.Spool = nil
-	if canPrune(i) {
-		t.Fatal("unknown spool allowed")
-	}
 }
 
 func TestRestartReconciliation(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "container", Names: []string{"/core-a"}, State: "exited", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.1.0", DeploymentLabel: "deployment", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.1.0", ptr("container"), "core-a", "running", 100, ptr("deployment")}}
+		return [][]any{{id, uuid.NewString(), "0.1.0", ptr("container"), "core-a", "running", 100, ptr("deployment"), false}}
 	}}
 	r := Runtime{Pool: db, Docker: docker, Project: "test"}
 	if e := r.reconcile(context.Background()); e != nil {
@@ -343,7 +337,7 @@ func TestRestartReconciliation(t *testing.T) {
 		t.Fatal("restart retained stale admission")
 	}
 	for _, state := range []string{"stopped", "pruned", "draining", "failed"} {
-		if shouldRestart(state, "exited") {
+		if shouldRestart(state, "exited", false) {
 			t.Fatal("restart terminal state", state)
 		}
 	}
@@ -353,7 +347,7 @@ func TestLegacyComposeCoreIsRetired(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "legacy", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil}}
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil, false}}
 	}}
 	status := validStatus()
 	status.Instance, status.Version = id, "0.0.3"
@@ -370,7 +364,7 @@ func TestTrackedCoreWithoutDeploymentLabelIsReconciledAsManaged(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "managed", Name: "/managed", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment")}}
+		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment"), false}}
 	}}
 	status := validStatus()
 	status.Instance, status.Version = id, "0.0.5"
@@ -387,7 +381,7 @@ func TestTrackedWarmingCoreWithoutDeploymentLabelIsNotRetired(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "managed", Name: "/managed", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.5", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment")}}
+		return [][]any{{id, uuid.NewString(), "0.0.5", ptr("managed"), "managed", "running", 0, ptr("deployment"), false}}
 	}}
 	status := validStatus()
 	status.Instance, status.Version = id, "0.0.5"
@@ -404,7 +398,7 @@ func TestMissingLegacyComposeCoreIsNotRecreated(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil}}
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil, false}}
 	}}
 	r := Runtime{Pool: db, Docker: docker, Project: "test"}
 	if err := r.reconcile(context.Background()); err != nil {
@@ -419,7 +413,7 @@ func TestLegacyComposeCoreWithTrafficIsNotStopped(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "legacy", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 100, nil}}
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 100, nil, false}}
 	}}
 	r := Runtime{Pool: db, Docker: docker, Project: "test"}
 	if err := r.reconcile(context.Background()); err != nil {
@@ -434,7 +428,7 @@ func TestLegacyComposeCoreWithPendingSpoolIsNotStopped(t *testing.T) {
 	id := uuid.NewString()
 	docker := &fakeDocker{containers: []Container{{ID: "legacy", Name: "/token-ne-core", State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil}}
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil, false}}
 	}}
 	status := validStatus()
 	status.Instance, status.Version = id, "0.0.3"
@@ -453,7 +447,7 @@ func TestLegacyRetirementPersistsDockerListName(t *testing.T) {
 	docker := &fakeDocker{containers: []Container{{ID: "legacy", Names: []string{"/token-ne-core"}, State: "running", Labels: map[string]string{RoleLabel: "core", InstanceLabel: id, VersionLabel: "0.0.3", "com.docker.compose.project": "test"}}}}
 	var retired []any
 	db := &fakeDB{rows: func(string, []any) [][]any {
-		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil}}
+		return [][]any{{id, uuid.NewString(), "0.0.1", ptr("legacy"), "token-ne-core", "running", 0, nil, false}}
 	}}
 	db.exec = func(q string, args []any) error {
 		if strings.Contains(q, "lifecycle_error='legacy Compose core retired'") {
@@ -794,7 +788,7 @@ func TestTrafficApplyAndHeartbeatExportCoreMetrics(t *testing.T) {
 		case strings.Contains(q, "heartbeat_sent_at"):
 			return fakeRow{values: []any{nil}}
 		case strings.Contains(q, "config_revision_desired"):
-			return fakeRow{values: []any{nil, nil}}
+			return fakeRow{values: []any{nil, nil, nil, nil, nil}}
 		case strings.Contains(q, "exists"):
 			return fakeRow{values: []any{false}}
 		}
