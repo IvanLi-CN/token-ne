@@ -626,3 +626,42 @@ func TestReplayInProgressRestartsDeadCore(t *testing.T) {
 		t.Fatal("live replay core was restarted")
 	}
 }
+
+// A forced prune can remove the container while the state directory is retained
+// and the spool is still unacked. The replay path must then recreate the
+// container and not dereference the stale nil id from this pass's snapshot: that
+// was a nil-pointer panic on the runtime goroutine, which has no recover.
+func TestReplayAfterForcedPruneDoesNotUseTheStaleContainerID(t *testing.T) {
+	now := time.Now().UTC()
+	c := stoppedCandidate(now)
+	c.ContainerID = nil // the container was already removed by a forced prune
+	c.ZeroAt = nil
+	c.Spool = ptr(int64(5))
+	db := pruneDB(c)
+	db.row = func(q string, _ []any) fakeRow {
+		if strings.Contains(q, "select image_ref,image_digest") {
+			return fakeRow{values: []any{"ghcr.io/x/core:0.2.0", nil}}
+		}
+		// restoreContainer reads the instance row it will rebuild from.
+		return fakeRow{values: instanceValues(instanceRow{ID: c.ID, Version: c.Version, VersionID: uuid.NewString(),
+			Name: c.ContainerName, State: "stopped", Deployment: c.Deployment})}
+	}
+	docker := &fakeDocker{dirExists: true}
+	if e := pruneRuntime(db, docker).replayRetired(context.Background(), c); e != nil {
+		t.Fatalf("replay after a forced prune failed: %v", e)
+	}
+	if len(docker.created) != 1 {
+		t.Fatalf("container was not recreated: %d", len(docker.created))
+	}
+	// restoreContainer starts the replacement itself, so a second Start means the
+	// stale nil id was dereferenced (a panic) or the container was started twice.
+	if docker.starts != 1 {
+		t.Fatalf("starts = %d, want exactly the one inside restoreContainer", docker.starts)
+	}
+	// The replay is recorded as the marker plus a fresh drain anchor, which is what
+	// lets the next status observation produce a new zero proof.
+	writes := pruneWrites(db)
+	if !strings.Contains(writes, "state='draining'") || !strings.Contains(writes, "draining_started_at=now()") {
+		t.Fatalf("replay did not return the instance to draining: %v", writes)
+	}
+}
