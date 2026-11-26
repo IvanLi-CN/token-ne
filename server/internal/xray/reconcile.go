@@ -169,9 +169,20 @@ func (e *Engine) reconcile(ctx context.Context, targets []Target, only string) S
 		summary.Results = append(summary.Results, res)
 	}
 
-	// Verification: every profile reported usable must actually route from its
-	// inbound to the intended outbound, and nothing may be left on :staged.
-	if err := c.verifyRoutes(ctx, sortedKeys(routeTarget), routeTarget); err != nil {
+	// Verification covers only the profiles this pass reported usable. A profile
+	// that failed already has its own result; verifying it again here would let one
+	// broken profile mark every healthy one degraded, because failUsable downgrades
+	// the whole summary.
+	usable := make(map[string]string, len(routeTarget))
+	for _, res := range summary.Results {
+		if res.Status != StatusReady && res.Status != StatusUnchanged {
+			continue
+		}
+		if target, ok := routeTarget[res.ProfileID]; ok {
+			usable[res.ProfileID] = target
+		}
+	}
+	if err := c.verifyRoutes(ctx, sortedKeys(usable), usable); err != nil {
 		if IsUnreachable(err) {
 			return Summary{Unreachable: true, Error: err.Error()}
 		}

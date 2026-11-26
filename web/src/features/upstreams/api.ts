@@ -76,8 +76,8 @@ export interface EgressTransportOptions {
 
 /** TLS 选项同样是封闭集合；reality 另要求 server_name、public_key 与 short_id。 */
 export interface EgressTLSOptions {
-  /** 控制面字段名是 security（none|tls|reality）。 */
-  security?: EgressTLSMode;
+  /** 控制面与 Xray 渲染器共用的字段名是 mode（none|tls|reality）。 */
+  mode?: EgressTLSMode;
   server_name?: string;
   allow_insecure?: boolean;
   alpn?: string[];

@@ -177,6 +177,41 @@ func TestEgressProxyCRUDIntegration(t *testing.T) {
 		t.Fatalf("credential after clear = %v, want ErrNotFound", e)
 	}
 
+	// An edit to anything that goes into the Xray outbound must schedule a swap:
+	// Xray cannot alter an outbound in place, and reconcile only runs the staged
+	// sequence for a row already marked `swapping`. Without this the old credential
+	// or server would stay live at Xray while the API reports the new one.
+	rotated := after
+	if rotated.Ciphertext, rotated.Nonce, e = auth.Encrypt(f.master, `{"username":"u","password":"rotated"}`); e != nil {
+		t.Fatal(e)
+	}
+	scheduled, e := f.store.SaveEgressProxy(f.ctx, rotated, false, f.ports, f.audit)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if scheduled.RuntimeState != "swapping" || scheduled.SwapPhase != nil {
+		t.Fatalf("credential edit did not schedule a swap: %+v", scheduled)
+	}
+	// A rename-only edit must not schedule one.
+	renamed := scheduled
+	renamed.Name = scheduled.Name + "-renamed"
+	if again, e := f.store.SaveEgressProxy(f.ctx, renamed, false, f.ports, f.audit); e != nil {
+		t.Fatal(e)
+	} else if again.RuntimeState != "swapping" {
+		t.Fatalf("a rename cleared the pending swap: %+v", again)
+	}
+	if e = f.store.SetEgressProxyState(f.ctx, scheduled.ID, EgressProxyState{RuntimeState: "ready"}, f.audit); e != nil {
+		t.Fatal(e)
+	}
+	renamed = scheduled
+	renamed.Name = scheduled.Name + "-again"
+	if ready, e := f.store.SaveEgressProxy(f.ctx, renamed, false, f.ports, f.audit); e != nil {
+		t.Fatal(e)
+	} else if ready.RuntimeState != "ready" {
+		t.Fatalf("a rename-only edit scheduled a swap: %+v", ready)
+	}
+	after = renamed
+
 	// Runtime state is written only through the reconciler projection.
 	phase := "route_staged"
 	message := "xray reconcile failed"

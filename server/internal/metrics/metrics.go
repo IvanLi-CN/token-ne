@@ -118,6 +118,22 @@ func (r *Registry) mutate(name, key string, value float64, hist bool) {
 	}
 }
 
+// setGauge assigns a gauge instead of accumulating into it. `mutate` adds, which
+// is right for counters; a gauge re-observed on every reconcile pass would
+// otherwise grow without bound (2, 4, 6, ... after an hour) and stop describing
+// the current state.
+func (r *Registry) setGauge(name, key string, value float64) {
+	group := r.data[name]
+	if group == nil {
+		group = make(map[string]*sample)
+		r.data[name] = group
+	}
+	if _, exists := group[key]; !exists && len(group) >= 4096 {
+		return
+	}
+	group[key] = &sample{value: value}
+}
+
 func (r *Registry) BeginIngest() func() {
 	r.mu.Lock()
 	r.mutate("usage_ingest_inflight_requests", "", 1, false)
@@ -289,7 +305,7 @@ func (r *Registry) ObserveEgressProxyStates(states map[string]int) {
 		if !known[state] {
 			state = "degraded"
 		}
-		r.mutate("egress_proxy_state", labels("state", state), float64(count), false)
+		r.setGauge("egress_proxy_state", labels("state", state), float64(count))
 	}
 }
 

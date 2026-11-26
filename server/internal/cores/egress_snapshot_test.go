@@ -520,24 +520,43 @@ func (t *egressStoreTx) Rollback(context.Context) error { return nil }
 // revisionHarness rebuilds a snapshot across a mutable profile world so the
 // computed-value revision trigger can be observed directly.
 type revisionHarness struct {
-	saved generation
-	db    *fakeDB
-	world *egressWorld
+	// saved mirrors system_state: the shared counter plus one fingerprint per
+	// instance, because two instances can legitimately publish different bodies.
+	saved map[string]generation
+	// instance is fixed so repeated builds describe the same core.
+	instance string
+	db       *fakeDB
+	world    *egressWorld
 	// egressQuery is the SQL the projection ran; the revision can only follow
 	// the columns it reads.
 	egressQuery string
 }
 
 func newRevisionHarness(world egressWorld) *revisionHarness {
-	h := &revisionHarness{world: &world}
+	h := &revisionHarness{world: &world, saved: map[string]generation{}, instance: uuid.NewString()}
 	db := &fakeDB{}
 	db.row = func(q string, args []any) fakeRow {
 		switch {
 		case strings.Contains(q, "core_config_generation"):
-			if h.saved.Revision == 0 {
+			// The shared counter query filters on the literal key, so it carries
+			// no argument; the per-instance fingerprint query carries its key as
+			// $1 and must be matched on that, not on the literal.
+			key := "core_config_generation"
+			if len(args) > 0 {
+				key, _ = args[0].(string)
+			}
+			value, ok := h.saved[key]
+			if !ok || value.Revision == 0 {
 				return fakeRow{err: pgx.ErrNoRows}
 			}
-			return fakeRow{values: []any{h.saved}}
+			return fakeRow{values: []any{value}}
+		case strings.Contains(q, "select value from system_state where key=$1"):
+			key, _ := args[0].(string)
+			value, ok := h.saved[key]
+			if !ok || value.Revision == 0 {
+				return fakeRow{err: pgx.ErrNoRows}
+			}
+			return fakeRow{values: []any{value}}
 		case strings.Contains(q, "config_schema_min"):
 			return fakeRow{values: []any{1, 1, 1}}
 		case strings.Contains(q, "control_status->'features'"):
@@ -558,7 +577,14 @@ func newRevisionHarness(world egressWorld) *revisionHarness {
 	}
 	db.exec = func(q string, args []any) error {
 		if strings.Contains(q, "insert into system_state") {
-			h.saved = args[0].(generation)
+			// Two arguments means the per-instance fingerprint; one means the
+			// shared counter the wire revision comes from.
+			if len(args) == 2 {
+				key, _ := args[0].(string)
+				h.saved[key] = args[1].(generation)
+			} else {
+				h.saved["core_config_generation"] = args[0].(generation)
+			}
 		}
 		return nil
 	}
@@ -569,7 +595,7 @@ func newRevisionHarness(world egressWorld) *revisionHarness {
 func (h *revisionHarness) build(t *testing.T) int64 {
 	t.Helper()
 	s := Snapshots{DB: h.db, Master: make([]byte, 32), Token: "token", BaseURL: "http://api:8080"}
-	snapshot, err := s.Build(context.Background(), uuid.NewString(), false)
+	snapshot, err := s.Build(context.Background(), h.instance, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -804,4 +830,53 @@ func TestReconcileEgressPublishesMetrics(t *testing.T) {
 	if !strings.Contains(page.Body.String(), `token_ne_xray_reconcile_total{result="unreachable"} 1`) {
 		t.Fatalf("unreachable outcome missing: %s", page.Body.String())
 	}
+}
+
+// Two instances can legitimately build different bodies from the same database:
+// a core that does not declare egress_proxy gets the proxy-bound upstreams
+// removed. A single shared fingerprint made such a fleet bump the revision on
+// every pass (A publishes, B does not match A, B publishes, A no longer matches
+// B, ...), which pushed a new revision to every core every few seconds.
+func TestMixedFleetDoesNotChurnTheRevision(t *testing.T) {
+	// One shared system_state (one database), two independent worlds: A declares
+	// egress_proxy and sees the bound upstream, B does not and sees it removed.
+	shared := map[string]generation{}
+	a := newRevisionHarness(egressWorld{proxyID: egressProfileID, proxyState: "ready", enabled: true, inbound: egressInboundPort, bound: true})
+	a.saved = shared
+	b := newRevisionHarness(egressWorld{proxyID: egressProfileID, proxyState: "ready", enabled: true, inbound: egressInboundPort, bound: true})
+	b.saved = shared
+
+	a1 := a.build(t)
+	b1 := b.build(t)
+	// Alternating builds of unchanged worlds must not move either revision.
+	for range 3 {
+		if got := a.build(t); got != a1 {
+			t.Fatalf("instance A revision churned: %d != %d", got, a1)
+		}
+		if got := b.build(t); got != b1 {
+			t.Fatalf("instance B revision churned: %d != %d", got, b1)
+		}
+	}
+	// A real change bumps the instance that caused it and leaves the other alone.
+	b.world.proxyState = "degraded"
+	b2 := b.build(t)
+	if b2 <= b1 {
+		t.Fatalf("a real change did not bump B: %d", b2)
+	}
+	if got := a.build(t); got != a1 {
+		t.Fatalf("B's change bumped A: %d != %d", got, a1)
+	}
+}
+
+// buildFor builds with the second harness but a fixed instance id, so the two
+// harnesses model two distinct cores sharing one database.
+func buildFor(t *testing.T, h *revisionHarness, instance string) int64 {
+	t.Helper()
+	db := h.db
+	s := Snapshots{DB: db, Master: make([]byte, 32), Token: "token", BaseURL: "http://api:8080"}
+	snapshot, err := s.Build(context.Background(), instance, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.Revision
 }

@@ -140,4 +140,13 @@ func TestEgressMetricsStayBoundedAndSkipDirectEgress(t *testing.T) {
 	if strings.Contains(body, "state=\"bogus\"") {
 		t.Fatalf("unbounded egress state label: %s", body)
 	}
+
+	// The gauge reports the current state, not a running total: a second pass with
+	// the same two profiles must still read 2, not 4.
+	r.ObserveEgressProxyStates(map[string]int{"ready": 2})
+	page = httptest.NewRecorder()
+	r.Handler("secret", nil)(page, req)
+	if !strings.Contains(page.Body.String(), `token_ne_egress_proxy_state{state="ready"} 2`) {
+		t.Fatalf("the state gauge accumulated across passes: %s", page.Body.String())
+	}
 }

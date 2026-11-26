@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"github.com/IvanLi-CN/token-ne/server/internal/config"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 	"github.com/google/uuid"
 )
 
@@ -212,7 +214,7 @@ func TestEgressProxyCRUD(t *testing.T) {
 	}
 	contract(t, "/api/egress-proxies", "GET", w)
 
-	w = request(e.h, e.cfg, e.cookie, "POST", "/api/egress-proxies", egressBody(`,"transport":{"network":"ws","path":"/ray"},"tls":{"security":"tls","server_name":"proxy.example.com"},"credentials":{"username":"u","password":"p"}`))
+	w = request(e.h, e.cfg, e.cookie, "POST", "/api/egress-proxies", egressBody(`,"transport":{"network":"ws","path":"/ray"},"tls":{"mode":"tls","server_name":"proxy.example.com"},"credentials":{"username":"u","password":"p"}`))
 	if w.Code != 201 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
@@ -285,9 +287,9 @@ func TestEgressProxyClosedFields(t *testing.T) {
 		{"unknown protocol", `{"name":"p","protocol":"socks4","server":"h","port":1080,"enabled":false}`, "protocol"},
 		{"unknown transport network", egressBody(`,"transport":{"network":"quic"}`), "transport.network"},
 		{"unknown transport field", egressBody(`,"transport":{"network":"ws","sni":"x"}`), "transport.sni"},
-		{"unknown tls mode", egressBody(`,"tls":{"security":"xtls"}`), "tls.security"},
-		{"unknown tls field", egressBody(`,"tls":{"security":"tls","pin_sha256":"x"}`), "tls.pin_sha256"},
-		{"reality without key", egressBody(`,"tls":{"security":"reality","server_name":"www.example.com"}`), "tls.public_key"},
+		{"unknown tls mode", egressBody(`,"tls":{"mode":"xtls"}`), "tls.mode"},
+		{"unknown tls field", egressBody(`,"tls":{"mode":"tls","pin_sha256":"x"}`), "tls.pin_sha256"},
+		{"reality without key", egressBody(`,"tls":{"mode":"reality","server_name":"www.example.com"}`), "tls.public_key"},
 		{"port range", `{"name":"p","protocol":"socks5","server":"h","port":70000,"enabled":false}`, "port"},
 		{"missing server", `{"name":"p","protocol":"socks5","server":"","port":1080,"enabled":false}`, "server"},
 		{"transport not object", egressBody(`,"transport":[]`), "transport"},
@@ -565,4 +567,65 @@ func TestEgressProbeDialsTheSingletonNotLoopback(t *testing.T) {
 	if got := e.apiHost(); got != "xray.internal" {
 		t.Fatalf("override proxy host = %q, want xray.internal", got)
 	}
+}
+
+// The API and the Xray renderer share one storage shape. The reconciler decodes
+// the stored transport/TLS objects with DisallowUnknownFields, so an option this
+// layer accepts under a different name is not a cosmetic mismatch: the profile
+// can never leave `degraded`, and its bound upstream has no candidate for as long
+// as it exists. This pins the two decoders together.
+func TestStoredEgressOptionsAreAcceptedByTheRenderer(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"socks5 none", `{"name":"a","protocol":"socks5","server":"p.example","port":1080,"enabled":true,
+			"transport":{"network":"tcp"},"tls":{"mode":"none"}}`},
+		{"vmess ws tls", `{"name":"b","protocol":"vmess","server":"p.example","port":443,"enabled":true,
+			"transport":{"network":"ws","host":"p.example","path":"/ray"},"tls":{"mode":"tls","server_name":"p.example","alpn":["h2"],"fingerprint":"chrome"}}`},
+		{"vless grpc reality", `{"name":"c","protocol":"vless","server":"p.example","port":443,"enabled":true,
+			"transport":{"network":"grpc","service_name":"svc"},"tls":{"mode":"reality","server_name":"p.example","public_key":"` + base64.RawURLEncoding.EncodeToString(make([]byte, 32)) + `","short_id":"ab12","spider_x":"/"}}`},
+		{"trojan httpupgrade", `{"name":"d","protocol":"trojan","server":"p.example","port":443,"enabled":true,
+			"transport":{"network":"httpupgrade","host":"p.example","path":"/u"},"tls":{"mode":"tls"}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEgressHarness(t, EgressOptions{})
+			w := request(e.h, e.cfg, e.cookie, "POST", "/api/egress-proxies", tc.body)
+			if w.Code != 201 {
+				t.Fatalf("create: %d %s", w.Code, w.Body.String())
+			}
+			id := e.repo.order[0]
+			stored, ok := e.repo.proxies[id]
+			if !ok {
+				t.Fatal("profile was not stored")
+			}
+			// Render is the real consumer; anything it rejects is a profile that
+			// could never be reconciled.
+			_, err := xray.Render(xray.Desired{
+				Profile: xray.Profile{ID: stored.ID, Protocol: xray.Protocol(stored.Protocol), Server: stored.Server,
+					Port: stored.Port, Transport: stored.Transport, TLS: stored.TLS, InboundPort: stored.InboundPort, Enabled: true},
+				Credentials: credentialsFor(t, stored.Protocol),
+			})
+			if err != nil {
+				t.Fatalf("the renderer rejects what the API stored: %v", err)
+			}
+		})
+	}
+}
+
+func credentialsFor(t *testing.T, protocol string) xray.Credentials {
+	t.Helper()
+	switch protocol {
+	case "http", "socks5":
+		return xray.Credentials{Username: "u", Password: "p"}
+	case "shadowsocks":
+		return xray.Credentials{Cipher: "aes-256-gcm", Password: "p"}
+	case "vmess", "vless":
+		return xray.Credentials{UUID: "11111111-1111-4111-8111-111111111111", Flow: ""}
+	case "trojan":
+		return xray.Credentials{Password: "p"}
+	}
+	t.Fatalf("unknown protocol %q", protocol)
+	return xray.Credentials{}
 }

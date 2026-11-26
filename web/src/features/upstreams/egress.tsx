@@ -204,7 +204,7 @@ export function EgressProxyEditor({
   const [network, setNetwork] = useState<EgressTransportNetwork>(
     proxy?.transport?.network ?? "tcp",
   );
-  const [tlsMode, setTLSMode] = useState<EgressTLSMode>(proxy?.tls?.security ?? "none");
+  const [tlsMode, setTLSMode] = useState<EgressTLSMode>(proxy?.tls?.mode ?? "none");
   // keep / clear / replace：省略、null、对象。凭据值本身从不进入组件状态。
   const [credentialAction, setCredentialAction] = useState<"keep" | "clear" | "replace">(
     proxy ? "keep" : "replace",
@@ -233,7 +233,7 @@ export function EgressProxyEditor({
     if (pathApplicable && trimmed("transport_path")) transport.path = trimmed("transport_path");
     if (serviceApplicable && trimmed("transport_service_name"))
       transport.service_name = trimmed("transport_service_name");
-    const tls: EgressTLSOptions = { security: tlsMode };
+    const tls: EgressTLSOptions = { mode: tlsMode };
     if (tlsApplicable && trimmed("tls_server_name")) tls.server_name = trimmed("tls_server_name");
     if (tlsMode === "tls") {
       tls.alpn = csv(trimmed("tls_alpn"));
@@ -450,9 +450,9 @@ export function EgressProxyEditor({
             <Field label="TLS 模式">
               <select
                 className="input rounded-xl"
-                name="tls_security"
+                name="tls_mode"
                 value={tlsMode}
-                aria-invalid={fieldInvalid(error, "tls.security")}
+                aria-invalid={fieldInvalid(error, "tls.mode")}
                 onChange={(event) => {
                   setTLSMode(event.target.value as EgressTLSMode);
                   setDirty(true);

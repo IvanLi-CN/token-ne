@@ -181,7 +181,7 @@ describe("demo mock transport", () => {
         server: "new.demo-scene.invalid",
         port: 1080,
         transport: { network: "tcp" },
-        tls: { security: "none" },
+        tls: { mode: "none" },
         credentials: { username: "demo-scene-user", password: secret },
         enabled: true,
       }),

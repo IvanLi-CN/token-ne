@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -574,5 +575,74 @@ func TestProfileIDFromTagOnlyAcceptsOwnedTags(t *testing.T) {
 		if ok != tc.ok || got != tc.want {
 			t.Fatalf("ProfileIDFromTag(%q) = (%q, %v), want (%q, %v)", tc.tag, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+// One unusable profile must not take the healthy ones down with it. Verification
+// is global because the rule set is global, so verifying a profile this pass
+// already reported as failed would downgrade every other result.
+func TestOneBrokenProfileDoesNotDegradeTheHealthyOnes(t *testing.T) {
+	fake, client := serve(t)
+	healthy := desired(ProtocolVMess, validProfiles()[ProtocolVMess])
+	broken := desired(ProtocolVMess, validProfiles()[ProtocolVMess])
+	broken.Profile.ID = "0193f0c2-7b1a-7c3e-9f00-000000000009"
+	// A REALITY profile whose key is not a 32-byte base64url value is rejected at
+	// render time, before any Xray call.
+	broken.Profile.Transport = []byte(`{"network":"tcp"}`)
+	broken.Profile.TLS = []byte(`{"mode":"reality","server_name":"p.example","public_key":"short"}`)
+
+	summary := NewEngine(client).ReconcileAll(context.Background(), []Target{{Desired: healthy}, {Desired: broken}})
+	if summary.Unreachable {
+		t.Fatalf("unexpected unreachable: %s", summary.Error)
+	}
+	byID := map[string]Result{}
+	for _, res := range summary.Results {
+		byID[res.ProfileID] = res
+	}
+	if got := byID[healthy.Profile.ID]; got.Status != StatusReady || !got.EffectiveEnabled {
+		t.Fatalf("healthy profile = %+v, want ready and eligible", got)
+	}
+	if got := byID[broken.Profile.ID]; got.Status != StatusDegraded || got.EffectiveEnabled {
+		t.Fatalf("broken profile = %+v, want degraded and ineligible", got)
+	}
+	// The broken profile must not have been added to Xray at all.
+	_, outbounds, _ := fake.snapshot()
+	for _, tag := range outbounds {
+		if tag == OutboundTag(broken.Profile.ID) {
+			t.Fatal("a rejected profile reached Xray")
+		}
+	}
+}
+
+// A route that names a nonexistent outbound is a dead route even though both the
+// rule read-back and TestRoute happily report the tag string. In the shipped
+// bootstrap the unmatched traffic then lands on the blackhole, so "ready" would
+// be a lie. This reaches the verification directly because the reconciler's own
+// steps create the outbound they route to.
+func TestVerifyRouteRejectsARouteToANonexistentOutbound(t *testing.T) {
+	fake, client := serve(t)
+	id := testProfileID
+	fake.mu.Lock()
+	fake.rules[RuleTag(id)] = OutboundTag(id)
+	fake.ruleOrder = []string{RuleTag(id)}
+	fake.mu.Unlock()
+
+	err := client.verifyRoute(context.Background(), id, OutboundTag(id))
+	if err == nil {
+		t.Fatal("a route to a missing outbound verified as ready")
+	}
+	var rejected *RejectedError
+	if !errors.As(err, &rejected) {
+		t.Fatalf("error = %v, want a RejectedError", err)
+	}
+	if !strings.Contains(rejected.Reason, "does not exist") {
+		t.Fatalf("reason = %q, want it to name the missing outbound", rejected.Reason)
+	}
+	// With the outbound present the same route verifies.
+	fake.mu.Lock()
+	fake.outbounds[OutboundTag(id)] = &core.OutboundHandlerConfig{Tag: OutboundTag(id)}
+	fake.mu.Unlock()
+	if err = client.verifyRoute(context.Background(), id, OutboundTag(id)); err != nil {
+		t.Fatalf("existing outbound rejected: %v", err)
 	}
 }

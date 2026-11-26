@@ -114,11 +114,33 @@ values($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11) returning `+egressColum
 				p.ID, p.Name, p.Protocol, p.Server, p.Port, string(transport), string(tlsOptions), p.Ciphertext, p.Nonce, p.Enabled, p.InboundPort))
 			return err
 		}
+		// Xray cannot alter an outbound in place, so a change to anything that goes
+		// into the outbound must go through the staged swap. Marking the row here
+		// is what makes the next reconcile pass enter it: reconcile only runs the
+		// sequence for a row already in `swapping`, and this is the only writer of
+		// that state besides the reconciler itself. Without this an edited profile
+		// keeps its old credential and server at Xray forever while the API and
+		// the core snapshot already report the new one.
+		var swap bool
+		err = tx.QueryRow(ctx, `
+select protocol is distinct from $2 or server is distinct from $3 or port is distinct from $4
+    or transport is distinct from $5::jsonb or tls is distinct from $6::jsonb
+    or credentials_ciphertext is distinct from $7 or credentials_nonce is distinct from $8
+from egress_proxies where id=$1`,
+			p.ID, p.Protocol, p.Server, p.Port, string(transport), string(tlsOptions), p.Ciphertext, p.Nonce).Scan(&swap)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
 		p, err = scanEgressProxy(tx.QueryRow(ctx, `
 update egress_proxies set name=$2,protocol=$3,server=$4,port=$5,transport=$6::jsonb,tls=$7::jsonb,
-  credentials_ciphertext=$8,credentials_nonce=$9,enabled=$10,updated_at=now()
+  credentials_ciphertext=$8,credentials_nonce=$9,enabled=$10,updated_at=now(),
+  runtime_state=case when $11 then 'swapping' else runtime_state end,
+  swap_phase=case when $11 then null else swap_phase end
 where id=$1 returning `+egressColumns,
-			p.ID, p.Name, p.Protocol, p.Server, p.Port, string(transport), string(tlsOptions), p.Ciphertext, p.Nonce, p.Enabled))
+			p.ID, p.Name, p.Protocol, p.Server, p.Port, string(transport), string(tlsOptions), p.Ciphertext, p.Nonce, p.Enabled, swap))
 		return err
 	})
 	return p, e

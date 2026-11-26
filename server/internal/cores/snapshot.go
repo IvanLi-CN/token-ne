@@ -400,6 +400,19 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		return Snapshot{}, e
 	}
+	// The fingerprint this instance last received. Two instances can legitimately
+	// build different bodies from the same database (a core that does not declare
+	// egress_proxy gets the proxy-bound upstreams removed), so a single shared
+	// fingerprint would make a mixed-version fleet bump the revision on every pass:
+	// A publishes, B does not match A, B publishes, A no longer matches B, forever.
+	// The revision stays global and monotonic for the wire protocol; only the
+	// comparison is per instance.
+	var previous generation
+	previousKey := "core_config_generation:" + instance
+	e = tx.QueryRow(ctx, `select value from system_state where key=$1`, previousKey).Scan(&previous)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return Snapshot{}, e
+	}
 	var min, max, protocol int
 	e = tx.QueryRow(ctx, `select v.config_schema_min,v.config_schema_max,v.protocol_version from core_instances i join core_versions v on v.id=i.version_id where i.id=$1 and i.state not in ('pruned','pruning')`, instance).Scan(&min, &max, &protocol)
 	if errors.Is(e, pgx.ErrNoRows) {
@@ -439,16 +452,16 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	}
 	// One database statement gives models, keys, upstreams and capabilities a single MVCC view.
 	var encrypted []struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		BaseURL   string `json:"base_url"`
-		AuthStyle string `json:"auth_style"`
-		Enabled   bool   `json:"enabled"`
-		Connect   int    `json:"connect_timeout_ms"`
-		FirstByte int    `json:"first_byte_timeout_ms"`
-		Idle      int    `json:"idle_timeout_ms"`
-		Cipher    string `json:"cipher"`
-		Nonce     string `json:"nonce"`
+		ID        string  `json:"id"`
+		Name      string  `json:"name"`
+		BaseURL   string  `json:"base_url"`
+		AuthStyle string  `json:"auth_style"`
+		Enabled   bool    `json:"enabled"`
+		Connect   int     `json:"connect_timeout_ms"`
+		FirstByte int     `json:"first_byte_timeout_ms"`
+		Idle      int     `json:"idle_timeout_ms"`
+		Cipher    string  `json:"cipher"`
+		Nonce     string  `json:"nonce"`
 		Proxy     *string `json:"egress_proxy_id"`
 	}
 	var entries []byte
@@ -503,10 +516,12 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		}
 	}
 	fingerprint := Hash(raw)
-	if last.Hash != fingerprint {
-		last = generation{Revision: last.Revision + 1, Hash: fingerprint, IssuedAt: time.Now().UTC(), Policy: p}
+	if previous.Hash != fingerprint {
+		previous = generation{Revision: last.Revision + 1, Hash: fingerprint, IssuedAt: time.Now().UTC(), Policy: p}
+		// The shared counter advances with the instance that caused the bump.
+		last = previous
 	}
-	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, last.Revision, last.IssuedAt, override
+	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, previous.Revision, previous.IssuedAt, override
 	raw, e = json.Marshal(c)
 	if e != nil {
 		return Snapshot{}, e
@@ -529,6 +544,10 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	}
 	if _, e = tx.Exec(ctx, `insert into system_state(key,value) values('core_config_generation',$1)
  on conflict(key) do update set value=excluded.value, updated_at=now() where system_state.value is distinct from excluded.value`, last); e != nil {
+		return Snapshot{}, e
+	}
+	if _, e = tx.Exec(ctx, `insert into system_state(key,value) values($1,$2)
+ on conflict(key) do update set value=excluded.value, updated_at=now() where system_state.value is distinct from excluded.value`, previousKey, previous); e != nil {
 		return Snapshot{}, e
 	}
 	tag, e := tx.Exec(ctx, `update core_instances set config_revision_desired=$2,config_hash_desired=$3 where id=$1 and state not in ('pruned','pruning')`, instance, result.Revision, result.Hash)

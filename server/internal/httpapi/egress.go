@@ -96,32 +96,32 @@ type egressInput struct {
 // control plane accepts. Anything else is rejected, because silently ignoring a
 // misspelled transport field is unsafe.
 type egressTransport struct {
-	Network              string            `json:"network,omitempty"`
-	Host                 string            `json:"host,omitempty"`
-	Path                 string            `json:"path,omitempty"`
-	ServiceName          string            `json:"service_name,omitempty"`
-	Headers              map[string]string `json:"headers,omitempty"`
-	EarlyDataHeaderName  string            `json:"early_data_header_name,omitempty"`
-	EarlyDataHeaderValue string            `json:"early_data_header_value,omitempty"`
+	Network     string            `json:"network,omitempty"`
+	Host        string            `json:"host,omitempty"`
+	Path        string            `json:"path,omitempty"`
+	ServiceName string            `json:"service_name,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
 }
 
-// egressTLS is the closed, non-secret TLS option set. Security carries the
-// mode; the rest describe certificate verification or REALITY parameters.
+// egressTLS is the closed, non-secret TLS option set. The field names are the
+// ones the Xray renderer decodes (`server/internal/xray.TLSOption`), not a
+// parallel spelling: the reconciler decodes with DisallowUnknownFields, so an
+// option this layer accepted under a different name would make the profile
+// permanently degraded.
 type egressTLS struct {
-	Security      string   `json:"security,omitempty"`
-	ServerName    string   `json:"server_name,omitempty"`
-	AllowInsecure bool     `json:"allow_insecure,omitempty"`
-	ALPN          []string `json:"alpn,omitempty"`
-	Fingerprint   string   `json:"fingerprint,omitempty"`
-	PublicKey     string   `json:"public_key,omitempty"`
-	ShortID       string   `json:"short_id,omitempty"`
-	SpiderX       string   `json:"spider_x,omitempty"`
+	Mode        string   `json:"mode,omitempty"`
+	ServerName  string   `json:"server_name,omitempty"`
+	ALPN        []string `json:"alpn,omitempty"`
+	Fingerprint string   `json:"fingerprint,omitempty"`
+	PublicKey   string   `json:"public_key,omitempty"`
+	ShortID     string   `json:"short_id,omitempty"`
+	SpiderX     string   `json:"spider_x,omitempty"`
 }
 
 var (
-	egressProtocols   = map[string]bool{"http": true, "socks5": true, "shadowsocks": true, "vmess": true, "vless": true, "trojan": true}
-	egressTransports  = map[string]bool{"tcp": true, "ws": true, "grpc": true, "httpupgrade": true}
-	egressTLSSecurity = map[string]bool{"none": true, "tls": true, "reality": true}
+	egressProtocols  = map[string]bool{"http": true, "socks5": true, "shadowsocks": true, "vmess": true, "vless": true, "trojan": true}
+	egressTransports = map[string]bool{"tcp": true, "ws": true, "grpc": true, "httpupgrade": true}
+	egressTLSModes   = map[string]bool{"none": true, "tls": true, "reality": true}
 )
 
 // optionKeys derives the closed field set from the struct tags, so the allowed
@@ -204,9 +204,9 @@ func validateEgressInput(in egressInput) (egressTransport, egressTLS, []Detail) 
 			details = append(details, d...)
 		} else {
 			switch {
-			case tlsOptions.Security != "" && !egressTLSSecurity[tlsOptions.Security]:
-				details = append(details, Detail{Path: "tls.security", Reason: "must be one of none, tls, reality"})
-			case tlsOptions.Security == "reality":
+			case tlsOptions.Mode != "" && !egressTLSModes[tlsOptions.Mode]:
+				details = append(details, Detail{Path: "tls.mode", Reason: "must be one of none, tls, reality"})
+			case tlsOptions.Mode == "reality":
 				if tlsOptions.ServerName == "" {
 					details = append(details, Detail{Path: "tls.server_name", Reason: "is required for reality"})
 				}

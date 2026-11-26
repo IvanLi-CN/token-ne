@@ -24,7 +24,7 @@ const readyProxy: EgressProxy = {
   server: "proxy.example.test",
   port: 1080,
   transport: { network: "tcp" },
-  tls: { security: "none" },
+  tls: { mode: "none" },
   enabled: true,
   effective_enabled: true,
   runtime_state: "ready",
@@ -243,7 +243,7 @@ describe("upstreams egress region", () => {
       name: "Created",
       protocol: "socks5",
       transport: { network: "tcp" },
-      tls: { security: "none" },
+      tls: { mode: "none" },
       credentials: { username: "u", password: "p" },
     });
     // 保存完成后重新打开新建的档案，密码输入不会回填。

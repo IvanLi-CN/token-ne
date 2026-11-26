@@ -215,6 +215,17 @@ func (c *Client) verifyRoute(ctx context.Context, profileID, want string) error 
 	if got != want {
 		return &RejectedError{ProfileID: profileID, Step: "verify_route", Reason: "inbound resolves to " + got + ", want " + want}
 	}
+	// A rule that names a tag Xray does not have is a dead route: the profile looks
+	// ready while every request falls into the default outbound (the blackhole in
+	// the shipped bootstrap). The rule read-back and TestRoute both report the tag
+	// string, not whether it exists.
+	exists, err := c.outboundExists(ctx, want)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return &RejectedError{ProfileID: profileID, Step: "verify_route", Reason: "routed outbound " + want + " does not exist"}
+	}
 	return nil
 }
 
