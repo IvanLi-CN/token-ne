@@ -373,7 +373,7 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "insert into core_instances(id,version_id,container_id,container_name,address,weight,state,state_dir) values('$EGRESS_INSTANCE_ID','$VERSION_ID',null,'egress-core','127.0.0.1:${CORE_PORT}',0,'running','$STATE_ROOT')"
 
 echo "egress: creating the egress proxy profile with a canary credential"
-expect_code "$(call POST /api/egress-proxies "{\"name\":\"mock-xray\",\"protocol\":\"socks5\",\"server\":\"127.0.0.1\",\"port\":${PROXY_SOCKS_PORT},\"transport\":{\"network\":\"tcp\"},\"tls\":{\"security\":\"none\"},\"credentials\":{\"username\":\"$CANARY\",\"password\":\"$CANARY_PASSWORD\"},\"enabled\":true}" "$RESP/egress-create.json")" 201 "create egress proxy" "$RESP/egress-create.json"
+expect_code "$(call POST /api/egress-proxies "{\"name\":\"mock-xray\",\"protocol\":\"socks5\",\"server\":\"127.0.0.1\",\"port\":${PROXY_SOCKS_PORT},\"transport\":{\"network\":\"tcp\"},\"tls\":{\"mode\":\"none\"},\"credentials\":{\"username\":\"$CANARY\",\"password\":\"$CANARY_PASSWORD\"},\"enabled\":true}" "$RESP/egress-create.json")" 201 "create egress proxy" "$RESP/egress-create.json"
 EGRESS_ID="$(jq -r '.id' "$RESP/egress-create.json")"
 check "the profile recorded encrypted credentials" \
   jq -e '.has_credentials == true' "$RESP/egress-create.json"
