@@ -227,14 +227,14 @@ function PreviewResult({
       </div>
       {preview.candidates.length === 0 ? (
         <p className="muted">
-          解析成功但没有候选：请求会返回 503 no_upstream_available。检查上游启用状态、能力 weight
-          与承接策略。
+          解析成功但没有候选：请求会返回 503
+          no_upstream_available。检查上游启用状态、上游模型与承接策略。
         </p>
       ) : (
         <DataTable
           caption="预览候选上游"
           rows={preview.candidates}
-          rowKey={(candidate) => `${candidate.upstream_id}:${candidate.upstream_model_name}`}
+          rowKey={(candidate) => `${candidate.upstream_id}:${candidate.upstream_model_id}`}
           columns={[
             {
               key: "upstream",
@@ -248,8 +248,8 @@ function PreviewResult({
             },
             {
               key: "name",
-              header: "有效上游模型名",
-              cell: (candidate) => <code>{candidate.upstream_model_name}</code>,
+              header: "上游模型",
+              cell: (candidate) => <code>{candidate.upstream_model_id}</code>,
             },
             {
               key: "allowed",

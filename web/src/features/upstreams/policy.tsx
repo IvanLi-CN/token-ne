@@ -80,7 +80,7 @@ function PolicyForm({
         <h3>承接策略</h3>
         <p className="muted">
           deny 命中优先于 allow；两者都未命中时使用默认动作。Glob 只支持 * 与
-          ?，区分大小写，且不创建能力。
+          ?，区分大小写，且不会新增上游模型。
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -102,12 +102,12 @@ function PolicyForm({
         <div className="field">
           <span>当前范围</span>
           <p className="muted">
-            {upstream.models.length} 个能力；无策略行时以 allow + 空列表展示。
+            {upstream.models.length} 个上游模型；无策略行时以 allow + 空列表展示。
           </p>
         </div>
         <Field
           label="Glob 白名单"
-          hint="每行一个 pattern；只影响已存在的全局模型能力。空列表表示不额外放行。"
+          hint="每行一个 pattern；只影响已存在的上游模型。空列表表示不额外放行。"
         >
           <textarea
             className="input min-h-32 rounded-xl"
@@ -140,9 +140,9 @@ function PolicyForm({
       </div>
       <div>
         <h3>影响范围预览</h3>
-        <p className="muted">基于当前上游能力本地计算；保存以服务端 Glob 校验为准。</p>
+        <p className="muted">基于当前上游模型本地计算；保存以服务端 Glob 校验为准。</p>
         {impact.length === 0 ? (
-          <p className="muted mt-2">当前上游没有模型能力，策略只影响之后导入或绑定的模型。</p>
+          <p className="muted mt-2">当前上游还没有上游模型，策略只影响之后添加的模型。</p>
         ) : (
           <DataTable
             caption="承接策略影响预览"

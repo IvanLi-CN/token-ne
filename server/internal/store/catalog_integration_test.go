@@ -82,7 +82,7 @@ func TestCatalogSyncSnapshotIntegration(t *testing.T) {
 	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority) values($1,$2,'exact',$3,10)", uuid.NewString(), routePattern, modelID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,'provider-b',true,3,42)", upstreamID, modelID); err != nil {
+	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'provider-b',$2,true)", upstreamID, modelID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,12 +126,11 @@ func TestCatalogSyncSnapshotIntegration(t *testing.T) {
 	}
 	var name string
 	var enabled bool
-	var priority, weight int
-	if err = s.Pool.QueryRow(ctx, "select coalesce(upstream_model_name,''),enabled,priority,weight from upstream_models where upstream_id=$1 and model_id=$2", upstreamID, modelID).Scan(&name, &enabled, &priority, &weight); err != nil {
+	if err = s.Pool.QueryRow(ctx, "select upstream_model_id,enabled from upstream_models where upstream_id=$1 and model_id=$2", upstreamID, modelID).Scan(&name, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if name != "provider-b" || !enabled || priority != 3 || weight != 42 {
-		t.Fatalf("stale marking changed the capability: %q %v %d %d", name, enabled, priority, weight)
+	if name != "provider-b" || !enabled {
+		t.Fatalf("stale marking changed the capability: %q %v", name, enabled)
 	}
 	var rules int
 	if err = s.Pool.QueryRow(ctx, "select count(*) from model_route_rules where pattern=$1", routePattern).Scan(&rules); err != nil {
@@ -365,16 +364,15 @@ func TestCatalogImportIntegration(t *testing.T) {
 
 	var capabilityName string
 	var capabilityEnabled bool
-	var priority, weight int
 	var catalogModelID *string
 	if err = s.Pool.QueryRow(ctx, `
-select coalesce(upstream_model_name,''),enabled,priority,weight,catalog_model_id
+select upstream_model_id,enabled,catalog_model_id
 from upstream_models where upstream_id=$1 and model_id=$2`, upstreamID, target).
-		Scan(&capabilityName, &capabilityEnabled, &priority, &weight, &catalogModelID); err != nil {
+		Scan(&capabilityName, &capabilityEnabled, &catalogModelID); err != nil {
 		t.Fatal(err)
 	}
-	if capabilityName != "provider-raw" || capabilityEnabled || priority != 100 || weight != 0 || catalogModelID == nil || *catalogModelID != "provider-raw" {
-		t.Fatalf("created capability = %q %v %d %d %v", capabilityName, capabilityEnabled, priority, weight, catalogModelID)
+	if capabilityName != "provider-raw" || capabilityEnabled || catalogModelID == nil || *catalogModelID != "provider-raw" {
+		t.Fatalf("created capability = %q %v %v", capabilityName, capabilityEnabled, catalogModelID)
 	}
 	snapshot, err := s.UpstreamCatalog(ctx, upstreamID)
 	if err != nil {
@@ -415,7 +413,7 @@ func TestCatalogImportBindingRulesIntegration(t *testing.T) {
 	testModel(t, ctx, s, first, Billing{})
 	testModel(t, ctx, s, second, Billing{})
 	testModel(t, ctx, s, third, Billing{})
-	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,'override-b',true,7,300)", upstreamID, second); err != nil {
+	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'override-b',$2,true)", upstreamID, second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -434,12 +432,11 @@ func TestCatalogImportBindingRulesIntegration(t *testing.T) {
 	}
 	var name string
 	var enabled bool
-	var priority, weight int
-	if err = s.Pool.QueryRow(ctx, "select coalesce(upstream_model_name,''),enabled,priority,weight from upstream_models where upstream_id=$1 and model_id=$2", upstreamID, second).Scan(&name, &enabled, &priority, &weight); err != nil {
+	if err = s.Pool.QueryRow(ctx, "select upstream_model_id,enabled from upstream_models where upstream_id=$1 and model_id=$2", upstreamID, second).Scan(&name, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if name != "override-b" || !enabled || priority != 7 || weight != 300 {
-		t.Fatalf("bind_existing changed the capability: %q %v %d %d", name, enabled, priority, weight)
+	if name != "override-b" || !enabled {
+		t.Fatalf("bind_existing changed the capability: %q %v", name, enabled)
 	}
 
 	if _, err = s.ImportCatalogModel(ctx, upstreamID, CatalogImport{
@@ -501,7 +498,7 @@ func TestSaveUpstreamPhaseTwoIntegration(t *testing.T) {
 	if err != nil || bound.CapabilitiesRevision != 2 {
 		t.Fatalf("bind for phase two = %+v, %v", bound, err)
 	}
-	if _, err = s.Pool.Exec(ctx, "update upstream_models set upstream_model_name='override',enabled=true,priority=5,weight=50,updated_at=now() where upstream_id=$1 and model_id=$2", upstreamID, modelID); err != nil {
+	if _, err = s.Pool.Exec(ctx, "update upstream_models set upstream_model_id='override',enabled=true,updated_at=now() where upstream_id=$1 and model_id=$2", upstreamID, modelID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -513,7 +510,7 @@ func TestSaveUpstreamPhaseTwoIntegration(t *testing.T) {
 		in.Models = models
 		return s.SaveUpstreamPhaseTwo(ctx, in, expected, Audit{Actor: "test", Action: "upstream.update", Payload: []byte(`{}`)})
 	}
-	updated, revision, err := save([]Capability{{ModelID: modelID, Mapping: new("override-2"), Enabled: false, Priority: 4, Weight: 20}}, 2)
+	updated, revision, err := save([]Capability{{UpstreamModelID: "override-2", ModelID: modelID, Enabled: false}}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,15 +519,14 @@ func TestSaveUpstreamPhaseTwoIntegration(t *testing.T) {
 	}
 	var catalogBinding *string
 	var enabled bool
-	var priority, weight int
 	var name string
 	if err = s.Pool.QueryRow(ctx, `
-select catalog_model_id,enabled,priority,weight,coalesce(upstream_model_name,'')
-from upstream_models where upstream_id=$1 and model_id=$2`, upstreamID, modelID).Scan(&catalogBinding, &enabled, &priority, &weight, &name); err != nil {
+select catalog_model_id,enabled,upstream_model_id
+from upstream_models where upstream_id=$1 and model_id=$2`, upstreamID, modelID).Scan(&catalogBinding, &enabled, &name); err != nil {
 		t.Fatal(err)
 	}
-	if catalogBinding == nil || *catalogBinding != "caps-item" || enabled || priority != 4 || weight != 20 || name != "override-2" {
-		t.Fatalf("retained capability = %v %v %d %d %q", catalogBinding, enabled, priority, weight, name)
+	if catalogBinding == nil || *catalogBinding != "caps-item" || enabled || name != "override-2" {
+		t.Fatalf("retained capability = %v %v %q", catalogBinding, enabled, name)
 	}
 
 	if _, _, err = save([]Capability{}, 2); !errors.Is(err, ErrCapabilitiesRevisionStale) {

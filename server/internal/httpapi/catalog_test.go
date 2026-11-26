@@ -296,7 +296,7 @@ func TestUpstreamCatalogImportHTTP(t *testing.T) {
 		t.Fatalf("upstream after import = %+v", upstream)
 	}
 	capability := upstream.Models[0]
-	if capability.ModelID != target || capability.Enabled || capability.Weight != 0 || capability.Mapping == nil || *capability.Mapping != "provider-raw" {
+	if capability.ModelID != target || capability.Enabled || capability.UpstreamModelID != "provider-raw" {
 		t.Fatalf("imported capability = %+v", capability)
 	}
 
@@ -329,10 +329,10 @@ func TestUpstreamCatalogImportHTTP(t *testing.T) {
 	}
 	mappings := map[string]string{}
 	for _, c := range upstream.Models {
-		if c.Enabled || c.Weight != 0 || c.Mapping == nil {
+		if c.Enabled {
 			t.Fatalf("bound capability = %+v", c)
 		}
-		mappings[c.ModelID] = *c.Mapping
+		mappings[c.ModelID] = c.UpstreamModelID
 	}
 	if mappings[target] != "provider-raw" || mappings[other] != "provider-other" {
 		t.Fatalf("bound capability names = %+v", mappings)
@@ -410,7 +410,7 @@ func TestUpstreamPhaseTwoRevisionHTTP(t *testing.T) {
 	if upstream.CapabilitiesRevision == nil || *upstream.CapabilitiesRevision != 2 {
 		t.Fatalf("revision after import = %v", upstream.CapabilitiesRevision)
 	}
-	base := `{"name":"p4-http-caps-` + suffix + `","kind":"api_key","base_url":"` + server.URL + `","auth_style":"bearer","api_key":null,"enabled":true,"models":[{"model_id":"` + target + `","upstream_model_name":"caps-raw","enabled":true,"priority":4,"weight":40}]`
+	base := `{"name":"p4-http-caps-` + suffix + `","kind":"api_key","base_url":"` + server.URL + `","auth_style":"bearer","api_key":null,"enabled":true,"models":[{"upstream_model_id":"caps-raw","model_id":"` + target + `","enabled":true}]`
 	w = request(env.router, env.cfg, env.cookie, "PUT", "/api/upstreams/"+upstreamID, base+`}`)
 	if w.Code != 422 {
 		t.Fatalf("missing revision: %d %s", w.Code, w.Body.String())
@@ -435,7 +435,7 @@ func TestUpstreamPhaseTwoRevisionHTTP(t *testing.T) {
 	if upstream.CapabilitiesRevision == nil || *upstream.CapabilitiesRevision != 3 {
 		t.Fatalf("revision after save = %v", upstream.CapabilitiesRevision)
 	}
-	if len(upstream.Models) != 1 || upstream.Models[0].Weight != 40 || !upstream.Models[0].Enabled {
+	if len(upstream.Models) != 1 || upstream.Models[0].UpstreamModelID != "caps-raw" || !upstream.Models[0].Enabled {
 		t.Fatalf("capabilities after save = %+v", upstream.Models)
 	}
 	var binding *string

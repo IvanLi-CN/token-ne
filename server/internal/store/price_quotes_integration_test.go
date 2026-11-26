@@ -67,8 +67,8 @@ values($1,$2,'https://example.test',$3,$4,'hint')`, id, name, []byte("cipher"), 
 func addCapability(t *testing.T, ctx context.Context, s *Store, upstreamID, modelID string, upstreamName *string) {
 	t.Helper()
 	if _, err := s.Pool.Exec(ctx, `
-insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight)
-values($1,$2,$3,true,100,100)`, upstreamID, modelID, upstreamName); err != nil {
+insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled)
+values($1,coalesce($2,$3),$3,true)`, upstreamID, modelID, upstreamName); err != nil {
 		t.Fatalf("add capability: %v", err)
 	}
 }

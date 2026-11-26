@@ -512,12 +512,12 @@ where id=$1 returning capabilities_revision`, upstreamID).Scan(&out.Capabilities
 	return s.finishCatalogImport(ctx, tx, upstreamID, in, a, out)
 }
 
-// insertCatalogCapability creates the phase-one defaults for a new relation:
-// disabled, weight 0, and the raw catalog ID as the upstream name override.
+// insertCatalogCapability creates the phase-one default for a new binding:
+// disabled, and carrying the raw catalog ID as the upstream model ID.
 func insertCatalogCapability(ctx context.Context, tx pgx.Tx, upstreamID, modelID, upstreamModelID string) error {
 	_, e := tx.Exec(ctx, `
-insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight,catalog_model_id)
-values($1,$2,$3,false,100,0,$3)`, upstreamID, modelID, upstreamModelID)
+insert into upstream_models(upstream_id,model_id,upstream_model_id,enabled,catalog_model_id)
+values($1,$2,$3,false,$3)`, upstreamID, modelID, upstreamModelID)
 	return normalize(e)
 }
 
@@ -580,12 +580,11 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 		}
 		for _, c := range models {
 			if _, err = tx.Exec(ctx, `
-insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight)
-values($1,$2,$3,$4,$5,$6)
-on conflict (upstream_id,model_id) do update
-set upstream_model_name=excluded.upstream_model_name,enabled=excluded.enabled,
-    priority=excluded.priority,weight=excluded.weight,updated_at=now()`,
-				u.ID, c.ModelID, c.Mapping, c.Enabled, c.Priority, c.Weight); err != nil {
+insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled)
+values($1,$2,$3,$4)
+on conflict (upstream_id,upstream_model_id) do update
+set model_id=excluded.model_id,enabled=excluded.enabled,updated_at=now()`,
+				u.ID, c.UpstreamModelID, c.ModelID, c.Enabled); err != nil {
 				return normalize(err)
 			}
 		}

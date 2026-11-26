@@ -6,7 +6,6 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
-use rand::{SeedableRng, rngs::StdRng};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
@@ -321,7 +320,6 @@ fn policy_deny_wins_and_filters_only_existing_capabilities() {
     f["upstreams"].as_array_mut().unwrap().push(second);
     let mut capability = f["upstream_models"][0].clone();
     capability["upstream_id"] = SECOND.into();
-    capability["priority"] = 101.into();
     f["upstream_models"]
         .as_array_mut()
         .unwrap()
@@ -340,26 +338,25 @@ fn policy_deny_wins_and_filters_only_existing_capabilities() {
         "text-embedding-3-small"
     ));
 
-    let mut rng = StdRng::seed_from_u64(7);
-    let filtered = routing::candidates(&config, "gpt-5", None, &mut rng);
+    let filtered = routing::candidates(&config, "gpt-5", None);
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].upstream.id, SECOND);
     assert!(
-        routing::candidates(&config, "gpt-5", Some(UPSTREAM), &mut rng).is_empty(),
+        routing::candidates(&config, "gpt-5", Some(UPSTREAM)).is_empty(),
         "policy must remove denied upstreams even when explicitly restricted"
     );
     assert_eq!(
-        routing::candidates(&config, "gpt-5", Some(SECOND), &mut rng).len(),
+        routing::candidates(&config, "gpt-5", Some(SECOND)).len(),
         1
     );
     // 策略只过滤既有能力，不创建能力关系。
     assert!(
-        routing::candidates(&config, "gpt-4o-mini", None, &mut rng).is_empty(),
+        routing::candidates(&config, "gpt-4o-mini", None).is_empty(),
         "policy must not create capabilities"
     );
     // 上游限制缩小候选：gpt-5 只有第二个上游通过策略，限制到第一个上游时为空。
     assert_eq!(
-        routing::candidates(&config, "gpt-5", Some(SECOND), &mut rng)[0]
+        routing::candidates(&config, "gpt-5", Some(SECOND))[0]
             .capability
             .upstream_id,
         SECOND
@@ -401,7 +398,7 @@ async fn alias_requests_check_resolved_model_permissions_and_report_usage() {
         .push(model("gpt-4o-mini", true));
     let mut capability = f["upstream_models"][0].clone();
     capability["model_id"] = "gpt-4o-mini".into();
-    capability["upstream_model_name"] = "gpt-4o-mini-2026".into();
+    capability["upstream_model_id"] = "gpt-4o-mini-2026".into();
     f["upstream_models"]
         .as_array_mut()
         .unwrap()
@@ -488,6 +485,7 @@ async fn catalog_lists_only_models_with_policy_passing_candidates() {
         .push(model("gpt-4o-mini", true));
     let mut capability = f["upstream_models"][0].clone();
     capability["model_id"] = "gpt-4o-mini".into();
+    capability["upstream_model_id"] = "gpt-4o-mini".into();
     capability["upstream_id"] = SECOND.into();
     f["upstream_models"] = json!([f["upstream_models"][0].clone(), capability]);
     f["upstream_policies"] = json!([policy(SECOND, "deny", &[], &["gpt-4o-mini"])]);

@@ -56,8 +56,8 @@ r as (insert into price_revisions(id,model_id,scope,source,locked) select gen_ra
 insert into models(model_id,enabled,default_upstream_model,billing_revision_id) select m.model_id,m.enabled,null,r.id from m join r using(model_id)`, modelA, modelB, modelC, modelD); e != nil {
 		t.Fatalf("insert models: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, `insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values
- ($1,$2,'vendor/a',true,10,100),($3,$2,null,true,20,100),($3,$4,null,true,5,100)`, upstream1, modelA, upstream2, modelB); e != nil {
+	if _, e = s.Pool.Exec(ctx, `insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values
+ ($1,'vendor/a',$2,true),($3,'vendor/a',$2,true),($3,'vendor/b',$4,true)`, upstream1, modelA, upstream2, modelB); e != nil {
 		t.Fatalf("insert capabilities: %v", e)
 	}
 	audit := func(action string) Audit { return Audit{Actor: "tester", Action: action, TargetType: "model_route"} }
@@ -163,8 +163,8 @@ insert into models(model_id,enabled,default_upstream_model,billing_revision_id) 
 			t.Fatalf("exact rule must win over a higher-ranked glob: %+v", preview)
 		}
 		if len(preview.Candidates) != 2 || preview.Candidates[0].UpstreamID != upstream1 ||
-			preview.Candidates[0].UpstreamModelName != "vendor/a" || preview.Candidates[0].Allowed != true ||
-			preview.Candidates[1].UpstreamModelName != modelA {
+			preview.Candidates[0].UpstreamModelID != "vendor/a" || preview.Candidates[0].Allowed != true ||
+			preview.Candidates[1].UpstreamModelID != "vendor/b" {
 			t.Fatalf("candidate order or effective names: %+v", preview.Candidates)
 		}
 

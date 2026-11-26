@@ -569,7 +569,7 @@ order by m.model_id`)
 	rows.Close()
 
 	rows, err = tx.Query(ctx, `
-select um.model_id,um.upstream_id::text,um.upstream_model_name,um.catalog_model_id,
+select um.model_id,um.upstream_id::text,um.upstream_model_id,um.catalog_model_id,
        mp.price_revision_id::text,mp.input_usd_per_mtok::float8,mp.cached_input_usd_per_mtok::float8,
        mp.cache_write_usd_per_mtok::float8,mp.audio_input_usd_per_mtok::float8,mp.audio_output_usd_per_mtok::float8,
        mp.reasoning_usd_per_mtok::float8,mp.output_usd_per_mtok::float8,mp.tiers::text,coalesce(mp.locked,false),mp.updated_at
@@ -581,18 +581,18 @@ order by um.model_id,um.upstream_id`)
 	}
 	for rows.Next() {
 		var modelID, upstreamID string
-		var upstreamName, catalogID, revision, tiers *string
+		var upstreamModel, catalogID, revision, tiers *string
 		var input, cached, write, audioIn, audioOut, reasoning, output *float64
 		var locked bool
 		var updated *time.Time
-		if err = rows.Scan(&modelID, &upstreamID, &upstreamName, &catalogID, &revision,
+		if err = rows.Scan(&modelID, &upstreamID, &upstreamModel, &catalogID, &revision,
 			&input, &cached, &write, &audioIn, &audioOut, &reasoning, &output, &tiers, &locked, &updated); err != nil {
 			rows.Close()
 			return nil, normalize(err)
 		}
 		names := []string{}
-		if upstreamName != nil && *upstreamName != "" {
-			names = append(names, *upstreamName)
+		if upstreamModel != nil && *upstreamModel != "" {
+			names = append(names, *upstreamModel)
 		} else {
 			names = append(names, modelID)
 		}

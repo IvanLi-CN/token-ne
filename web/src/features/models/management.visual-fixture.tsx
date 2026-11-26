@@ -62,11 +62,9 @@ const upstreams = [
     capabilities_revision: 12,
     models: [
       {
+        upstream_model_id: "provider-chat-v2",
         model_id: "chat-pro",
-        upstream_model_name: "provider-chat-v2",
         enabled: true,
-        priority: 0,
-        weight: 100,
       },
     ],
     created_at: timestamp,
@@ -83,17 +81,19 @@ const upstreams = [
     capabilities_revision: 4,
     models: [
       {
+        upstream_model_id: "embed-small",
         model_id: "embed-small",
-        upstream_model_name: null,
         enabled: true,
-        priority: 10,
-        weight: 5,
       },
     ],
     created_at: timestamp,
     updated_at: timestamp,
   },
 ];
+// In-memory scene state: the preview is login-free, so writes mutate these
+// arrays and every later GET reflects them.
+let modelsState: Array<Record<string, unknown>> = [...models];
+let upstreamsState: Array<Record<string, unknown>> = [...upstreams];
 const routeRules = [
   {
     id: routeId,
@@ -360,8 +360,13 @@ window.fetch = async (input, init) => {
   if (url === "/api/version") return json(version);
   if (url === "/api/auth/me") return json({ id: "fixture-admin", username: "operator" });
   if (method === "GET") {
-    if (url === "/api/models") return json({ data: models });
-    if (url === "/api/upstreams") return json({ data: upstreams });
+    if (url === "/api/models") return json({ data: modelsState });
+    if (url === "/api/upstreams") return json({ data: upstreamsState });
+    const upstream = /^\/api\/upstreams\/([^/]+)$/.exec(url);
+    if (upstream) {
+      const found = upstreamsState.find((item) => item.id === upstream[1]);
+      if (found) return json(found);
+    }
     if (url === "/api/model-routes") return json({ data: routeRules });
     if (url === "/api/prices") return json({ data: priceProfiles });
     if (url === "/api/price-sources") return json({ data: priceSources });
@@ -431,7 +436,7 @@ window.fetch = async (input, init) => {
       candidates: [
         {
           upstream_id: primaryId,
-          upstream_model_name: "provider-chat-v2",
+          upstream_model_id: "provider-chat-v2",
           allowed: true,
           reason: null,
         },
@@ -471,6 +476,74 @@ window.fetch = async (input, init) => {
   if (url === `/api/upstreams/${primaryId}/model-policy`) return json(policies[primaryId]);
   if (url === "/api/downstream-keys" && method === "POST")
     return json({ ...keys[0], plaintext_key: "tn_fixture_one_time_secret_only" }, 201);
+  if (url === "/api/upstreams/models/fetch" && method === "POST")
+    return json({
+      data: [
+        "chat-latest",
+        "provider-chat-v2",
+        "provider-embed-v3",
+        "chat-pro-2026",
+        "embed-small",
+      ],
+    });
+  if (url === "/api/models" && method === "POST") {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const created: Record<string, unknown> = {
+      model_id: body.model_id,
+      enabled: body.enabled ?? false,
+      default_upstream_model: body.default_upstream_model ?? null,
+      shutdown_date: body.shutdown_date ?? null,
+      billing: body.billing ?? {
+        input_usd_per_mtok: null,
+        cached_input_usd_per_mtok: null,
+        output_usd_per_mtok: null,
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    modelsState = [...modelsState, created];
+    return json(created, 201);
+  }
+  if (url === "/api/upstreams" && method === "POST") {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const created: Record<string, unknown> = {
+      id: `fixture-${upstreamsState.length + 1}`,
+      name: body.name ?? "新建上游",
+      kind: "api_key",
+      base_url: body.base_url ?? "",
+      auth_style: body.auth_style ?? "bearer",
+      api_key_hint: "****fixture",
+      enabled: body.enabled ?? true,
+      capabilities_revision: 1,
+      models: body.models ?? [],
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    upstreamsState = [...upstreamsState, created];
+    return json(created, 201);
+  }
+  const update = /^\/api\/upstreams\/([^/]+)$/.exec(url);
+  if (update && method === "PUT") {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const index = upstreamsState.findIndex((item) => item.id === update[1]);
+    if (index < 0)
+      return json(
+        { error: { code: "not_found", message: "上游不存在", request_id: "fixture", details: [] } },
+        404,
+      );
+    upstreamsState = upstreamsState.map((item, position) =>
+      position === index
+        ? {
+            ...item,
+            ...body,
+            api_key_hint: item.api_key_hint,
+            capabilities_revision: Number(item.capabilities_revision ?? 0) + 1,
+            updated_at: timestamp,
+          }
+        : item,
+    );
+    return json(upstreamsState[index]);
+  }
   return readOnly();
 };
 const page = search.get("page");

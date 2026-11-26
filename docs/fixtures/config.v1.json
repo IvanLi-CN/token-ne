@@ -64,18 +64,14 @@
     {
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "model_id": "gpt-5",
-      "upstream_model_name": null,
-      "enabled": true,
-      "priority": 100,
-      "weight": 100
+      "upstream_model_id": "gpt-5",
+      "enabled": true
     },
     {
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "model_id": "text-embedding-3-small",
-      "upstream_model_name": null,
-      "enabled": true,
-      "priority": 100,
-      "weight": 100
+      "upstream_model_id": "text-embedding-3-small",
+      "enabled": true
     }
   ],
   "retry": {

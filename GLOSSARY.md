@@ -56,28 +56,24 @@ _Avoid_: Control-plane replay, file replay
 上游的 scheme、host 和可选路径前缀，不含隐式版本段；core 将下游请求路径原样追加到它后面。
 _Avoid_: API root with /v1, endpoint template
 
-**Model**:
-全局模型条目，包含公开模型名、接受状态（`enabled`）和计费信息；不按上游拆分。界面上的「全局模型预设」即指这份列表。
-_Avoid_: Upstream model, catalog entry, route, model preset
+**System model**:
+系统全局模型列表项，由用户手工配置（「系统模型预设」）；它的 `model_id` 是下游请求与 `/v1/models` 使用的名字，并携带接受状态（`enabled`）和计费信息；不按上游拆分。计费、权限和用量归因都以系统模型为准。
+_Avoid_: Global model, model preset, upstream model
 
-**Model mapping**:
-把公开模型名改写为上游实际模型名的配置；存在全局和上游两个作用域，上游作用域覆盖全局，但映射本身不声明上游是否支持该模型。
-_Avoid_: Model route, default target, alias table
+**Upstream model**:
+某上游自己上报的模型 ID，即该上游真实认得的名字；上游按它原样收到请求。只用于定位该上游的模型，不是对下游公开的名字。
+_Avoid_: Upstream model name, catalog entry, route
 
-**Upstream model capability**:
-显式声明某上游可以服务某模型的关系；它决定该模型的上游候选，并可选携带上游级名称覆盖。
-_Avoid_: Model route, supported model list, catalog entry
-
-**Effective model name**:
-对某个上游实际发送的模型名：上游级覆盖优先，其次全局映射，最后回退公开模型名。
-_Avoid_: Default target, resolved route
+**Upstream model binding**:
+一条上下游模型之间的转换关系：把系统模型转换为该上游实际认得的模型 ID，含启用开关。它解决上游命名不统一的问题，是候选与发往上游名称的唯一依据；同一上游内，一条上游模型与一条系统模型各自至多出现一次。
+_Avoid_: Capability, capability relation, model mapping
 
 **Upstream model catalog**:
-某个上游最近一次成功同步得到的模型发现结果；同步和刷新目录不会创建全局模型或上游模型能力，只有显式开关才会。
-_Avoid_: Upstream model capability, model route, public model list
+某个上游最近一次成功同步得到的模型发现结果；同步和刷新目录不会创建系统模型或绑定，只有显式保存才会。
+_Avoid_: Upstream model binding, model route, public model list
 
 **Catalog binding**:
-某个目录项与其上游模型能力之间的显式关联；决定目录项的 `bound_model_id`，与上游模型名称改写字段互相独立。
+某个目录项与其上游模型绑定之间的显式关联；决定目录项的 `bound_model_id`，与绑定的上游模型 ID 互相独立。
 _Avoid_: Upstream model name override, capability flag
 
 **Catalog sync mark**:
@@ -89,11 +85,19 @@ _Avoid_: Binding, installed flag, enabled state
 _Avoid_: Requested model, effective model name
 
 **Model route rule**:
-把下游请求模型名按精确或 Glob 模式解析到一个全局模型的规则；可选限制候选上游，但不直接指向裸上游模型名。
+把下游请求模型名解析到一个系统模型的规则，分全局与上游两个作用域；上游作用域的规则覆盖全局作用域，未命中时回落到全局。规则按作用域内的顺序逐条尝试，第一条命中即生效；规则不指向裸上游模型名。
 _Avoid_: Model mapping, upstream model capability, alias table
 
+**Route scope**:
+一条模型路由规则归属的作用域：全局，或某个上游。解析请求名时先试上游作用域，未命中再试全局作用域。
+_Avoid_: Priority group, override table
+
+**Route order**:
+同一作用域内规则被逐条尝试的次序，由所有者拖拽调整；顺序就是语义，同一条请求名命中第一条匹配规则后不再继续。
+_Avoid_: Priority, weight
+
 **Upstream model policy**:
-作用于全局模型 ID 的上游白名单/黑名单策略；黑名单命中优先于白名单，策略不创建能力关系。
+作用于系统模型 ID 的上游白名单/黑名单策略；黑名单命中优先于白名单，策略不创建绑定。
 _Avoid_: Upstream capability, downstream model permission
 
 **Price profile**:
@@ -117,7 +121,7 @@ _Avoid_: Price import, price update, quote cache
 _Avoid_: Current price, expected price, version
 
 **Capabilities revision**:
-每个上游能力集合的单调递增版本；目录导入、绑定和全量能力替换都递增它，更新请求必须携带读到的版本，过期返回 `409`。
+每个上游绑定集合的单调递增版本；目录导入、绑定和全量绑定替换都递增它，更新请求必须携带读到的版本，过期返回 `409`。
 _Avoid_: ETag, config revision, capability version
 
 **Applied weights**:

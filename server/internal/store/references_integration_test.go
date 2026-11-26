@@ -53,7 +53,7 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, modelID); e != nil {
 		t.Fatalf("insert model: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,enabled,priority,weight) values($1,$2,true,10,100)", upstreamA, modelID); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,$2,$2,true)", upstreamA, modelID); e != nil {
 		t.Fatalf("insert capability: %v", e)
 	}
 	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,priority,enabled) values($1,$2,'exact',$3,$4,10,true)", routeID, "alias-"+suffix, modelID, upstreamB); e != nil {

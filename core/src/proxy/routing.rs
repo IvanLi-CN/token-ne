@@ -2,7 +2,6 @@ use crate::config::{
     Config, DownstreamKey, MatchType, Model, PolicyAction, Upstream, UpstreamModel,
 };
 use crate::glob;
-use rand::Rng;
 
 pub fn allowed(key: &DownstreamKey, model_id: &str) -> bool {
     key.allowed_models == ["*"] || key.allowed_models.iter().any(|m| m == model_id)
@@ -10,12 +9,9 @@ pub fn allowed(key: &DownstreamKey, model_id: &str) -> bool {
 pub fn lookup<'a>(config: &'a Config, id: &str) -> Option<&'a Model> {
     config.models.iter().find(|m| m.model_id == id && m.enabled)
 }
-pub fn effective_model_name<'a>(model: &'a Model, capability: &'a UpstreamModel) -> &'a str {
-    capability
-        .upstream_model_name
-        .as_deref()
-        .or(model.default_upstream_model.as_deref())
-        .unwrap_or(&model.model_id)
+/// 上游实际收到的模型名就是绑定的上游模型 ID；`model` 只保留给调用方对齐的参数形状。
+pub fn effective_model_name<'a>(_model: &'a Model, capability: &'a UpstreamModel) -> &'a str {
+    capability.upstream_model_id.as_str()
 }
 
 /// 名称路由结果：目标全局 Model 和可选的上游限制。
@@ -107,7 +103,6 @@ pub fn candidates<'a>(
     config: &'a Config,
     model_id: &str,
     upstream_id: Option<&str>,
-    rng: &mut impl Rng,
 ) -> Vec<Candidate<'a>> {
     if lookup(config, model_id).is_none() {
         return Vec::new();
@@ -115,7 +110,7 @@ pub fn candidates<'a>(
     let mut pool: Vec<_> = config
         .upstream_models
         .iter()
-        .filter(|r| r.model_id == model_id && r.enabled && r.weight > 0)
+        .filter(|r| r.model_id == model_id && r.enabled)
         .filter(|r| upstream_id.is_none_or(|id| id == r.upstream_id))
         .filter(|r| policy_allows(config, &r.upstream_id, model_id))
         .filter_map(|r| {
@@ -129,34 +124,15 @@ pub fn candidates<'a>(
                 })
         })
         .collect();
-    pool.sort_by_key(|c| c.capability.priority);
-    let mut ordered = Vec::new();
-    while let Some(first) = pool.first() {
-        let priority = first.capability.priority;
-        let end = pool
-            .iter()
-            .take_while(|c| c.capability.priority == priority)
-            .count();
-        let total: u64 = pool[..end]
-            .iter()
-            .map(|c| u64::from(c.capability.weight))
-            .sum();
-        let mut draw = rng.random_range(0..total);
-        let mut chosen = 0;
-        for (i, c) in pool[..end].iter().enumerate() {
-            let weight = u64::from(c.capability.weight);
-            if draw < weight {
-                chosen = i;
-                break;
-            }
-            draw -= weight;
-        }
-        ordered.push(pool.remove(chosen));
-    }
-    ordered
+    // 绑定不带优先级和权重：候选按上游 ID 与上游模型 ID 的稳定升序逐个尝试。
+    pool.sort_by(|a, b| {
+        (a.upstream.id.as_str(), a.capability.upstream_model_id.as_str())
+            .cmp(&(b.upstream.id.as_str(), b.capability.upstream_model_id.as_str()))
+    });
+    pool
 }
 
-/// `/v1/models` 只列出至少存在一个通过能力、权重、上游启用和承接策略的候选的模型。
+/// `/v1/models` 只列出至少存在一个通过绑定、上游启用和承接策略的候选的模型。
 pub fn visible_models<'a>(config: &'a Config, key: &DownstreamKey) -> Vec<&'a Model> {
     config
         .models
@@ -167,7 +143,6 @@ pub fn visible_models<'a>(config: &'a Config, key: &DownstreamKey) -> Vec<&'a Mo
                 && config.upstream_models.iter().any(|r| {
                     r.model_id == m.model_id
                         && r.enabled
-                        && r.weight > 0
                         && policy_allows(config, &r.upstream_id, &m.model_id)
                         && config
                             .upstreams

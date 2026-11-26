@@ -5,7 +5,7 @@ use axum::{
     routing::get,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use rand::{SeedableRng, rngs::StdRng};
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, atomic::Ordering};
@@ -73,8 +73,7 @@ fn invalid_fixtures() {
         ),
         ("/upstreams/0/connect_timeout_ms", json!(99)),
         ("/upstreams/0/idle_timeout_ms", json!(86_400_001)),
-        ("/upstream_models/0/weight", json!(10001)),
-        ("/upstream_models/0/priority", json!(-1)),
+        ("/upstream_models/0/upstream_model_id", json!("")),
         ("/upstream_models/0/model_id", json!("missing")),
         ("/downstream_keys/0/sha256", json!("bad")),
         ("/downstream_keys/0/allowed_models", json!(["missing"])),
@@ -164,52 +163,28 @@ fn key_auth_and_allowed_models() {
 fn model_mapping_and_candidates() {
     let mut c = parse(&fixture()).unwrap();
     let model = c.models[0].clone();
-    let mut cap = c.upstream_models[0].clone();
-    assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5-2026-xx");
-    cap.upstream_model_name = Some("specific".into());
-    assert_eq!(routing::effective_model_name(&model, &cap), "specific");
-    cap.upstream_model_name = None;
-    let mut model = model;
-    model.default_upstream_model = None;
+    let cap = c.upstream_models[0].clone();
     assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5");
-    let mut rng = StdRng::seed_from_u64(3);
-    assert_eq!(routing::candidates(&c, "gpt-5", None, &mut rng).len(), 1);
-    c.upstream_models[0].weight = 0;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    assert_eq!(routing::candidates(&c, "gpt-5", None).len(), 1);
+    c.upstream_models[0].enabled = false;
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
     assert_eq!(routing::visible_models(&c, &c.downstream_keys[0]).len(), 1);
-    c.upstream_models[0].weight = 100;
+    c.upstream_models[0].enabled = true;
     c.upstreams[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
     c.upstreams[0].enabled = true;
     let mut upstream = c.upstreams[0].clone();
     upstream.id = "0193f0c2-7b1a-7c3e-9f00-000000000005".into();
     c.upstreams.push(upstream);
     let mut relation = c.upstream_models[0].clone();
     relation.upstream_id = c.upstreams[1].id.clone();
-    relation.priority = 0;
-    relation.weight = 1;
     c.upstream_models.push(relation);
-    for _ in 0..50 {
-        assert_eq!(
-            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
-                .capability
-                .priority,
-            0
-        );
-    }
-    c.upstream_models[0].priority = 0;
-    c.upstream_models[0].weight = 9;
-    let selected = (0..1000)
-        .filter(|_| {
-            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
-                .upstream
-                .id
-                == c.upstreams[0].id
-        })
-        .count();
-    assert!((840..960).contains(&selected), "weighted draw {selected}");
+    let ordered = routing::candidates(&c, "gpt-5", None);
+    assert_eq!(ordered.len(), 2);
+    assert_eq!(ordered[0].upstream.id, c.upstreams[0].id);
+    assert_eq!(ordered[1].upstream.id, c.upstreams[1].id);
     c.models[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
 }
 #[test]
 fn atomic_revision_and_inflight() {

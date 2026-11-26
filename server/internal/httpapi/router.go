@@ -224,7 +224,7 @@ func referenceDetails(refs []store.Reference) []Detail {
 		}
 		out = append(out, Detail{
 			Path:   fmt.Sprintf("%s[%d]", collection, seen[collection]),
-			Reason: fmt.Sprintf("%s %s still references this resource", strings.ReplaceAll(ref.Kind, "_", " "), ref.ID),
+			Reason: fmt.Sprintf("%s %s still references this resource", strings.ReplaceAll(ref.Kind, "_", " "), ref.Label()),
 		})
 		seen[collection]++
 	}
@@ -295,7 +295,7 @@ func decodeWithNullable(w http.ResponseWriter, r *http.Request, dst any, require
 			return false
 		}
 		for i, capability := range capabilities {
-			for _, field := range []string{"model_id", "enabled", "priority", "weight"} {
+			for _, field := range []string{"upstream_model_id", "model_id", "enabled"} {
 				if value, ok := capability[field]; !ok || string(value) == "null" {
 					fail(w, r, 422, "validation_failed", "capability field missing", detail(fmt.Sprintf("models[%d].%s", i, field), "is required and cannot be null"))
 					return false

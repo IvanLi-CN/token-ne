@@ -376,9 +376,9 @@ Idempotency-Key: <batch_id>
 - `upstreams[]` 继续允许未知字段以保持前向兼容，因此 `egressProxyId` 之类的拼写错误不会被 JSON Schema 拒绝，而会被当作直连语义。控制面在生成快照前必须按封闭字段集校验上游对象并拒绝这类键；core 只承认 `egress_proxy_id`。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），规范格式不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址；历史末尾 `/v1` 后缀由 core 兼容剥离。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
-- `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
-- `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
-- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`exact` 的 `pattern` 是全局 Model ID 或精确别名；`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。全局 Model ID 保留给对应 Model，`pattern` 等于已有或之后新建、导入的全局 Model ID 时按冲突拒绝。启用的 exact 规则按 `pattern` 唯一。同优先级 Glob 规则的匹配范围必须按同一套 Glob 语言判定，重叠时目标和上游限制必须相同。
+- `models[].model_id` 非空且全局唯一；不接受任何上游命名或映射字段；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
+- `upstream_models[]` 的 `(upstream_id, upstream_model_id)` 与 `(upstream_id, model_id)` 必须各自唯一；引用必须存在；`upstream_model_id` 非空且不超过 256 字符。
+- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。每条规则带作用域与作用域内顺序 `position`：核先按请求归属上游的作用域顺序逐条尝试，未命中再按全局作用域顺序尝试，第一条命中即生效。不设 `pattern` 唯一性或重叠约束，重复规则由顺序决定；`pattern` 等于系统模型 ID 也不算冲突。同一作用域内的 `position` 必须唯一。
 - `upstream_policies[]` 按 `upstream_id` 唯一，`default_action` 取 `allow` 或 `deny`。两个列表分别校验受限 Glob 语法及去重。发布方必须为每个存在策略行的上游导出一条策略；快照是控制面当前状态的完整函数，省略某个上游的策略表示该上游当前没有策略，核心不得沿用上一份快照中的策略，也不得继续沿用已清空的黑名单。没有策略行的上游等价于 `default_action=allow` 且两个列表为空。
 - 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。

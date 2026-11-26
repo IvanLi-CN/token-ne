@@ -36,7 +36,7 @@ func routingSnapshotRows() (keys, models, entries, capabilities json.RawMessage)
 	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"default_upstream_model":null,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
 	entries = []byte(`[{"id":"` + routingUpstreamID + `","name":"mock","base_url":"https://mock.example.com","auth_style":"bearer","enabled":true,"connect_timeout_ms":10000,"first_byte_timeout_ms":90000,"idle_timeout_ms":300000,"cipher":"` +
 		base64.StdEncoding.EncodeToString(ciphertext) + `","nonce":"` + base64.StdEncoding.EncodeToString(nonce) + `"}]`)
-	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","model_id":"gpt-4o","upstream_model_name":"upstream-gpt-4o","enabled":true,"priority":100,"weight":100}]`)
+	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","upstream_model_id":"upstream-gpt-4o","model_id":"gpt-4o","enabled":true}]`)
 	return keys, models, entries, capabilities
 }
 

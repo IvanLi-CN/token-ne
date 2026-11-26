@@ -33,15 +33,7 @@ const upstream = {
   api_key_hint: "****1234",
   enabled: true,
   capabilities_revision: 3,
-  models: [
-    {
-      model_id: "example",
-      upstream_model_name: "provider-example",
-      enabled: true,
-      priority: 0,
-      weight: 1,
-    },
-  ],
+  models: [{ upstream_model_id: "provider-example", model_id: "example", enabled: true }],
   created_at: timestamp,
   updated_at: timestamp,
 };
@@ -134,7 +126,7 @@ describe("models route rules", () => {
           candidates: [
             {
               upstream_id: upstream.id,
-              upstream_model_name: "provider-example",
+              upstream_model_id: "provider-example",
               allowed: true,
               reason: null,
             },

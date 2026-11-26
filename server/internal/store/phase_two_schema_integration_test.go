@@ -279,12 +279,12 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 		if _, e = s.Pool.Exec(ctx, "insert into upstream_model_catalog(upstream_id,upstream_model_id,first_seen_at,last_seen_at) values($1,$2,now(),now())", upstreamID, catalogItem); e != nil {
 			t.Fatalf("insert catalog item: %v", e)
 		}
-		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,catalog_model_id) values($1,$2,$3)", upstreamID, modelA, catalogItem); e != nil {
+		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,catalog_model_id) values($1,$2,$2,$3)", upstreamID, modelA, catalogItem); e != nil {
 			t.Fatalf("bind model a: %v", e)
 		}
-		_, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,catalog_model_id) values($1,$2,$3)", upstreamID, modelB, catalogItem)
+		_, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,catalog_model_id) values($1,$2,$2,$3)", upstreamID, modelB, catalogItem)
 		requirePgError(t, e, "23505", "upstream_models_one_global_binding")
-		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id) values($1,$2)", upstreamID, modelB); e != nil {
+		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id) values($1,$2,$2)", upstreamID, modelB); e != nil {
 			t.Fatalf("insert unbound capability: %v", e)
 		}
 		_, e = s.Pool.Exec(ctx, "update upstream_models set catalog_model_id=$3 where upstream_id=$1 and model_id=$2", upstreamID, modelB, catalogItem)

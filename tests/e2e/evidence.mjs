@@ -105,10 +105,8 @@ async function seed() {
     models: [
       {
         model_id: "gpt-4o-mini",
-        upstream_model_name: "mock-model",
+        upstream_model_id: "mock-model",
         enabled: true,
-        priority: 100,
-        weight: 100,
       },
     ],
   });

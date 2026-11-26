@@ -180,10 +180,8 @@
     {
       "enabled": true,
       "model_id": "gpt-4o-mini",
-      "priority": 100,
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
-      "upstream_model_name": "mock-model",
-      "weight": 100
+      "upstream_model_id": "mock-model"
     }
   ],
   "upstream_policies": [

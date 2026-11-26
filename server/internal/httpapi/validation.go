@@ -92,22 +92,20 @@ func ValidateUpstream(u store.Upstream, allowPrivate bool) []Detail {
 	if u.Idle < 100 || u.Idle > 3600000 {
 		return detail("idle_timeout_ms", "must be between 100 and 3600000")
 	}
-	seen := map[string]bool{}
+	// One upstream model ID serves one system model inside an upstream, and one
+	// system model is likewise served by one upstream model.
+	seenUpstream := map[string]bool{}
+	seenModel := map[string]bool{}
 	for i, c := range u.Models {
 		p := "models[" + strconv.Itoa(i) + "]"
-		if !validName(c.ModelID, 256) || seen[c.ModelID] {
+		if !validName(c.UpstreamModelID, 256) || seenUpstream[c.UpstreamModelID] {
+			return detail(p+".upstream_model_id", "must be a unique upstream model ID")
+		}
+		seenUpstream[c.UpstreamModelID] = true
+		if !validName(c.ModelID, 256) || seenModel[c.ModelID] {
 			return detail(p+".model_id", "must be a unique model ID")
 		}
-		seen[c.ModelID] = true
-		if c.Mapping != nil && utf8.RuneCountInString(*c.Mapping) > 256 {
-			return detail(p+".upstream_model_name", "maximum length is 256")
-		}
-		if c.Priority < 0 || c.Priority > 100000 {
-			return detail(p+".priority", "must be between 0 and 100000")
-		}
-		if c.Weight < 0 || c.Weight > 10000 {
-			return detail(p+".weight", "must be between 0 and 10000")
-		}
+		seenModel[c.ModelID] = true
 	}
 	return nil
 }

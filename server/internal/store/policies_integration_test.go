@@ -54,7 +54,7 @@ r as (insert into price_revisions(id,model_id,scope,source,locked) select gen_ra
 insert into models(model_id,enabled,billing_revision_id) select m.model_id,true,r.id from m join r using(model_id)`, modelA, modelX); e != nil {
 		t.Fatalf("insert models: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,'vendor/a',true,10,100)", upstreamID, modelA); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'vendor/a',$2,true)", upstreamID, modelA); e != nil {
 		t.Fatalf("insert capability: %v", e)
 	}
 	audit := func(action string) Audit { return Audit{Actor: "tester", Action: action, TargetType: "upstream"} }

@@ -206,10 +206,9 @@ pub struct Upstream {
 pub struct UpstreamModel {
     pub upstream_id: String,
     pub model_id: String,
-    pub upstream_model_name: Option<String>,
+    // 上游真正上报的模型 ID；请求按它发往上游。
+    pub upstream_model_id: String,
     pub enabled: bool,
-    pub priority: u32,
-    pub weight: u32,
 }
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -462,22 +461,28 @@ impl Config {
         let mut relations = HashSet::new();
         for r in &self.upstream_models {
             require(
-                relations.insert((&r.upstream_id, &r.model_id)),
+                relations.insert((&r.upstream_id, &r.upstream_model_id)),
                 "upstream_models.duplicate",
+            )?;
+            require(
+                self.upstream_models
+                    .iter()
+                    .filter(|other| {
+                        other.upstream_id == r.upstream_id && other.model_id == r.model_id
+                    })
+                    .count()
+                    == 1,
+                "upstream_models.model_duplicate",
             )?;
             require(
                 self.models.iter().any(|m| m.model_id == r.model_id)
                     && self.upstreams.iter().any(|u| u.id == r.upstream_id),
                 "upstream_models.reference",
             )?;
-            range(r.priority.into(), 0, 100000, "upstream_models.priority")?;
-            range(r.weight.into(), 0, 10000, "upstream_models.weight")?;
-            if let Some(s) = &r.upstream_model_name {
-                require(
-                    s.chars().count() <= 256,
-                    "upstream_models.upstream_model_name",
-                )?;
-            }
+            require(
+                !r.upstream_model_id.is_empty() && r.upstream_model_id.chars().count() <= 256,
+                "upstream_models.upstream_model_id",
+            )?;
         }
         // 路由与策略没有安全的“忽略”默认，必须由能力标记守护。
         require(

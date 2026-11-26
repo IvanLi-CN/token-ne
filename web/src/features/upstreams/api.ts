@@ -1,11 +1,13 @@
 import { apiRequest } from "../../lib/api";
 import { listData } from "../models/api";
+/** 上游模型绑定：上游模型 ID 原样发往上游，`model_id` 是它服务的系统模型。 */
 export interface Capability {
+  upstream_model_id: string;
   model_id: string;
-  upstream_model_name: string | null;
   enabled: boolean;
-  priority: number;
-  weight: number;
+}
+export interface UpstreamModelFetch {
+  data: string[];
 }
 export interface UpstreamInput {
   name: string;
@@ -45,6 +47,9 @@ export const upstreamsApi = {
     apiRequest<Upstream>(`/upstreams/${encodeURIComponent(id)}`, { method: "PUT", body }),
   remove: (id: string) =>
     apiRequest<void>(`/upstreams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** 读取上游 `GET /v1/models`；不写库。 */
+  fetchModels: (body: { base_url: string; auth_style: string; api_key?: string | null }) =>
+    apiRequest<UpstreamModelFetch>("/upstreams/models/fetch", { method: "POST", body }),
   test: (id: string) =>
     apiRequest<TestResult>(`/upstreams/${encodeURIComponent(id)}/test`, { method: "POST" }),
 };

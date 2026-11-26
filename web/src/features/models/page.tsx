@@ -432,10 +432,10 @@ export default function ModelsPage() {
       };
     }
     if (upstreams.isPending) {
-      return { label: "加载中", tone: "neutral", title: "正在加载上游能力。" };
+      return { label: "加载中", tone: "neutral", title: "正在加载上游模型。" };
     }
     if (upstreams.isError) {
-      return { label: "未知", tone: "error", title: "上游能力加载失败，无法判断候选。" };
+      return { label: "未知", tone: "error", title: "上游模型加载失败，无法判断候选。" };
     }
     if (policies.isLoading) {
       return { label: "加载中", tone: "neutral", title: "正在加载上游承接策略。" };
@@ -454,30 +454,22 @@ export default function ModelsPage() {
     );
     if (!capabilities.length) {
       return {
-        label: "无能力",
+        label: "未配置",
         tone: "warning",
-        title: "没有任何上游声明该模型的能力；先在对应上游里添加能力。",
+        title: "没有任何上游提供该模型；先在对应上游里添加上游模型。",
       };
     }
     const enabledCapabilities = capabilities.filter(({ capability }) => capability.enabled);
     if (!enabledCapabilities.length) {
       return {
-        label: "能力禁用",
+        label: "上游模型停用",
         tone: "warning",
-        title: `${capabilities.length} 个上游能力都已禁用。`,
+        title: `${capabilities.length} 个上游模型都已停用。`,
       };
     }
-    const weighted = enabledCapabilities.filter(({ capability }) => capability.weight > 0);
-    if (!weighted.length) {
-      return {
-        label: "权重为 0",
-        tone: "warning",
-        title: "启用的能力权重都是 0，请求不会被分配。",
-      };
-    }
-    const live = weighted.filter(({ upstream }) => upstream.enabled);
+    const live = enabledCapabilities.filter(({ upstream }) => upstream.enabled);
     if (!live.length) {
-      return { label: "上游禁用", tone: "warning", title: "持有该模型能力的上游都未启用。" };
+      return { label: "上游禁用", tone: "warning", title: "提供该模型的上游都未启用。" };
     }
     const allowed = live.filter(({ upstream }) =>
       policyAllows(policies.data?.get(upstream.id), model.model_id),
@@ -488,7 +480,7 @@ export default function ModelsPage() {
     return {
       label: "可路由",
       tone: "success",
-      title: `${allowed.length} 个候选，优先级内按权重随机；路由规则的上游限制请在下方的规则表核对。`,
+      title: `${allowed.length} 个候选，按上游稳定升序尝试；路由规则的上游限制请在下方的规则表核对。`,
     };
   };
   const references = (id: string) =>
@@ -601,7 +593,7 @@ export default function ModelsPage() {
               },
               {
                 key: "count",
-                header: "能力数",
+                header: "上游模型数",
                 cell: (model) => (upstreams.isSuccess ? references(model.model_id).length : "未知"),
               },
               {
@@ -615,16 +607,16 @@ export default function ModelsPage() {
                     <span
                       title={
                         !upstreams.isSuccess
-                          ? "能力关系尚未加载，无法安全删除"
+                          ? "上游模型尚未加载，无法安全删除"
                           : references(model.model_id).length
-                            ? `仍有 ${references(model.model_id).length} 个上游能力引用，请先移除`
+                            ? `仍有 ${references(model.model_id).length} 个上游模型在使用，请先移除`
                             : undefined
                       }
                     >
                       <DangerAction
                         label="删除"
                         title={`删除 ${model.model_id}？`}
-                        description="当前没有已知能力引用；若存在并发新增引用，服务器将拒绝删除并返回冲突。"
+                        description="当前没有上游模型在使用这个模型；若刚好有人添加，服务器会拒绝删除并返回冲突。"
                         disabled={!upstreams.isSuccess || references(model.model_id).length > 0}
                         action={async () => {
                           await modelsApi.remove(model.model_id);
@@ -634,7 +626,7 @@ export default function ModelsPage() {
                     </span>
                     {upstreams.isSuccess && references(model.model_id).length > 0 && (
                       <small className="muted">
-                        {references(model.model_id).length} 个引用，禁止删除
+                        {references(model.model_id).length} 个上游模型在用，禁止删除
                       </small>
                     )}
                   </ActionGroup>
@@ -646,7 +638,7 @@ export default function ModelsPage() {
             <div className="mt-4">
               <FormError error={upstreams.error} />
               <Button variant="secondary" onClick={() => void upstreams.refetch()}>
-                重试能力加载
+                重试加载
               </Button>
             </div>
           )}

@@ -144,7 +144,7 @@ func TestModelRoutePreviewContract(t *testing.T) {
 	h, repo, cfg, cookie := routingAPI(t)
 	resolved, rule, kind := "gpt-4o", uuid.NewString(), "exact"
 	repo.preview = store.RoutePreview{RequestedModel: "alias", ResolvedModel: &resolved, MatchedRule: &rule, RuleKind: &kind,
-		Candidates: []store.RouteCandidate{{UpstreamID: uuid.NewString(), UpstreamModelName: "openai/gpt-4o", Allowed: true, Reason: nil}}}
+		Candidates: []store.RouteCandidate{{UpstreamID: uuid.NewString(), UpstreamModelID: "openai/gpt-4o", Allowed: true, Reason: nil}}}
 	w := request(h, cfg, cookie, "POST", "/api/model-routes/preview", `{"requested_model":"alias"}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"resolved_model":"gpt-4o"`) {
 		t.Fatalf("preview: %d %s", w.Code, w.Body.String())

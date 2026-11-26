@@ -208,6 +208,16 @@ func (s *Store) SaveModel(ctx context.Context, m Model, create bool, a Audit) (M
 type Reference struct {
 	Kind string
 	ID   string
+	// UpstreamModelID names the binding side of a capability reference.
+	UpstreamModelID string
+}
+
+// Label renders the reference for conflict details.
+func (r Reference) Label() string {
+	if r.UpstreamModelID != "" {
+		return r.UpstreamModelID
+	}
+	return r.ID
 }
 
 // ReferenceConflict reports why a delete was refused so the API can list every
@@ -227,13 +237,13 @@ func deletionReferences(ctx context.Context, tx pgx.Tx, kind, id string) ([]Refe
 	var query string
 	switch kind {
 	case "model":
-		query = `select kind,id from (
- select 'capability' as kind, upstream_id::text as id from upstream_models where model_id=$1
- union all select 'route_rule', id::text from model_route_rules where target_model_id=$1
- union all select 'price_override', upstream_id::text from model_prices where model_id=$1
+		query = `select kind,id,upstream_model_id from (
+ select 'capability' as kind, upstream_id::text as id, upstream_model_id from upstream_models where model_id=$1
+ union all select 'route_rule', id::text, '' from model_route_rules where target_model_id=$1
+ union all select 'price_override', upstream_id::text, '' from model_prices where model_id=$1
 ) r order by kind,id`
 	case "upstream":
-		query = `select kind,id from (
+		query = `select kind,id,'' from (
  select 'route_rule' as kind, id::text as id from model_route_rules where upstream_id=$1
  union all select 'price_override', model_id from model_prices where upstream_id=$1
 ) r order by kind,id`
@@ -248,7 +258,7 @@ func deletionReferences(ctx context.Context, tx pgx.Tx, kind, id string) ([]Refe
 	refs := []Reference{}
 	for rows.Next() {
 		var ref Reference
-		if err = rows.Scan(&ref.Kind, &ref.ID); err != nil {
+		if err = rows.Scan(&ref.Kind, &ref.ID, &ref.UpstreamModelID); err != nil {
 			return nil, err
 		}
 		refs = append(refs, ref)

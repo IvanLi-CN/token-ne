@@ -239,17 +239,12 @@
     },
     "upstreamModel": {
       "type": "object",
-      "required": ["upstream_id", "model_id", "enabled", "priority", "weight"],
+      "required": ["upstream_id", "model_id", "upstream_model_id", "enabled"],
       "properties": {
         "upstream_id": { "type": "string", "format": "uuid" },
         "model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "upstream_model_name": {
-          "type": ["string", "null"],
-          "maxLength": 256
-        },
-        "enabled": { "type": "boolean" },
-        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "weight": { "type": "integer", "minimum": 0, "maximum": 10000 }
+        "upstream_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "enabled": { "type": "boolean" }
       },
       "additionalProperties": true
     },

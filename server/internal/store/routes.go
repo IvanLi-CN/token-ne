@@ -54,10 +54,10 @@ type ModelRoute struct {
 // RouteCandidate is one upstream that can serve the resolved model together
 // with the policy decision applied to it.
 type RouteCandidate struct {
-	UpstreamID        string  `json:"upstream_id"`
-	UpstreamModelName string  `json:"upstream_model_name"`
-	Allowed           bool    `json:"allowed"`
-	Reason            *string `json:"reason"`
+	UpstreamID      string  `json:"upstream_id"`
+	UpstreamModelID string  `json:"upstream_model_id"`
+	Allowed         bool    `json:"allowed"`
+	Reason          *string `json:"reason"`
 }
 
 // RoutePreview is the read-only result of resolving a requested model name the
@@ -261,11 +261,9 @@ type previewRule struct {
 }
 
 type previewUpstream struct {
-	UpstreamID string  `json:"upstream_id"`
-	ModelID    string  `json:"model_id"`
-	Name       *string `json:"upstream_model_name"`
-	Priority   int     `json:"priority"`
-	Weight     int     `json:"weight"`
+	UpstreamID      string `json:"upstream_id"`
+	ModelID         string `json:"model_id"`
+	UpstreamModelID string `json:"upstream_model_id"`
 }
 
 type previewPolicy struct {
@@ -286,7 +284,7 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 	e := s.Pool.QueryRow(ctx, `select
  coalesce((select jsonb_agg(jsonb_build_object('id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model) order by model_id) from models),'[]'::jsonb),
  coalesce((select jsonb_agg(jsonb_build_object('id',id::text,'pattern',pattern,'match_type',match_type,'target_model_id',target_model_id,'upstream_id',upstream_id::text,'priority',priority) order by priority,id) from model_route_rules where enabled),'[]'::jsonb),
- coalesce((select jsonb_agg(jsonb_build_object('upstream_id',m.upstream_id::text,'model_id',m.model_id,'upstream_model_name',m.upstream_model_name,'priority',m.priority,'weight',m.weight) order by m.priority,m.upstream_id) from upstream_models m join upstreams u on u.id=m.upstream_id where m.enabled and u.enabled),'[]'::jsonb),
+ coalesce((select jsonb_agg(jsonb_build_object('upstream_id',m.upstream_id::text,'model_id',m.model_id,'upstream_model_id',m.upstream_model_id) order by m.upstream_id,m.upstream_model_id) from upstream_models m join upstreams u on u.id=m.upstream_id where m.enabled and u.enabled),'[]'::jsonb),
  coalesce((select jsonb_agg(jsonb_build_object('upstream_id',upstream_id::text,'default_action',default_action,'allow_patterns',allow_patterns,'deny_patterns',deny_patterns) order by upstream_id) from upstream_model_policies),'[]'::jsonb)`).Scan(&modelsRaw, &rulesRaw, &capabilitiesRaw, &policiesRaw)
 	if e != nil {
 		return RoutePreview{}, e
@@ -346,18 +344,8 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 		if !previewPolicyAllows(policies, c.UpstreamID, target.ID) {
 			allowed = false
 			reason = new("policy_denied")
-		} else if c.Weight == 0 {
-			allowed = false
-			reason = new("zero_weight")
 		}
-		name := target.ID
-		if target.Default != nil {
-			name = *target.Default
-		}
-		if c.Name != nil {
-			name = *c.Name
-		}
-		preview.Candidates = append(preview.Candidates, RouteCandidate{UpstreamID: c.UpstreamID, UpstreamModelName: name, Allowed: allowed, Reason: reason})
+		preview.Candidates = append(preview.Candidates, RouteCandidate{UpstreamID: c.UpstreamID, UpstreamModelID: c.UpstreamModelID, Allowed: allowed, Reason: reason})
 	}
 	return preview, nil
 }

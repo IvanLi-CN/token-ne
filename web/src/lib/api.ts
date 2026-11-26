@@ -241,7 +241,7 @@ export interface ModelRouteInput {
 }
 export interface RouteCandidate {
   upstream_id: string;
-  upstream_model_name: string;
+  upstream_model_id: string;
   allowed?: boolean;
   reason?: string | null;
 }

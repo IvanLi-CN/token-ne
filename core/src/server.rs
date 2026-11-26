@@ -492,7 +492,6 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         config,
         &resolution.model.model_id,
         resolution.upstream_id,
-        &mut rand::rng(),
     );
     retry::forward(ForwardRequest {
         parts,
