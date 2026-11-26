@@ -9,6 +9,7 @@ export interface Column<T> {
 }
 export function DataTable<T>({
   caption,
+  captionHidden = false,
   columns,
   rows,
   rowKey,
@@ -23,6 +24,8 @@ export function DataTable<T>({
   rowAttrs,
 }: {
   caption: string;
+  /** Keep the accessible name but drop the visible title when a host heading already names it. */
+  captionHidden?: boolean;
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
@@ -45,7 +48,7 @@ export function DataTable<T>({
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users must scroll wide tables. */}
       <section className="table-scroll" aria-label={caption} tabIndex={0}>
         <table>
-          <caption>{caption}</caption>
+          <caption className={captionHidden ? "visually-hidden" : undefined}>{caption}</caption>
           <thead>
             <tr>
               {columns.map((column) => (

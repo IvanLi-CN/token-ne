@@ -146,6 +146,7 @@ function PolicyForm({
         ) : (
           <DataTable
             caption="承接策略影响预览"
+            captionHidden
             rows={impact}
             rowKey={(row) => row.model_id}
             columns={[
@@ -194,8 +195,8 @@ export function UpstreamPolicySection({
     queryFn: ({ signal }) => upstreamPolicyApi.get(upstream.id, signal),
   });
   return (
-    <section className="surface-card" aria-label="承接策略">
-      <div className="px-5 py-5">
+    <section className="border-t border-[var(--border-quiet)] pt-5" aria-label="承接策略">
+      <div className="flex flex-col gap-3">
         {policy.isPending ? (
           <Spinner label="正在加载承接策略" />
         ) : policy.isError ? (

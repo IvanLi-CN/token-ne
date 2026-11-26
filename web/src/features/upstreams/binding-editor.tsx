@@ -193,7 +193,7 @@ export function BindingEditor({
               return (
                 <li
                   key={row.upstream_model_id || `pending-${index}`}
-                  className="flex flex-col gap-3 rounded-xl border border-border px-4 py-3"
+                  className="flex flex-col gap-3 border-t border-[var(--border-quiet)] px-1 pt-3 first:border-t-0 first:pt-0"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <code className="break-all">{row.upstream_model_id || "未填上游模型 ID"}</code>

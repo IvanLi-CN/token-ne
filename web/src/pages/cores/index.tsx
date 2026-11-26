@@ -459,6 +459,7 @@ export default function CoresPage() {
               <div className="px-4 pb-6 sm:px-6">
                 <DataTable
                   caption="部署记录"
+                  captionHidden
                   rows={data.deployments}
                   columns={deployments}
                   rowKey={(row) => row.id}
@@ -487,6 +488,7 @@ export default function CoresPage() {
                 )}
                 <DataTable
                   caption="实例运行状态"
+                  captionHidden
                   rows={data.instances}
                   columns={instances}
                   rowKey={(row) => row.id}
@@ -503,6 +505,7 @@ export default function CoresPage() {
               <div className="px-4 pb-6 sm:px-6">
                 <DataTable
                   caption="版本登记表"
+                  captionHidden
                   rows={data.versions}
                   columns={versions}
                   rowKey={(row) => row.id}

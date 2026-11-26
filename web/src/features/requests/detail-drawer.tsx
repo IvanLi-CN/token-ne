@@ -27,7 +27,7 @@ function errorSummary(code?: string | null) {
 
 function Details({ title, rows }: { title: string; rows: [string, ReactNode][] }) {
   return (
-    <section className="rounded-xl border border-border p-4">
+    <section className="border-t border-[var(--border-quiet)] pt-4 first:border-t-0 first:pt-0">
       <h3 className="mb-3 font-semibold">{title}</h3>
       <dl className="grid grid-cols-2 gap-4">
         {rows.map(([label, value]) => (

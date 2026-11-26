@@ -260,8 +260,11 @@ export function UpstreamCatalogDialog({
       dirty={policyDirty}
     >
       <div className="flex flex-col gap-6">
-        <section className="surface-card" aria-label="模型目录">
-          <div className="panel-heading">
+        <section
+          className="border-t border-[var(--border-quiet)] pt-5 first:border-t-0 first:pt-0"
+          aria-label="模型目录"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
             <div>
               <h3>模型目录</h3>
               <p className="muted">
@@ -290,6 +293,7 @@ export function UpstreamCatalogDialog({
             )}
             <DataTable
               caption="上游模型目录"
+              captionHidden
               rows={catalog.data?.data ?? []}
               rowKey={(item) => item.upstream_model_id}
               loading={catalog.isPending}

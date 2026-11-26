@@ -185,7 +185,7 @@ export default function OverviewPage() {
               {cores.data.instances.map((instance) => (
                 <article
                   key={instance.id}
-                  className="min-w-0 rounded-xl border border-[var(--border)] p-4"
+                  className="min-w-0 border-t border-[var(--border-quiet)] pt-4 first:border-t-0 first:pt-0"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="font-semibold break-all">{instance.version}</h3>
@@ -218,6 +218,7 @@ export default function OverviewPage() {
         <div className="px-6 pb-6">
           <DataTable
             caption="最近请求记录"
+            captionHidden
             columns={requestColumns.slice(0, 4)}
             rows={recent.data?.data ?? []}
             rowKey={(row) => row.event_id}

@@ -368,6 +368,31 @@ window.fetch = async (input, init) => {
     if (url === "/api/model-routes") return json({ data: routeRules });
     if (url === "/api/prices") return json({ data: priceProfiles });
     if (url === "/api/price-sources") return json({ data: priceSources });
+    const sourceModels = /^\/api\/price-sources\/([^/?]+)\/models(?:\?.*)?$/.exec(url);
+    if (sourceModels)
+      return json({
+        source_id: sourceModels[1],
+        fetched_at: timestamp,
+        vendors: ["OpenAI", "Meta"],
+        data: [
+          {
+            source_model_id: "gpt-4o-mini",
+            model_id: "gpt-4o-mini",
+            vendor: "OpenAI",
+            released_at: timestamp,
+            deprecated_at: null,
+            installed: true,
+            synced: true,
+            billing: {
+              input_usd_per_mtok: 0.15,
+              cached_input_usd_per_mtok: 0.075,
+              output_usd_per_mtok: 0.6,
+            },
+            web_search_usd_per_call: null,
+            cache_write_1h_usd_per_mtok: null,
+          },
+        ],
+      });
     if (url === `/api/price-sync-runs/${priceRun.id}`) return json(priceRun);
     if (url === "/api/downstream-keys") return json({ data: keys });
     const catalog = /^\/api\/upstreams\/([^/]+)\/models\/catalog$/.exec(url);

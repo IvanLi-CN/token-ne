@@ -367,6 +367,11 @@ kbd {
 #page-title {
   scroll-margin-top: 90px;
 }
+/* The router focuses the page title so screen readers announce the new page.
+   That is a programmatic focus, not a keyboard stop, so it takes no ring. */
+#page-title:focus-visible {
+  outline: none;
+}
 .page-header {
   display: flex;
   align-items: center;
@@ -1190,6 +1195,34 @@ th {
 .table-scroll .flex {
   flex-wrap: nowrap;
 }
+/* A card never nests. Containers own the edge, border and radius; anything that
+   sits inside a card or a drawer separates itself with a hairline or a quiet
+   fill instead of a second card. */
+.surface-card .surface-card,
+.morph-panel .surface-card,
+.dialog-content .surface-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dialog-content .surface-card + .surface-card {
+  margin-top: 8px;
+  border-top: 1px solid var(--border-quiet);
+  padding-top: 16px;
+}
+.surface-card .table-scroll,
+.morph-panel .table-scroll,
+.dialog-content .table-scroll {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--border-quiet);
+}
+.surface-card .table-scroll th,
+.dialog-content .table-scroll th {
+  background: transparent;
+}
+
 .pagination {
   display: flex;
   justify-content: flex-end;
@@ -1486,9 +1519,8 @@ th {
   gap: 0.25rem 1.5rem;
   min-height: 3.4rem;
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--border-quiet);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
 }
 .switch {
   display: inline-flex;

@@ -523,6 +523,7 @@ export default function ModelsPage() {
           <FieldFailure error={toggleError} />
           <ManagementTable
             caption="系统模型"
+            captionHidden
             rows={(models.data ?? []).filter(
               (model) => filter === "all" || model.enabled === (filter === "enabled"),
             )}

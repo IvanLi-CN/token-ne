@@ -341,6 +341,7 @@ function UpstreamEditor({
             scopeUpstreamId={upstream.id}
             models={models.data}
             upstreams={[upstream]}
+            embedded
           />
         )}
         <div className="dialog-actions">
@@ -480,6 +481,7 @@ export default function UpstreamsPage() {
         <div className="px-5 pb-5">
           <ManagementTable
             caption="上游列表"
+            captionHidden
             rows={upstreams.data ?? []}
             rowKey={(upstream) => upstream.id}
             rowLabel={(upstream) => upstream.name}

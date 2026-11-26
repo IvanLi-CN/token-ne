@@ -403,6 +403,7 @@ export function ModelRouteScopePanel({
   models,
   upstreams,
   showPreview = false,
+  embedded = false,
 }: {
   caption: string;
   title: string;
@@ -411,6 +412,8 @@ export function ModelRouteScopePanel({
   models: Model[] | undefined;
   upstreams?: Upstream[] | undefined;
   showPreview?: boolean;
+  /** Inside a drawer or another card: no second card, no card padding. */
+  embedded?: boolean;
 }) {
   const client = useQueryClient();
   const routes = useQuery({
@@ -427,9 +430,15 @@ export function ModelRouteScopePanel({
 
   return (
     <>
-      <section className="surface-card" aria-label={caption}>
-        <div className="panel-heading">
-          <div>
+      <section className={embedded ? undefined : "surface-card"} aria-label={caption}>
+        <div
+          className={
+            embedded
+              ? "flex flex-wrap items-start justify-between gap-3"
+              : "panel-heading flex flex-wrap items-start justify-between gap-3"
+          }
+        >
+          <div className="min-w-0">
             <h2>{title}</h2>
             <p className="muted">{description}</p>
           </div>
@@ -441,7 +450,7 @@ export function ModelRouteScopePanel({
             创建路由规则
           </Button>
         </div>
-        <div className="px-5 pb-5">
+        <div className={embedded ? "mt-4" : "px-5 pb-5"}>
           {duplicates.length > 0 && (
             <p className="muted mb-3 text-xs" role="status">
               本作用域存在重复 pattern：{duplicates.join("、")}
@@ -451,6 +460,7 @@ export function ModelRouteScopePanel({
           <FieldFailure error={reorderError} />
           <DataTable
             caption={`${caption}列表`}
+            captionHidden
             rows={ordered}
             rowKey={(route) => route.id}
             loading={routes.isPending}
