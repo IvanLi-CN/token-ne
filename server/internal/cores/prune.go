@@ -105,7 +105,7 @@ const pruneCandidateSelect = `select i.id::text,v.version,i.container_id,i.conta
  from core_instances i join core_versions v on v.id=i.version_id
  left join lateral (
    select d.state,d.updated_at from core_deployments d
-   where d.id is distinct from i.deployment_id and (d.progress->'from') ? (i.id::text)
+   where d.id is distinct from i.deployment_id and (d.progress->'from_weights') ? (i.id::text)
    order by d.created_at desc limit 1
  ) r on true`
 
@@ -401,9 +401,13 @@ func (r *Runtime) replayRetired(ctx context.Context, c pruneCandidate) error {
 	if c.State != "stopped" {
 		return nil
 	}
-	if c.ContainerID == nil {
-		// A forced prune may have removed the container while the directory was
-		// retained; recreate it from the recorded image identity.
+	// A forced prune may have removed the container while the directory was
+	// retained. `c` is this pass's snapshot, so its ContainerID stays nil even
+	// after the row is updated; restoreContainer already created and started the
+	// replacement, which is why the recreated case must not start it again.
+	containerID := c.ContainerID
+	recreated := false
+	if containerID == nil {
 		exists, e := r.Docker.StateDirExists(ctx, r.StateHostDir, c.ID)
 		if e != nil || !exists {
 			return e
@@ -412,17 +416,22 @@ func (r *Runtime) replayRetired(ctx context.Context, c pruneCandidate) error {
 		if e != nil {
 			return e
 		}
+		// restoreContainer both creates and starts the replacement and records its
+		// id itself, so there is nothing to start afterwards.
 		if e = r.restoreContainer(ctx, row); e != nil {
 			return e
 		}
+		recreated = true
 	}
 	if _, e := r.database().Exec(ctx, `update core_instances set state='draining',zero_samples=0,draining_started_at=now(),
  spool_zero_at=null,lifecycle_error=$2,updated_at=now() where id=$1 and state='stopped'`, c.ID, replayMarker); e != nil {
 		return e
 	}
-	if e := r.Docker.Start(ctx, *c.ContainerID); e != nil {
-		_, persistErr := r.database().Exec(ctx, `update core_instances set state='stopped',lifecycle_error=$2 where id=$1`, c.ID, e.Error())
-		return errors.Join(e, persistErr)
+	if !recreated {
+		if e := r.Docker.Start(ctx, *containerID); e != nil {
+			_, persistErr := r.database().Exec(ctx, `update core_instances set state='stopped',lifecycle_error=$2 where id=$1`, c.ID, e.Error())
+			return errors.Join(e, persistErr)
+		}
 	}
 	return r.Audit(ctx, "system", "core.instance.replay", "core_instance", c.ID,
 		map[string]any{"reason": "spool not confirmed zero", "last_ack_seq": c.Ack, "spool_unacked": c.Spool})

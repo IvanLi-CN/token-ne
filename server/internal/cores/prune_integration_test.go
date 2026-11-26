@@ -50,7 +50,7 @@ func seedRetiredInstance(t *testing.T, r *Runtime, mutate func(context.Context, 
 	if _, err := r.database().Exec(ctx, `insert into core_deployments(id,from_version_id,to_version_id,state,target_weights,progress)
  values($1,$2,$3,'completed','{}',$4::jsonb),($5,$2,$2,'completed','{}','{}')`,
 		retiring, oldVersion, version,
-		`{"stage":3,"from":{"`+instance+`":100},"to":{},"stage_started_at":"2026-01-01T00:00:00Z","minimum_stage_seconds":60,"drain_deadline_seconds":1800}`,
+		`{"stage":3,"from_weights":{"`+instance+`":100},"to":{},"stage_started_at":"2026-01-01T00:00:00Z","minimum_stage_seconds":60,"drain_deadline_seconds":1800}`,
 		owner); err != nil {
 		t.Fatal(err)
 	}
