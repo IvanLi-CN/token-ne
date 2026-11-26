@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { ArrowDown, ArrowUp, Check, GripVertical, Pencil } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
 import { Button, EmptyState, StatusBadge, Switch } from "../../components/primitives";
@@ -15,7 +15,7 @@ import {
 import { queryKeys } from "../../lib/query-client";
 import type { Upstream } from "../upstreams/api";
 import type { Model } from "./api";
-import { ActionGroup, DangerAction, Editor, errorMessage, Field } from "./management";
+import { ActionGroup, DangerAction, errorMessage, Field } from "./management";
 
 const matchLabel: Record<MatchType, string> = { exact: "精确", glob: "Glob" };
 
@@ -103,6 +103,15 @@ function useScopeReorder(scope: string | null) {
   return { move, drop, pending, error };
 }
 
+/** The rule's match type follows the pattern: a wildcard makes it a Glob. */
+function inferMatchType(pattern: string): MatchType {
+  return /[*?]/.test(pattern) ? "glob" : "exact";
+}
+
+/**
+ * Inline create/edit form for one rule. The editor lives in the panel, not in a
+ * dialog: a route rule is one line of data and belongs to the list it joins.
+ */
 function RouteEditor({
   route,
   models,
@@ -116,33 +125,34 @@ function RouteEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
-  const [matchType, setMatchType] = useState<MatchType>(route?.match_type ?? "exact");
+  const [pattern, setPattern] = useState(route?.pattern ?? "");
   const [targetModelId, setTargetModelId] = useState(
     route?.target_model_id ?? models[0]?.model_id ?? "",
   );
-  const [enabled, setEnabled] = useState(route?.enabled ?? true);
+  const matchType = inferMatchType(pattern);
+  const trimmed = pattern.trim();
+  const ready = trimmed !== "" && targetModelId !== "";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
-    const data = new FormData(event.currentTarget);
-    const body: ModelRouteInput = {
-      pattern: String(data.get("pattern")).trim(),
-      match_type: matchType,
-      target_model_id: targetModelId,
-      upstream_id: scopeUpstreamId,
-      enabled,
-      description: String(data.get("description")).trim() || null,
-    };
+    if (pending || !ready) return;
     setPending(true);
     setError(undefined);
     try {
+      const body: ModelRouteInput = {
+        pattern: trimmed,
+        match_type: matchType,
+        target_model_id: targetModelId,
+        upstream_id: scopeUpstreamId,
+        // A new rule is enabled by default; the row switch toggles it afterwards.
+        enabled: route?.enabled ?? true,
+        // The description is edited from the row afterwards; a create leaves it empty.
+        description: route?.description ?? null,
+      };
       if (route) await modelRoutesApi.update(route.id, body);
       else await modelRoutesApi.create(body);
-      setDirty(false);
       await onSaved();
       onClose();
     } catch (failure) {
@@ -153,77 +163,172 @@ function RouteEditor({
   }
 
   return (
-    <Editor
-      title={route ? "编辑路由规则" : "创建路由规则"}
-      description="同一作用域内按列表顺序逐条尝试，第一条命中即生效；同一作用域允许重复或重叠 pattern，界面会提示但不阻止保存。"
-      onClose={onClose}
-      dirty={dirty}
-      pending={pending}
+    <form
+      onSubmit={submit}
+      aria-label={route ? `编辑规则 ${route.pattern}` : "新建路由规则"}
+      className="border-t border-[var(--border-quiet)] pt-4"
     >
-      <form onSubmit={submit} onChange={() => setDirty(true)} className="flex flex-col gap-5">
-        <fieldset disabled={pending} className="grid gap-5 sm:grid-cols-2">
-          <Field label="匹配方式">
-            <Select
-              label="匹配方式"
-              value={matchType}
-              onValueChange={(next) => setMatchType(next === "glob" ? "glob" : "exact")}
-              options={[
-                { value: "exact", label: "精确" },
-                { value: "glob", label: "Glob" },
-              ]}
-            />
-          </Field>
-          <Field
-            label="Pattern"
-            hint="exact 为请求模型名或精确别名；glob 只支持 * 与 ?，方括号、花括号和反斜线非法。"
-          >
+      <fieldset disabled={pending} className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <Field label="Pattern" hint="请求模型名或别名；含 * 或 ? 时按 Glob 匹配。">
             <input
               className="input rounded-xl"
               name="pattern"
               required
               maxLength={256}
-              defaultValue={route?.pattern}
+              value={pattern}
+              onChange={(event) => setPattern(event.target.value)}
               aria-invalid={fieldInvalid(error, "pattern")}
-              placeholder={matchType === "glob" ? "gpt-*" : "global-model-id"}
+              placeholder="global-model-id 或 gpt-*"
             />
           </Field>
           <Field label="目标系统模型">
-            <Select
-              label="目标系统模型"
-              value={targetModelId}
-              onValueChange={setTargetModelId}
-              options={models.map((model) => ({
-                value: model.model_id,
-                label: model.model_id,
-              }))}
-            />
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Select
+                  label="目标系统模型"
+                  value={targetModelId}
+                  onValueChange={setTargetModelId}
+                  options={models.map((model) => ({
+                    value: model.model_id,
+                    label: model.model_id,
+                  }))}
+                />
+              </div>
+              <span title="按 pattern 自动识别匹配方式" className="shrink-0">
+                <StatusBadge tone="neutral">{matchLabel[matchType]}</StatusBadge>
+              </span>
+            </div>
           </Field>
-          <Field label="说明">
-            <input
-              className="input rounded-xl"
-              name="description"
-              maxLength={1024}
-              defaultValue={route?.description ?? ""}
-              aria-invalid={fieldInvalid(error, "description")}
-              placeholder="可选"
-            />
-          </Field>
-          <Field label="启用规则">
-            <Switch
-              checked={enabled}
-              onChange={setEnabled}
-              label={route ? "启用路由规则" : "启用新路由规则"}
-            />
-          </Field>
-        </fieldset>
+        </div>
         <FieldFailure error={error} />
-        <div className="dialog-actions">
-          <Button className="rounded-xl" type="submit" disabled={pending || models.length === 0}>
-            {pending ? "保存中…" : "保存路由规则"}
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!ready}>
+            {pending ? "保存中…" : "保存规则"}
           </Button>
         </div>
-      </form>
-    </Editor>
+      </fieldset>
+    </form>
+  );
+}
+
+/**
+ * One rule's description, edited where it is read: a double click on the cell or
+ * a click on the pencil opens a single-line input. Enter and blur save, Escape
+ * cancels, and an empty value clears the description.
+ */
+function DescriptionCell({
+  route,
+  onSave,
+}: {
+  route: ModelRoute;
+  onSave: (value: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(route.description ?? "");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<unknown>();
+  // Escape blurs the input too, so the blur handler must know not to save.
+  const [cancelling, setCancelling] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  // Focusing after paint also survives a click that already blurred the cell.
+  useEffect(() => {
+    if (!editing) return;
+    field.current?.focus();
+    field.current?.select();
+  }, [editing]);
+
+  function open() {
+    setCancelling(false);
+    setDraft(route.description ?? "");
+    setError(undefined);
+    setEditing(true);
+  }
+
+  async function save() {
+    const value = draft.trim();
+    if (pending) return;
+    if (value === (route.description ?? "")) {
+      setEditing(false);
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      await onSave(value === "" ? null : value);
+      setEditing(false);
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!editing)
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="block max-w-64 cursor-text whitespace-normal break-words"
+          onDoubleClick={open}
+        >
+          {route.description ?? "—"}
+        </span>
+        <Button
+          variant="secondary"
+          ghost
+          aria-label={`编辑 ${route.pattern} 的说明`}
+          title="编辑说明"
+          onClick={open}
+        >
+          <Pencil aria-hidden size={14} />
+        </Button>
+        {error != null && (
+          <span className="visually-hidden" role="alert">
+            {errorMessage(error)}
+          </span>
+        )}
+      </div>
+    );
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        ref={field}
+        className="input w-52 rounded-lg"
+        aria-label={`${route.pattern} 的说明`}
+        maxLength={1024}
+        value={draft}
+        disabled={pending}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (!cancelling) void save();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void save();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setDraft(route.description ?? "");
+            setCancelling(true);
+            setEditing(false);
+          }
+        }}
+      />
+      <Button
+        variant="secondary"
+        ghost
+        aria-label="保存说明"
+        disabled={pending}
+        onClick={() => void save()}
+      >
+        <Check aria-hidden size={14} />
+      </Button>
+    </div>
   );
 }
 
@@ -425,6 +530,30 @@ export function ModelRouteScopePanel({
   const duplicates = duplicatePatterns(ordered);
   const { move, drop, pending: reordering, error: reorderError } = useScopeReorder(scopeUpstreamId);
   const [dragging, setDragging] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<unknown>();
+
+  /** Enabling a rule never moves it; the stored position stays. */
+  async function toggle(route: ModelRoute, next: boolean) {
+    if (toggling) return;
+    setToggling(route.id);
+    setToggleError(undefined);
+    try {
+      await modelRoutesApi.update(route.id, {
+        pattern: route.pattern,
+        match_type: route.match_type,
+        target_model_id: route.target_model_id,
+        upstream_id: route.upstream_id,
+        enabled: next,
+        description: route.description,
+      });
+      await refresh();
+    } catch (failure) {
+      setToggleError(failure);
+    } finally {
+      setToggling(null);
+    }
+  }
   const availableModels = models ?? [];
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
 
@@ -444,10 +573,10 @@ export function ModelRouteScopePanel({
           </div>
           <Button
             className="rounded-xl"
-            disabled={availableModels.length === 0}
+            disabled={availableModels.length === 0 || editor === null}
             onClick={() => setEditor(null)}
           >
-            创建路由规则
+            新建规则
           </Button>
         </div>
         <div className={embedded ? "mt-4" : "px-5 pb-5"}>
@@ -457,7 +586,17 @@ export function ModelRouteScopePanel({
               。允许保存，按列表顺序逐条尝试，第一条命中即生效。
             </p>
           )}
+          <FieldFailure error={toggleError} />
           <FieldFailure error={reorderError} />
+          {editor !== undefined && (
+            <RouteEditor
+              route={editor}
+              models={availableModels}
+              scopeUpstreamId={scopeUpstreamId}
+              onClose={() => setEditor(undefined)}
+              onSaved={refresh}
+            />
+          )}
           <DataTable
             caption={`${caption}列表`}
             captionHidden
@@ -538,18 +677,32 @@ export function ModelRouteScopePanel({
                 key: "enabled",
                 header: "状态",
                 cell: (route) => (
-                  <StatusBadge tone={route.enabled ? "neutral" : "warning"}>
-                    {route.enabled ? "启用" : "停用"}
-                  </StatusBadge>
+                  <Switch
+                    checked={route.enabled}
+                    label={`${route.pattern} 启用`}
+                    disabled={toggling === route.id}
+                    onChange={(next) => void toggle(route, next)}
+                  />
                 ),
               },
               {
                 key: "description",
                 header: "说明",
                 cell: (route) => (
-                  <span className="block max-w-64 whitespace-normal break-words">
-                    {route.description ?? "—"}
-                  </span>
+                  <DescriptionCell
+                    route={route}
+                    onSave={async (value) => {
+                      await modelRoutesApi.update(route.id, {
+                        pattern: route.pattern,
+                        match_type: route.match_type,
+                        target_model_id: route.target_model_id,
+                        upstream_id: route.upstream_id,
+                        enabled: route.enabled,
+                        description: value,
+                      });
+                      await refresh();
+                    }}
+                  />
                 ),
               },
               {
@@ -580,15 +733,6 @@ export function ModelRouteScopePanel({
             </p>
           )}
         </div>
-        {editor !== undefined && (
-          <RouteEditor
-            route={editor}
-            models={availableModels}
-            scopeUpstreamId={scopeUpstreamId}
-            onClose={() => setEditor(undefined)}
-            onSaved={refresh}
-          />
-        )}
       </section>
       {showPreview && <RoutePreviewPanel upstreams={upstreams ?? []} routes={routes.data ?? []} />}
     </>

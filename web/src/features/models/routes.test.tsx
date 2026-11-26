@@ -227,19 +227,74 @@ describe("models route rules", () => {
     });
     mount();
     await screen.findByRole("heading", { name: "模型路由（全局）" });
-    fireEvent.click(screen.getByRole("button", { name: "创建路由规则" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建规则" }));
+    // The editor is inline: no dialog, and the match type follows the pattern.
+    expect(screen.queryByRole("dialog", { name: "新建路由规则" })).toBeNull();
     fireEvent.change(await screen.findByLabelText("Pattern"), { target: { value: "gpt-*" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存路由规则" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "创建路由规则" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
+    await waitFor(() => expect(screen.queryByRole("form", { name: "新建路由规则" })).toBeNull());
     expect(createBody).toMatchObject({
       pattern: "gpt-*",
-      match_type: "exact",
+      match_type: "glob",
       target_model_id: "example",
       upstream_id: null,
       enabled: true,
     });
     expect(createBody).not.toHaveProperty("position");
     expect(createBody).not.toHaveProperty("priority");
+  });
+
+  it("toggles a rule from the row switch without moving it", async () => {
+    let putBody: unknown;
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        putBody = JSON.parse(String(init.body));
+        return response({ ...route, enabled: false });
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    const row = await screen.findByRole("switch", { name: "gpt-* 启用" });
+    expect(row.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(row);
+    await waitFor(() => expect(putBody).toBeTruthy());
+    expect(putBody).toMatchObject({ enabled: false, pattern: "gpt-*" });
+    expect(putBody).not.toHaveProperty("position");
+  });
+
+  it("edits a description in place from the pencil or a double click and clears it", async () => {
+    const puts: unknown[] = [];
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return response(route);
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 gpt-* 的说明" }));
+    const input = await screen.findByLabelText("gpt-* 的说明");
+    fireEvent.change(input, { target: { value: "新的说明" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toMatchObject({ description: "新的说明", pattern: "gpt-*" });
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑 gpt-* 的说明" }));
+    const again = await screen.findByLabelText("gpt-* 的说明");
+    fireEvent.change(again, { target: { value: "" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    await waitFor(() => expect(puts).toHaveLength(2));
+    expect(puts[1]).toMatchObject({ description: null });
+  });
+
+  it("opens the description editor on a double click of the cell", async () => {
+    mock(base());
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.doubleClick(await screen.findByText("别名"));
+    expect(await screen.findByLabelText("gpt-* 的说明")).toBeTruthy();
   });
 
   it("reorders a whole scope with one reorder request carrying every id", async () => {
