@@ -1,17 +1,26 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import type { DemoRuntime } from "./runtime";
 
 // The real demo entry (mock install + basename router + URL mirroring) boots
 // once, so this file owns the process-wide assertions on the address bar.
 describe("demo entry boot", () => {
-  afterEach(() => cleanup());
+  let runtime: DemoRuntime | undefined;
+  // Unmount before jsdom goes away: a still-mounted React root keeps scheduling
+  // and throws "window is not defined" after teardown, which Vitest reports as
+  // an unhandled error and fails the whole job even though every test passed.
+  afterEach(() => {
+    if (runtime?.unmount) act(() => runtime?.unmount?.());
+    runtime = undefined;
+    cleanup();
+  });
 
   it("mirrors the scene into the URL and keeps the login returnTo off the shell", async () => {
     localStorage.clear();
     document.body.innerHTML = '<div id="root"></div>';
     window.history.replaceState(null, "", "/demo/?demo=session-expired");
-    await import("./entry");
+    runtime = (await import("./entry")).demoRuntime;
     await screen.findByRole("heading", { name: "管理员登录" }, { timeout: 5000 });
     const login = new URLSearchParams(window.location.search);
     expect(login.get("demo")).toBe("session-expired");

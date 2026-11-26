@@ -16,6 +16,11 @@ export interface DemoRuntime {
   resetData(): void;
   /** Announce an out-of-band change (a simulated mutation) to subscribers. */
   notify(): void;
+  /**
+   * Unmount the React tree. Only the entry sets it, once it has a root; tests
+   * use it so React stops scheduling against a document that jsdom tore down.
+   */
+  unmount?(): void;
 }
 
 export function createDemoRuntime(

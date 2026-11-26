@@ -71,15 +71,22 @@ export function mountDemo(rootElement: HTMLElement): DemoRuntime {
     mergeUrlState(window.location.href, { scene: runtime.state.scene, share: runtime.state.share }),
   );
 
-  createRoot(rootElement).render(
+  const root = createRoot(rootElement);
+  root.render(
     <StrictMode>
       <App router={router} />
       <InspectorPanel runtime={runtime} />
     </StrictMode>,
   );
+  // Exposed so a test can unmount instead of leaving React scheduling work
+  // against a torn-down document, which surfaces as an unhandled
+  // "window is not defined" after jsdom teardown.
+  runtime.unmount = () => root.unmount();
   return runtime;
 }
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("missing #root element");
-mountDemo(rootElement);
+// Exported so the boot test can unmount the tree it started; a module-scope
+// mount has no other handle on the React root.
+export const demoRuntime = mountDemo(rootElement);
