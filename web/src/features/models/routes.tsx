@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
-import { Button, EmptyState, StatusBadge } from "../../components/primitives";
+import { Button, EmptyState, StatusBadge, Switch } from "../../components/primitives";
 import { Select } from "../../components/select";
 import {
   type MatchType,
@@ -123,6 +123,7 @@ function RouteEditor({
   const [targetModelId, setTargetModelId] = useState(
     route?.target_model_id ?? models[0]?.model_id ?? "",
   );
+  const [enabled, setEnabled] = useState(route?.enabled ?? true);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -133,7 +134,7 @@ function RouteEditor({
       match_type: matchType,
       target_model_id: targetModelId,
       upstream_id: scopeUpstreamId,
-      enabled: data.has("enabled"),
+      enabled,
       description: String(data.get("description")).trim() || null,
     };
     setPending(true);
@@ -207,10 +208,13 @@ function RouteEditor({
               placeholder="可选"
             />
           </Field>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" name="enabled" defaultChecked={route?.enabled ?? true} />
-            启用规则
-          </label>
+          <Field label="启用规则">
+            <Switch
+              checked={enabled}
+              onChange={setEnabled}
+              label={route ? "启用路由规则" : "启用新路由规则"}
+            />
+          </Field>
         </fieldset>
         <FieldFailure error={error} />
         <div className="dialog-actions">

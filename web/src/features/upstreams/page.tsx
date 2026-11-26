@@ -333,6 +333,16 @@ function UpstreamEditor({
             {reloadNote}
           </p>
         )}
+        {secondPhase && upstream && (
+          <ModelRouteScopePanel
+            caption={`模型路由（${upstream.name}）`}
+            title="模型路由"
+            description={`只列出属于 ${upstream.name} 的规则，按列表顺序逐条尝试，第一条命中即生效；未命中时回退全局路由。`}
+            scopeUpstreamId={upstream.id}
+            models={models.data}
+            upstreams={[upstream]}
+          />
+        )}
         <div className="dialog-actions">
           <Button
             className="rounded-xl"
@@ -345,16 +355,6 @@ function UpstreamEditor({
           </Button>
         </div>
       </form>
-      {secondPhase && upstream && (
-        <ModelRouteScopePanel
-          caption={`模型路由（${upstream.name}）`}
-          title="模型路由"
-          description={`只列出属于 ${upstream.name} 的规则，按列表顺序逐条尝试，第一条命中即生效；未命中时回退全局路由。`}
-          scopeUpstreamId={upstream.id}
-          models={models.data}
-          upstreams={[upstream]}
-        />
-      )}
     </Editor>
   );
 }

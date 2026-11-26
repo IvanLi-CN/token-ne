@@ -440,8 +440,8 @@ describe("models route rules", () => {
     expect(await screen.findByTitle(/rev-global-0001/)).toBeTruthy();
     expect(screen.getAllByText("已锁定").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-    const lock = await screen.findByLabelText("锁定全局默认价格");
-    expect((lock as HTMLInputElement).checked).toBe(true);
+    const lock = await screen.findByRole("switch", { name: "锁定全局默认价格" });
+    expect(lock.getAttribute("aria-checked")).toBe("true");
     fireEvent.change(screen.getByLabelText("输入价格"), { target: { value: "9" } });
     fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
     expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);

@@ -5,7 +5,7 @@ import { usePhaseFeatures } from "../../app/phase";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
-import { Button, PageTitle, StatusBadge } from "../../components/primitives";
+import { Button, PageTitle, StatusBadge, Switch } from "../../components/primitives";
 import {
   ApiError,
   type PriceRevisionState,
@@ -196,6 +196,7 @@ function ModelEditor({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [lock, setLock] = useState(model?.billing_state?.locked ?? false);
+  const [enabled, setEnabled] = useState(model?.enabled ?? true);
   const [confirmation, setConfirmation] = useState<ModelUpdateInput | null>(null);
   async function send(modelId: string, update: ModelUpdateInput) {
     setPending(true);
@@ -233,7 +234,7 @@ function ModelEditor({
     } as unknown as Billing;
     const body: ModelInput = {
       model_id: String(data.get("model_id")),
-      enabled: data.has("enabled"),
+      enabled,
       shutdown_date: String(data.get("shutdown_date")) || null,
       billing,
     };
@@ -314,22 +315,20 @@ function ModelEditor({
             </div>
           )}
           {secondPhase && model?.billing_state && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
+            <Field label="锁定全局默认价格">
+              <Switch
                 checked={lock}
-                onChange={(event) => {
-                  setLock(event.target.checked);
+                onChange={(next) => {
+                  setLock(next);
                   setDirty(true);
                 }}
+                label="锁定全局默认价格"
               />
-              锁定全局默认价格
-            </label>
+            </Field>
           )}
-          <label className="flex items-center gap-2">
-            <input type="checkbox" name="enabled" defaultChecked={model?.enabled ?? true} />
-            启用模型
-          </label>
+          <Field label="启用模型">
+            <Switch checked={enabled} onChange={setEnabled} label="启用模型" />
+          </Field>
         </fieldset>
         <FormError error={error} />
         <div className="dialog-actions">
