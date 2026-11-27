@@ -148,11 +148,17 @@ func (d *fakeDocker) Create(_ context.Context, s ContainerSpec) (Container, erro
 	d.created = append(d.created, s)
 	return Container{ID: "created"}, nil
 }
-func (d *fakeDocker) Start(context.Context, string) error                { d.starts++; return nil }
-func (d *fakeDocker) Stop(context.Context, string, time.Duration) error  { d.stops++; return nil }
-func (d *fakeDocker) Remove(context.Context, string, bool) error         { d.removes++; return d.removeErr }
-func (d *fakeDocker) List(context.Context) ([]Container, error)          { return d.containers, nil }
-func (d *fakeDocker) Inspect(context.Context, string) (Container, error) { return Container{}, nil }
+func (d *fakeDocker) Start(context.Context, string) error               { d.starts++; return nil }
+func (d *fakeDocker) Stop(context.Context, string, time.Duration) error { d.stops++; return nil }
+func (d *fakeDocker) Remove(context.Context, string, bool) error        { d.removes++; return d.removeErr }
+func (d *fakeDocker) List(context.Context) ([]Container, error)         { return d.containers, nil }
+func (d *fakeDocker) Inspect(_ context.Context, id string) (Container, error) {
+	d.inspects++
+	if d.inspectErr != nil {
+		return Container{}, d.inspectErr
+	}
+	return Container{ID: id, State: "running"}, nil
+}
 func (d *fakeDocker) InspectImage(context.Context, string) (Image, error) {
 	d.inspects++
 	if d.inspectErr != nil {

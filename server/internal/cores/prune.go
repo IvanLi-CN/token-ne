@@ -423,6 +423,34 @@ func (r *Runtime) replayRetired(ctx context.Context, c pruneCandidate) error {
 		}
 		recreated = true
 	}
+	if !recreated {
+		// The row can outlive its container: an operator who removed a stopped core
+		// by hand leaves a recorded id that no longer resolves. Restarting it would
+		// fail with 404 on every reconcile pass and, because the failure keeps the
+		// instance stopped, retry forever. Check first and fall back to rebuilding
+		// from the state directory, or to a terminal record when nothing is left to
+		// replay.
+		if _, inspectErr := r.Docker.Inspect(ctx, *containerID); inspectErr != nil {
+			exists, dirErr := r.Docker.StateDirExists(ctx, r.StateHostDir, c.ID)
+			if dirErr != nil {
+				return dirErr
+			}
+			if !exists {
+				_, persistErr := r.database().Exec(ctx, `update core_instances set state='pruned',pruned_at=now(),prune_next_attempt_at=null,lifecycle_error=$2,updated_at=now() where id=$1`,
+					c.ID, "container and state directory are both gone; nothing left to replay")
+				return persistErr
+			}
+			row, e := scanInstance(r.database().QueryRow(ctx, instanceSelect+` where i.id=$1`, c.ID))
+			if e != nil {
+				return e
+			}
+			if e = r.restoreContainer(ctx, row); e != nil {
+				return e
+			}
+			containerID = nil
+			recreated = true
+		}
+	}
 	if _, e := r.database().Exec(ctx, `update core_instances set state='draining',zero_samples=0,draining_started_at=now(),
  spool_zero_at=null,lifecycle_error=$2,updated_at=now() where id=$1 and state='stopped'`, c.ID, replayMarker); e != nil {
 		return e
