@@ -105,10 +105,8 @@ async function seed() {
     models: [
       {
         model_id: "gpt-4o-mini",
-        upstream_model_name: "mock-model",
+        upstream_model_id: "mock-model",
         enabled: true,
-        priority: 100,
-        weight: 100,
       },
     ],
   });
@@ -116,7 +114,12 @@ async function seed() {
     pattern: "gpt-*",
     match_type: "glob",
     target_model_id: "gpt-4o-mini",
-    priority: 100,
+    enabled: true,
+  });
+  await expectOk("POST", "/api/model-routes", {
+    pattern: "gpt-4*",
+    match_type: "glob",
+    target_model_id: "gpt-4o",
     enabled: true,
   });
 }
@@ -142,17 +145,19 @@ async function main() {
   await seed();
 
   await page.goto(`${BASE}/models`);
-  await page.getByRole("heading", { name: "模型路由" }).waitFor();
-  await page.getByRole("button", { name: "创建路由规则" }).click();
-  const routeDialog = page.getByRole("dialog");
-  await routeDialog.locator('select[name="match_type"]').selectOption("glob");
-  await routeDialog.locator('input[name="pattern"]').fill("gpt-4*");
-  await routeDialog.locator('select[name="target_model_id"]').selectOption("gpt-4o");
-  await routeDialog.locator('input[name="priority"]').fill("100");
-  await routeDialog.getByRole("button", { name: "保存路由规则" }).click();
-  await routeDialog.getByRole("alert").filter({ hasText: "pattern" }).waitFor();
-  await shot("models-route-conflict.png", routeDialog);
-  await routeDialog.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("heading", { name: "模型路由（全局）" }).waitFor();
+  // Order is the whole contract: moving one rule submits the scope's complete id
+  // list in one request, and the stored positions follow it.
+  const [reordered] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/model-routes/reorder") && r.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "上移 gpt-4*" }).click(),
+  ]);
+  if (reordered.status() !== 200) throw new Error(`reorder: ${reordered.status()}`);
+  const routeOrder = (await expectOk("GET", "/api/model-routes")).data.map((route) => route.pattern);
+  if (routeOrder[0] !== "gpt-4*") throw new Error(`route order not stored: ${routeOrder.join(",")}`);
+  await shot("models-route-order.png", page.locator('[aria-label="模型路由（全局）"]'));
 
   await page.goto(`${BASE}/upstreams`);
   await page.getByRole("button", { name: "目录与策略" }).first().click();

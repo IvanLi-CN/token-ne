@@ -58,7 +58,7 @@ Caddy 只负责项目内 HTTP 路由和加权转发；TLS 终止、证书和公�
 | Rust 核心 | 自建镜像 | 下游认证、模型映射、上游候选选择、出站代理选择、提交前重试、SSE 解析、用量提取、透传、排水、核心私有 usage spool、内部运行指标 | 不直连数据库、不管理容器、不读取控制面状态目录；内部 `/metrics` 仅供调试，不作为外部抓取合同 |
 | Go 控制面 | 自建镜像 | 管理 API、Web 静态站点、用量摄入、PostgreSQL、Caddy 协调、Docker 编排、出站代理档案与 Xray 对账、Prometheus 指标 | 不转发 `/v1/*` 请求，不读取或重放核心 spool，不终止上游 TLS |
 | Xray | `ghcr.io/xtls/xray-core` 固定版本或 digest | 单例出站代理转换器；通过 gRPC API 接收代理档案，提供内部 SOCKS5 入站，按 `inboundTag -> outboundTag` 路由到第三方代理协议 | 不处理下游请求、不终止上游 TLS、不解析或注入上游 API Key、不保存代理档案事实、不发布宿主端口 |
-| PostgreSQL | `postgres:19.0-alpine` | 全局模型、上游能力、出站代理档案、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
+| PostgreSQL | `postgres:19.0-alpine` | 全局模型、上游绑定、出站代理档案、下游 Key、核心版本/实例/部署、用量事实、审计 | 不作为代理热路径依赖 |
 | Prometheus | 外部 | 抓取 Go `/metrics`、存储指标 | 不作为计费或请求事实来源 |
 | Grafana | 外部 | 展示指标 | 不直连 PostgreSQL |
 | Docker Engine | 宿主机 | 运行 Compose 服务与动态核心容器 | 不参与请求路由决策 |
@@ -204,7 +204,7 @@ core/src/
   server.rs         axum 路由、认证中间件、超时、错误映射
   proxy/
     body.rs         有界请求体读取、一次性快照、模型改写
-    routing.rs      全局模型查找、映射继承、上游候选排序与权重选择
+    routing.rs      名称路由（作用域 + 顺序）、系统模型查找、上游候选稳定排序
     egress.rs       出站代理绑定、每档案 SOCKS5h 客户端、连接失败分类
     upstream.rs     reqwest 客户端、URL/头构造、超时
     attempt.rs      单次尝试、状态分类、响应头处理
@@ -220,6 +220,7 @@ core/src/
 核心在 `CORE_METRICS_LISTEN`（默认 `0.0.0.0:9091`）暴露 Prometheus 文本，只在内网可达：
 
 - 运行态：`token_ne_core_up`、`token_ne_core_inflight_requests`、`token_ne_core_requests_total`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
+- 解析失败：`token_ne_core_model_not_found_total` 统计解析为 `None` 的请求（未知请求名、目标未启用、请求名超长）。`token_ne_core_route_table_absent_total` 是它的子集，只在该实例的能力快照里 `model_name_routing` 关闭时累加。滚动升级期间控制面对 schema `1` 的实例不发送 `model_routes[]`，因此这个子集的突增代表「实例尚未升级」，而不是「调用方拼错了模型名」——两者在父计数器上无法区分。
 - spool：`token_ne_core_spool_*`、`token_ne_core_usage_send_total`、`token_ne_core_usage_replayed_total`。
 - 核心不导出 token、成本或延迟直方图；这些只由 Go 从 usage 事件生成。
 
@@ -235,8 +236,8 @@ core/src/
 1. **接收与限额**：检查方法、路径、请求体大小、并发上限；生成 `request_id`（默认 UUIDv7，可复用合法的下游 `x-request-id`）。
 2. **认证**：提取 Bearer Token，SHA-256 后与配置中的 Key 哈希做常量时间比较；附加 `key_id` 和 `max_inflight`。
 3. **语义提取**：解析 JSON，读取 `model`、`stream`、`stream_options`；非 JSON 端点跳过模型改写。
-4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 能力关系，要求上游启用、`weight > 0`，绑定代理时还要求对应 `egress_proxies[]` 启用且可用；按 `priority` 升序、同优先级按 `weight` 加权选择首个；没有正权重候选返回 503 `no_upstream_available`，不猜测其他上游。
-5. **改写**：有效名称 = 上游能力 `upstream_model_name` ?? 模型 `default_upstream_model` ?? `model_id`；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或数据面开关 `stream_usage_injection` 为 `false` 时跳过。
+4. **模型、Key 权限与候选**：按公开 `model_id` 查找全局模型；模型不存在或禁用返回 404。模型存在后检查 Key 的 `allowed_models`：空数组拒绝所有模型，`["*"]` 允许全部，其他按 `model_id` 精确匹配；不允许返回 403 `model_not_allowed`。候选来自启用的 `upstream_models` 绑定，要求上游启用，绑定代理时还要求对应 `egress_proxies[]` 启用且可用；按 `upstream_id`、`upstream_model_id` 升序逐个尝试；没有启用候选返回 503 `no_upstream_available`，不猜测其他上游。
+5. **改写**：发往上游的模型 ID = 绑定的 `upstream_model_id`（唯一的命名转换层）；替换 `model`，更新 `Content-Length`，保留其他字段；流式 `chat.completions` 默认注入 `include_usage`，客户端已设置同一字段或数据面开关 `stream_usage_injection` 为 `false` 时跳过。
 6. **尝试**：构造上游 URL、认证头、透传头；未绑定代理时直连，绑定代理时使用该档案的 SOCKS5h 客户端经 Xray 发送。绑定代理时 `connect_timeout_ms` 覆盖 SOCKS5 握手和经隧道完成的上游 TLS 握手；等待响应头；分类状态。
 7. **提交闸门**：
    - 非流式：在 1 MiB 内缓冲并检查；通过后提交状态、头和缓冲；剩余体继续透传。
@@ -311,7 +312,7 @@ core/src/
 ```json
 {
   "protocol_version": 1,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "revision": 42,
   "issued_at": "2026-11-21T09:00:00Z",
@@ -337,7 +338,6 @@ core/src/
     {
       "model_id": "gpt-5",
       "enabled": true,
-      "default_upstream_model": "gpt-5-2026-xx",
       "shutdown_date": null,
       "created_at": 1764806400,
       "billing": {
@@ -372,10 +372,8 @@ core/src/
     {
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "model_id": "gpt-5",
-      "upstream_model_name": null,
-      "enabled": true,
-      "priority": 100,
-      "weight": 100
+      "upstream_model_id": "gpt-5",
+      "enabled": true
     }
   ],
   "retry": {
@@ -822,7 +820,8 @@ server/
 | PUT/DELETE | `/api/model-routes/{route_id}` | 更新/删除模型名称路由规则 |
 | GET/PUT/DELETE | `/api/models/{model_id}` | 模型详情、编辑（含全局默认价格）及删除 |
 | GET/POST | `/api/upstreams` | 上游列表/新增 |
-| GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 能力集合 |
+| GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 绑定集合 |
+| POST | `/api/upstreams/models/fetch` | 按给定地址与凭据读取上游 `GET /v1/models`，不写库 |
 | GET | `/api/upstreams/{id}/models/catalog` | 查看上游模型目录和 stale 状态 |
 | POST | `/api/upstreams/{id}/models/sync` | 同步单个上游模型目录 |
 | GET | `/api/upstreams/{id}/model-sync-runs/{run_id}` | 查看单个上游模型同步终态 |
@@ -989,7 +988,7 @@ flowchart TD
 
 ### 配置分发
 
-- 任何模型、上游、上游能力、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`，触发条件按计算值判定：`enabled` 从 false 变为 true（管理员启用且运行态为 `ready`，或进入 `ready`/`swapping` 且管理员启用）、从 true 变为 false（管理员停用，或离开 `ready`/`swapping`）、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 保持 true，因此不递增。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
+- 任何模型、上游、上游绑定、模型路由规则、上游承接策略、下游 Key、重试参数，以及出站代理快照中有效 `enabled` 值或端点的变化都会递增 `config_revision`，触发条件按计算值判定：`enabled` 从 false 变为 true（管理员启用且运行态为 `ready`，或进入 `ready`/`swapping` 且管理员启用）、从 true 变为 false（管理员停用，或离开 `ready`/`swapping`）、以及端点变化都触发发布；`ready` ↔ `swapping` 期间 `enabled` 保持 true，因此不递增。代理的服务器、凭据、传输和 TLS 变更只更新 Xray 运行态，不要求 core 重新加载配置；它们不得改变 core 持有的内部端点或绕过代理。价格档案与修订不进 core 快照，但改变候选或可见性时必须同样使快照失效。
 - Go 生成完整配置快照，计算哈希，推送给所有健康核心。
 - 核心返回已应用 revision 和能力；Go 记录 `config_revision_applied`。
 - 超时重试同一 revision 且内容一致时，核心返回 200 和已应用 revision（幂等重放）；内容不同返回 409 `stale_revision`；不能把幂等重试误判为不可用。
@@ -1228,7 +1227,6 @@ create table upstreams (
 create table models (
   model_id text primary key,
   enabled boolean not null default true,
-  default_upstream_model text,
   shutdown_date date,
   input_usd_per_mtok numeric(14,6),
   cached_input_usd_per_mtok numeric(14,6),
@@ -1239,14 +1237,13 @@ create table models (
 
 create table upstream_models (
   upstream_id uuid not null references upstreams(id) on delete cascade,
+  upstream_model_id text not null,
   model_id text not null references models(model_id) on delete restrict,
-  upstream_model_name text,
   enabled boolean not null default true,
-  priority int not null default 100 check (priority >= 0),
-  weight int not null default 100 check (weight >= 0 and weight <= 10000),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  primary key (upstream_id, model_id)
+  primary key (upstream_id, upstream_model_id),
+  unique (upstream_id, model_id)
 );
 
 
@@ -1385,8 +1382,8 @@ create unique index status_rewrite_policies_one_active
 ### 约束
 
 - `event_id` 唯一，是唯一幂等键；`request_id` 只用于关联，建普通索引，允许客户端复用 `x-request-id`；重复投递使用 `ON CONFLICT (event_id) DO NOTHING`。
-- `models` 删除时由 `upstream_models` 的 `restrict` 阻止，必须显式清理能力关系；删除上游时 `on delete cascade` 清理其能力关系。
-- `upstream_models` 的 `(upstream_id, model_id)` 是主键，重复能力关系直接拒绝。
+- `models` 删除时由 `upstream_models` 的 `restrict` 阻止，必须显式清理绑定；删除上游时 `on delete cascade` 清理其绑定。
+- `upstream_models` 的主键是 `(upstream_id, upstream_model_id)`，另有 `(upstream_id, model_id)` 唯一约束，两个方向的重复绑定都直接拒绝。
 - `downstream_api_keys` 只存哈希和前缀，不允许恢复明文。
 - `core_versions.image_ref` 是控制面按核心镜像仓库推导并保存的展示值；登记版本只接收版本、可选 digest 和协议/schema 范围。
 - 上游密钥加密字段不参与全文索引、日志或调试导出。
@@ -2070,9 +2067,9 @@ token-ne/
 
 ### 第二期模型路由
 
-请求管线在权限检查前解析模型名。先查全局 Model 精确 ID，再查启用的 exact 规则，最后按 `priority` 升序查启用的 Glob 规则。命中后固定目标和上游限制，目标未启用或未匹配时返回 `404`。Key 权限和承接策略针对解析后的全局 ID。候选通过能力、权重、上游限制和承接策略校验后进入现有调度顺序。用量记录请求名、解析后的模型和实际发送的上游模型名。
-路由规则与全局 Model ID 共享命名空间：`pattern` 等于已有 Model ID 的规则不能保存；新建或导入 Model 时，若已有规则使用同一 `pattern`，同样返回 `409` 和 `model_id` 字段路径。`glob` 规则使用与承接策略相同的受限 Glob 语言，同优先级重叠按该语言判定。
-路由规则写入和目录导入在事务内先取同一把事务级 advisory lock（键为待占用的名称）再校验命名冲突与同优先级 Glob 重叠；跨表保留名称无法用 `CHECK` 表达，因此由该事务校验保证。重叠判定与预览共用同一实现，避免预览与保存分歧。
+请求管线在权限检查前解析模型名。先按 `upstream_id` 升序逐个上游尝试其作用域内的规则（按 `position` 顺序，第一条命中即锁定该上游）；全部未命中再按全局作用域内的 `position` 顺序逐条尝试；两处都未命中最后按系统模型 ID 兜底，仍无则返回 `404`。跨上游之间按 ID 排序只是确定性兜底，不是优先级；命中的作用域上游没有可用绑定时返回 `503` 而非静默回落。系统模型 ID 不短路路由，也不存在精确规则整体优先于 Glob 这一层。命中后固定目标系统模型。Key 权限、计费和承接策略都针对解析后的系统模型 ID。绑定把该系统模型转换为该上游实际认得的模型 ID，是唯一的命名转换层。候选通过绑定、上游启用和承接策略校验后进入调度顺序。用量记录请求名、解析后的系统模型和实际发送的上游模型 ID。
+路由规则不设机器唯一性或重叠约束：同一作用域允许重复或重叠的 `pattern`，由作用域内顺序决定生效者；`pattern` 等于既有系统模型 ID 也不再视为冲突。这条取舍是刻意的——机器无法判断应保留哪一条，因此只保证顺序可见可控。`glob` 规则使用与承接策略相同的受限 Glob 语言。
+同一作用域的排序调整必须整段原子提交：一次请求写入该作用域的新 `position` 序列，任一条失败则整段回滚。预览与运行共用同一份顺序解析实现，避免预览与保存分歧。
 
 ### 第二期出站代理
 
@@ -2153,16 +2150,18 @@ create table model_route_rules (
   pattern text not null,
   match_type text not null check (match_type in ('exact', 'glob')),
   target_model_id text not null references models(model_id) on delete restrict,
+  -- null 表示全局作用域；非空表示该上游专属并覆盖全局
   upstream_id uuid references upstreams(id) on delete restrict,
-  priority int not null default 100,
+  -- 作用域内的尝试顺序，由界面拖拽维护
+  position int not null default 0,
   enabled boolean not null default true,
   description text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create unique index model_route_rules_exact_pattern
-  on model_route_rules (pattern) where enabled and match_type = 'exact';
+create unique index model_route_rules_scope_position
+  on model_route_rules (coalesce(upstream_id, '00000000-0000-0000-0000-000000000000'::uuid), position);
 
 create table price_revisions (
   id uuid primary key,

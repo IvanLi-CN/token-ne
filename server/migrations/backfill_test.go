@@ -162,3 +162,102 @@ func deref(v *string) string {
 	}
 	return *v
 }
+
+// The binding migration decides what upstream model every existing row keeps
+// sending after the upgrade, and it also decides whether a disabled binding
+// stays disabled. Both are in-flight behaviour on the first snapshot this
+// control plane renders, so they are checked against the v1 resolution rules
+// rather than against the new schema's shape.
+func TestUpstreamModelBindingBackfillPreservesV1Resolution(t *testing.T) {
+	base := os.Getenv("TEST_DATABASE_URL")
+	if base == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, e := sql.Open("pgx", base)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { admin.Close() })
+	name := "bind_backfill_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, e = admin.ExecContext(ctx, "create database "+pgx.Identifier{name}.Sanitize()); e != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(e, &pgErr) && pgErr.Code == "42501" {
+			t.Skipf("database user cannot create databases: %v", e)
+		}
+		t.Fatalf("create database: %v", e)
+	}
+	t.Cleanup(func() {
+		dropCtx, dropCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer dropCancel()
+		if _, dropErr := admin.ExecContext(dropCtx, "drop database if exists "+pgx.Identifier{name}.Sanitize()+" with (force)"); dropErr != nil {
+			t.Logf("drop database %s: %v", name, dropErr)
+		}
+	})
+	dsn, e := databaseDSN(base, name)
+	if e != nil {
+		t.Fatal(e)
+	}
+	db, e := sql.Open("pgx", dsn)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { db.Close() })
+	provider, e := goose.NewProvider(goose.DialectPostgres, db, FS)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = provider.UpTo(ctx, 13); e != nil {
+		t.Fatalf("migrate to the column set that still has the v1 fields: %v", e)
+	}
+
+	suffix := uuid.NewString()[:8]
+	upstream := uuid.NewString()
+	// Four cases, each a distinct rung of the v1 fallback or the weight gate:
+	// explicit name, model-level default, bare model id, and weight 0.
+	explicit, viaDefault, bare, disabled := "bind-explicit-"+suffix, "bind-default-"+suffix, "bind-bare-"+suffix, "bind-off-"+suffix
+	if _, e = db.ExecContext(ctx, `insert into models(model_id,default_upstream_model) values($1,null),($2,$5),($3,null),($4,null)`,
+		explicit, viaDefault, bare, disabled, "default-name-"+suffix); e != nil {
+		t.Fatalf("insert models: %v", e)
+	}
+	if _, e = db.ExecContext(ctx, `insert into upstreams(id,name,base_url,auth_style,api_key_ciphertext,api_key_nonce,api_key_hint)
+ values($1,$2,'https://upstream.example.test','bearer','x',decode(repeat('00',12),'hex'),'hint')`, upstream, "bind-upstream-"+suffix); e != nil {
+		t.Fatalf("insert upstream: %v", e)
+	}
+	if _, e = db.ExecContext(ctx, `insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values
+ ($1,$2,$6,true,100,100),
+ ($1,$3,null,true,100,100),
+ ($1,$4,null,true,100,100),
+ ($1,$5,null,true,100,0)`, upstream, explicit, viaDefault, bare, disabled, "real-"+suffix); e != nil {
+		t.Fatalf("insert bindings: %v", e)
+	}
+
+	if _, e = provider.Up(ctx); e != nil {
+		t.Fatalf("migrate to latest: %v", e)
+	}
+
+	for _, tc := range []struct {
+		model, wantID string
+		wantEnabled   bool
+		note          string
+	}{
+		{explicit, "real-" + suffix, true, "explicit upstream_model_name wins, as it did in v1"},
+		{viaDefault, "default-name-" + suffix, true, "the model-level default is folded in, not dropped"},
+		{bare, bare, true, "no override anywhere falls back to the system model id"},
+		{disabled, disabled, false, "weight 0 was an off switch in v1 and must stay off"},
+	} {
+		var gotID string
+		var gotEnabled bool
+		if e = db.QueryRowContext(ctx, "select upstream_model_id,enabled from upstream_models where upstream_id=$1 and model_id=$2", upstream, tc.model).
+			Scan(&gotID, &gotEnabled); e != nil {
+			t.Fatalf("%s: %v", tc.model, e)
+		}
+		if gotID != tc.wantID {
+			t.Fatalf("%s: upstream_model_id = %q, want %q (%s)", tc.model, gotID, tc.wantID, tc.note)
+		}
+		if gotEnabled != tc.wantEnabled {
+			t.Fatalf("%s: enabled = %v, want %v (%s)", tc.model, gotEnabled, tc.wantEnabled, tc.note)
+		}
+	}
+}

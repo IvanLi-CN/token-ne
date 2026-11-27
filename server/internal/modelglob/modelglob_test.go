@@ -1,7 +1,6 @@
 package modelglob
 
 import (
-	"hash/fnv"
 	"strings"
 	"testing"
 )
@@ -143,101 +142,5 @@ func TestUnicodeLiterals(t *testing.T) {
 		if got := Match(tc.pattern, tc.name); got != tc.want {
 			t.Errorf("Match(%q, %q) = %v, want %v", tc.pattern, tc.name, got, tc.want)
 		}
-	}
-}
-
-func TestOverlaps(t *testing.T) {
-	for _, tc := range []struct {
-		first, second string
-		want          bool
-	}{
-		{"a*", "ab*", true},
-		{"a?", "ab", true},
-		{"a*", "b*", false},
-		{"*-x", "a*", true},
-		{"a?c", "a*c", true},
-		{"a", "ab", false},
-		{"*", "gpt-4o", true},
-		{"*", "*", true},
-		{"**", "*", true},
-		{"gpt-4o", "gpt-4o", true},
-		{"gpt-4o", "gpt-4o-mini", false},
-		{"gpt-*", "gpt-4o*", true},
-		{"a?c", "abc", true},
-		{"a?c", "ac", false},
-		{"a*b", "b*a", false},
-		{"*a", "a*", true},
-		{"?a", "a?", true},
-		{"a?", "?b", true},
-		{"??", "a", false},
-		{"a*", "a", true},
-		{"a", "*", true},
-		{"模型-*", "模型-?", true},
-		{"模型*", "*模型*", true},
-		{"🤖*", "gpt*", false},
-	} {
-		got, err := Overlaps(tc.first, tc.second)
-		if err != nil {
-			t.Fatalf("Overlaps(%q, %q) = %v", tc.first, tc.second, err)
-		}
-		if got != tc.want {
-			t.Errorf("Overlaps(%q, %q) = %v, want %v", tc.first, tc.second, got, tc.want)
-		}
-		// Intersection emptiness is symmetric; a direction-dependent bug would
-		// make some same-priority rule pairs depend on save order.
-		if swapped, err := Overlaps(tc.second, tc.first); err != nil || swapped != tc.want {
-			t.Errorf("Overlaps(%q, %q) = %v, %v; want %v, nil", tc.second, tc.first, swapped, err, tc.want)
-		}
-	}
-	for _, tc := range []struct {
-		first, second, want string
-	}{
-		{"", "*", "first glob pattern"},
-		{"*", "a[", "second glob pattern"},
-		{"a{", "b}", "first glob pattern"},
-		{"*", "a\tb", "second glob pattern"},
-		{strings.Repeat("x", MaxPatternLength+1), "*", "first glob pattern"},
-	} {
-		overlaps, err := Overlaps(tc.first, tc.second)
-		if err == nil {
-			t.Fatalf("Overlaps(%q, %q) = %v, want an error", tc.first, tc.second, overlaps)
-		}
-		if overlaps {
-			t.Fatalf("Overlaps(%q, %q) reported an overlap alongside %v", tc.first, tc.second, err)
-		}
-		if !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("Overlaps(%q, %q) = %q, want it to name %q", tc.first, tc.second, err, tc.want)
-		}
-	}
-}
-
-func TestAdvisoryKey(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want int64
-	}{
-		{"gpt-4o", 1107710032109220332},
-		{"model-*", 7834068510815985677},
-		{"chat-fast", -2109763714842010856},
-		{"", -3750763034362895579},
-	} {
-		if got := AdvisoryKey(tc.name); got != tc.want {
-			t.Errorf("AdvisoryKey(%q) = %d, want %d", tc.name, got, tc.want)
-		}
-		if again := AdvisoryKey(tc.name); again != tc.want {
-			t.Errorf("AdvisoryKey(%q) changed between calls: %d then %d", tc.name, tc.want, again)
-		}
-	}
-	// Same name must always produce the same key, so the implementation is
-	// pinned to standard FNV-1a 64 rather than an ad hoc hash.
-	for _, name := range []string{"gpt-4o", "gpt-4o-mini", "模型", "*-x", "a b"} {
-		h := fnv.New64a()
-		_, _ = h.Write([]byte(name))
-		if got, want := AdvisoryKey(name), int64(h.Sum64()); got != want {
-			t.Errorf("AdvisoryKey(%q) = %d, want FNV-1a 64 %d", name, got, want)
-		}
-	}
-	if AdvisoryKey("gpt-4o") == AdvisoryKey("gpt-4o-mini") {
-		t.Fatal("distinct names produced the same advisory key")
 	}
 }

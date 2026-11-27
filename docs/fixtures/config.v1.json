@@ -1,6 +1,6 @@
 {
   "protocol_version": 1,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "revision": 42,
   "issued_at": "2026-11-21T09:00:00Z",
@@ -17,7 +17,9 @@
       "name": "default",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "enabled": true,
-      "allowed_models": ["*"],
+      "allowed_models": [
+        "*"
+      ],
       "max_inflight": 64
     }
   ],
@@ -25,7 +27,6 @@
     {
       "model_id": "gpt-5",
       "enabled": true,
-      "default_upstream_model": "gpt-5-2026-xx",
       "shutdown_date": null,
       "created_at": 1764806400,
       "billing": {
@@ -37,7 +38,6 @@
     {
       "model_id": "text-embedding-3-small",
       "enabled": true,
-      "default_upstream_model": null,
       "shutdown_date": null,
       "created_at": 1764806400,
       "billing": {
@@ -64,24 +64,30 @@
     {
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "model_id": "gpt-5",
-      "upstream_model_name": null,
-      "enabled": true,
-      "priority": 100,
-      "weight": 100
+      "upstream_model_id": "gpt-5",
+      "enabled": true
     },
     {
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
       "model_id": "text-embedding-3-small",
-      "upstream_model_name": null,
-      "enabled": true,
-      "priority": 100,
-      "weight": 100
+      "upstream_model_id": "text-embedding-3-small",
+      "enabled": true
     }
   ],
   "retry": {
     "max_attempts": 3,
-    "retry_statuses": [408, 429, 500, 502, 503, 504],
-    "backoff_ms": [100, 300],
+    "retry_statuses": [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "backoff_ms": [
+      100,
+      300
+    ],
     "respect_retry_after": true,
     "retry_after_max_ms": 2000
   },
@@ -94,7 +100,9 @@
       {
         "id": "upstream-rate-limit",
         "match": {
-          "upstream_status": [429],
+          "upstream_status": [
+            429
+          ],
           "committed": false,
           "retry_exhausted": true
         },
@@ -110,7 +118,13 @@
       {
         "id": "transient-upstream-status",
         "match": {
-          "upstream_status": [408, 500, 502, 503, 504],
+          "upstream_status": [
+            408,
+            500,
+            502,
+            503,
+            504
+          ],
           "committed": false,
           "retry_exhausted": true
         },
@@ -125,7 +139,14 @@
       }
     ],
     "never_rewrite": {
-      "statuses": [400, 401, 403, 404, 409, 422],
+      "statuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        422
+      ],
       "after_commit": true
     }
   },

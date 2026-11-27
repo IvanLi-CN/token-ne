@@ -142,7 +142,8 @@ func (c *Client) Push(ctx context.Context, address, instance string, s Snapshot)
 	if err := c.request(ctx, address, http.MethodPut, "/internal/v1/config", instance, s, &ack); err != nil {
 		return err
 	}
-	if ack.Protocol != Protocol || ack.Schema != Schema {
+	// The core echoes the schema it applied; a mixed fleet applies different ones.
+	if ack.Protocol != Protocol || ack.Schema != s.Schema {
 		return ErrCompatibility
 	}
 	if ack.Instance != instance || ack.Revision != s.Revision {

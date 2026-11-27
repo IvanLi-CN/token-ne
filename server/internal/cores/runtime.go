@@ -118,7 +118,10 @@ func (r *Runtime) Audit(ctx context.Context, actor, action, kind, id string, pay
 // repository. The client supplies compatibility metadata and an optional digest;
 // the image reference itself is computed here.
 func (r *Runtime) RegisterVersion(ctx context.Context, v Target) (VersionView, error) {
-	if v.Protocol != Protocol || v.SchemaMin < 1 || v.SchemaMin > Schema || v.SchemaMax < Schema {
+	if v.Protocol != Protocol {
+		return VersionView{}, ErrInvalid
+	}
+	if _, e := SchemaFor(v.SchemaMin, v.SchemaMax); e != nil {
 		return VersionView{}, ErrInvalid
 	}
 	image, e := VersionImageRef(r.CoreImage, v.Version, v.Digest)
@@ -177,7 +180,7 @@ func (r *Runtime) EnsureCurrent(ctx context.Context) (err error) {
 		if value := strings.TrimSpace(r.CurrentCommit); value != "" && value != "unknown" {
 			commit = &value
 		}
-		if _, err = r.RegisterVersion(ctx, Target{Version: current, Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema, Commit: commit}); err != nil {
+		if _, err = r.RegisterVersion(ctx, Target{Version: current, Protocol: Protocol, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent, Commit: commit}); err != nil {
 			return err
 		}
 		registered, err = r.versionImage(ctx, current)
@@ -185,7 +188,10 @@ func (r *Runtime) EnsureCurrent(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	if registered.Protocol != Protocol || registered.SchemaMin > Schema || registered.SchemaMax < Schema {
+	if registered.Protocol != Protocol {
+		return ErrCompatibility
+	}
+	if _, e := SchemaFor(registered.SchemaMin, registered.SchemaMax); e != nil {
 		return ErrCompatibility
 	}
 

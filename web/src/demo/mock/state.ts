@@ -120,18 +120,14 @@ function buildUpstreams(now: number, variant: ShareState["data"]): Upstream[] {
     idle_timeout_ms: 60000,
     models: [
       {
+        upstream_model_id: "atlas-1",
         model_id: "demo-scene-atlas",
-        upstream_model_name: "atlas-1",
         enabled: true,
-        priority: 1,
-        weight: 100,
       },
       {
+        upstream_model_id: "atlas-mini-1",
         model_id: "demo-scene-atlas-mini",
-        upstream_model_name: "atlas-mini-1",
         enabled: true,
-        priority: 1,
-        weight: 100,
       },
     ],
     api_key_hint: "sk-demo-scene-…4f2a",
@@ -155,11 +151,9 @@ function buildUpstreams(now: number, variant: ShareState["data"]): Upstream[] {
       idle_timeout_ms: 60000,
       models: [
         {
+          upstream_model_id: "orion-2",
           model_id: "demo-scene-orion",
-          upstream_model_name: "orion-2",
           enabled: true,
-          priority: 2,
-          weight: 50,
         },
       ],
       api_key_hint: "sk-demo-scene-…b81c",

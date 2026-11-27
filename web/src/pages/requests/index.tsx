@@ -87,7 +87,7 @@ export default function RequestsPage() {
         </div>
         <div className="space-y-4 px-4 pb-6 sm:px-6">
           <form
-            className="flex flex-wrap items-end gap-3 rounded-xl border border-border p-3"
+            className="flex flex-wrap items-end gap-3 border-b border-[var(--border-quiet)] pb-4"
             onSubmit={submit}
             onReset={() => {
               setFilterError("");

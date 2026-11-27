@@ -19,7 +19,7 @@ func scanUpstream(row pgx.Row) (Upstream, error) {
 	return u, normalize(e)
 }
 func (s *Store) capabilities(ctx context.Context, id string) ([]Capability, error) {
-	rows, e := s.Pool.Query(ctx, "select model_id,upstream_model_name,enabled,priority,weight from upstream_models where upstream_id=$1 order by model_id", id)
+	rows, e := s.Pool.Query(ctx, "select upstream_model_id,model_id,enabled from upstream_models where upstream_id=$1 order by upstream_model_id", id)
 	if e != nil {
 		return nil, e
 	}
@@ -27,7 +27,7 @@ func (s *Store) capabilities(ctx context.Context, id string) ([]Capability, erro
 	out := []Capability{}
 	for rows.Next() {
 		var c Capability
-		if e = rows.Scan(&c.ModelID, &c.Mapping, &c.Enabled, &c.Priority, &c.Weight); e != nil {
+		if e = rows.Scan(&c.UpstreamModelID, &c.ModelID, &c.Enabled); e != nil {
 			return nil, e
 		}
 		out = append(out, c)
@@ -98,7 +98,7 @@ func (s *Store) SaveUpstream(ctx context.Context, u Upstream, create bool, a Aud
 			return err
 		}
 		for _, c := range models {
-			if _, err = tx.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,$3,$4,$5,$6)", u.ID, c.ModelID, c.Mapping, c.Enabled, c.Priority, c.Weight); err != nil {
+			if _, err = tx.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,$2,$3,$4)", u.ID, c.UpstreamModelID, c.ModelID, c.Enabled); err != nil {
 				return err
 			}
 		}

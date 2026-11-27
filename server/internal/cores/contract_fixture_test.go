@@ -37,16 +37,16 @@ func contractDB(t *testing.T) *fakeDB {
 		t.Fatal(err)
 	}
 	keys := `[{"id":"0193f0c2-7b1a-7c3e-9f00-000000000003","name":"e2e","sha256":"9f2b2f9f3d0d6f4c0f9e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d","enabled":true,"allowed_models":["*"],"max_inflight":64}]`
-	models := `[{"model_id":"gpt-4o-mini","enabled":true,"default_upstream_model":null,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":0.15,"cached_input_usd_per_mtok":0.075,"output_usd_per_mtok":0.6}}]`
+	models := `[{"model_id":"gpt-4o-mini","enabled":true,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":0.15,"cached_input_usd_per_mtok":0.075,"output_usd_per_mtok":0.6}}]`
 	entries := []byte(`[{"id":"` + contractUpstream + `","name":"mock","base_url":"https://mock.example.com","auth_style":"bearer","enabled":true,"connect_timeout_ms":10000,"first_byte_timeout_ms":90000,"idle_timeout_ms":300000,"cipher":"` + base64.StdEncoding.EncodeToString(ciphertext) + `","nonce":"` + base64.StdEncoding.EncodeToString(nonce) + `"}]`)
-	capabilities := `[{"upstream_id":"` + contractUpstream + `","model_id":"gpt-4o-mini","upstream_model_name":"mock-model","enabled":true,"priority":100,"weight":100}]`
+	capabilities := `[{"upstream_id":"` + contractUpstream + `","upstream_model_id":"mock-model","model_id":"gpt-4o-mini","enabled":true}]`
 	db := &fakeDB{}
 	db.row = func(q string, _ []any) fakeRow {
 		switch {
 		case strings.Contains(q, "core_config_generation"):
 			return fakeRow{err: pgx.ErrNoRows}
 		case strings.Contains(q, "config_schema_min"):
-			return fakeRow{values: []any{1, 1, 1}}
+			return fakeRow{values: []any{2, 2, 1}}
 		case strings.Contains(q, "jsonb_agg"):
 			return fakeRow{values: []any{json.RawMessage(keys), json.RawMessage(models), entries, json.RawMessage(capabilities)}}
 		case strings.Contains(q, "control_status->'features'"):
@@ -58,8 +58,8 @@ func contractDB(t *testing.T) *fakeDB {
 		switch {
 		case strings.Contains(q, "from model_route_rules"):
 			return [][]any{
-				{"0193f0c2-7b1a-7c3e-9f00-000000000011", "gpt-*", "glob", "gpt-4o-mini", nil, 100, true, "primary"},
-				{"0193f0c2-7b1a-7c3e-9f00-000000000012", "chat-fast", "exact", "gpt-4o-mini", nil, 300, true, nil},
+				{"0193f0c2-7b1a-7c3e-9f00-000000000011", "gpt-*", "glob", "gpt-4o-mini", nil, 0, true, "primary"},
+				{"0193f0c2-7b1a-7c3e-9f00-000000000012", "chat-fast", "exact", "gpt-4o-mini", nil, 1, true, nil},
 			}
 		case strings.Contains(q, "from upstream_model_policies"):
 			return [][]any{{contractUpstream, "allow", []byte(`["gpt-*"]`), []byte(`["gpt-4o-mini-experimental"]`)}}

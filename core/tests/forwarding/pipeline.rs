@@ -35,7 +35,7 @@ fn configured(base_url: String) -> Arc<CoreState> {
     config["upstreams"].as_array_mut().unwrap().push(second);
     let mut capability = config["upstream_models"][0].clone();
     capability["upstream_id"] = "0193f0c2-7b1a-7c3e-9f00-000000000005".into();
-    capability["priority"] = 101.into();
+    capability["upstream_model_id"] = "gpt-5-2026-xx".into();
     config["upstream_models"]
         .as_array_mut()
         .unwrap()
@@ -45,7 +45,6 @@ fn configured(base_url: String) -> Arc<CoreState> {
     third["name"] = "third".into();
     config["upstreams"].as_array_mut().unwrap().push(third);
     capability["upstream_id"] = "0193f0c2-7b1a-7c3e-9f00-000000000006".into();
-    capability["priority"] = 102.into();
     config["upstream_models"]
         .as_array_mut()
         .unwrap()
@@ -332,7 +331,7 @@ async fn first_byte_timeout_uses_next_candidate_before_commit() {
     config["upstreams"] = json!([first, second]);
     let mut mapping = config["upstream_models"][0].clone();
     mapping["upstream_id"] = "0193f0c2-7b1a-7c3e-9f00-000000000005".into();
-    mapping["priority"] = 101.into();
+    mapping["upstream_model_id"] = "gpt-5-2026-xx".into();
     config["upstream_models"]
         .as_array_mut()
         .unwrap()

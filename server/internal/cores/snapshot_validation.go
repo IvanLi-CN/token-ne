@@ -43,7 +43,7 @@ func snapshotReject(path, reason string) *SnapshotValidationError {
 
 var routeFieldSet = map[string]bool{
 	"id": true, "pattern": true, "match_type": true, "target_model_id": true,
-	"upstream_id": true, "priority": true, "enabled": true, "description": true,
+	"upstream_id": true, "position": true, "enabled": true, "description": true,
 }
 
 var policyFieldSet = map[string]bool{
@@ -67,7 +67,7 @@ type snapshotRoute struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      *int    `json:"priority"`
+	Position      *int    `json:"position"`
 	Enabled       *bool   `json:"enabled"`
 	Description   *string `json:"description"`
 }
@@ -80,6 +80,7 @@ type snapshotPolicy struct {
 }
 
 type snapshotEnvelope struct {
+	Schema   int                        `json:"config_schema_version"`
 	Features map[string]json.RawMessage `json:"features"`
 	Models   []struct {
 		ModelID string `json:"model_id"`
@@ -104,6 +105,12 @@ func ValidateSnapshot(body []byte) error {
 	var envelope snapshotEnvelope
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return ErrInvalid
+	}
+	// The rules below are the schema 2 contract. A schema 1 body is rendered for a
+	// core that predates position and upstream_model_id, so validating it against
+	// these field sets would reject a body that is correct for its reader.
+	if envelope.Schema == 1 {
+		return validateSchemaOneEnvelope(envelope)
 	}
 	// Unknown fields are rejected first: a misspelled routing field must not
 	// become a silent no-op in a newer core.
@@ -235,7 +242,7 @@ func ValidateSnapshot(body []byte) error {
 	}
 
 	seenIDs := map[string]bool{}
-	exact := map[string]bool{}
+	positions := map[string]map[int]bool{}
 	for i, route := range routes {
 		base := fmt.Sprintf("model_routes[%d]", i)
 		if seenIDs[route.ID] {
@@ -257,17 +264,14 @@ func ValidateSnapshot(body []byte) error {
 		default:
 			return snapshotReject(base+".match_type", "must be exact or glob")
 		}
-		if models[route.Pattern] {
-			return snapshotReject(base+".pattern", "pattern is reserved by a global model id")
-		}
 		if !models[route.TargetModelID] {
 			return snapshotReject(base+".target_model_id", "referenced model does not exist")
 		}
 		if route.UpstreamID != nil && !upstreams[*route.UpstreamID] {
 			return snapshotReject(base+".upstream_id", "referenced upstream does not exist")
 		}
-		if route.Priority == nil || *route.Priority < 0 || *route.Priority > 100000 {
-			return snapshotReject(base+".priority", "must be between 0 and 100000")
+		if route.Position == nil || *route.Position < 0 {
+			return snapshotReject(base+".position", "must be zero or greater")
 		}
 		if route.Enabled == nil {
 			return snapshotReject(base+".enabled", "is required")
@@ -275,33 +279,20 @@ func ValidateSnapshot(body []byte) error {
 		if route.Description != nil && utf8.RuneCountInString(*route.Description) > 1024 {
 			return snapshotReject(base+".description", "maximum length is 1024")
 		}
-		if *route.Enabled && route.MatchType == "exact" {
-			if exact[route.Pattern] {
-				return snapshotReject(base+".pattern", "duplicate enabled exact rule")
-			}
-			exact[route.Pattern] = true
+		// Positions are unique inside a scope only; two scopes never compete.
+		// Patterns carry no uniqueness or overlap rule: order decides the winner,
+		// so duplicates and overlapping Globs are legitimate.
+		scope := ""
+		if route.UpstreamID != nil {
+			scope = *route.UpstreamID
 		}
-	}
-	// Two enabled glob rules at the same priority must agree on their target,
-	// or which one wins depends on iteration order. The core enforces this too,
-	// so publishing such a snapshot would fail every instance.
-	for i, a := range routes {
-		if a.Enabled == nil || !*a.Enabled || a.MatchType != "glob" {
-			continue
+		if positions[scope] == nil {
+			positions[scope] = map[int]bool{}
 		}
-		for j := i + 1; j < len(routes); j++ {
-			b := routes[j]
-			if b.Enabled == nil || !*b.Enabled || b.MatchType != "glob" || a.Priority == nil || b.Priority == nil || *a.Priority != *b.Priority {
-				continue
-			}
-			overlap, err := modelglob.Overlaps(a.Pattern, b.Pattern)
-			if err != nil {
-				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), err.Error())
-			}
-			if overlap && (a.TargetModelID != b.TargetModelID || !sameOptional(a.UpstreamID, b.UpstreamID)) {
-				return snapshotReject(fmt.Sprintf("model_routes[%d].pattern", j), "overlaps a same-priority glob rule with a different target or upstream")
-			}
+		if positions[scope][*route.Position] {
+			return snapshotReject(base+".position", "duplicate position in scope")
 		}
+		positions[scope][*route.Position] = true
 	}
 	return nil
 }
@@ -321,13 +312,6 @@ func firstUnknownField(item map[string]json.RawMessage, allowed map[string]bool)
 	}
 	sort.Strings(unknown)
 	return unknown[0], true
-}
-
-func sameOptional(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
 
 // unmarshalObject re-decodes one raw object so a typed view of it is available
@@ -475,6 +459,50 @@ func requireFeatureTrue(features map[string]json.RawMessage, name, path string) 
 	var enabled bool
 	if err := json.Unmarshal(raw, &enabled); err != nil || !enabled {
 		return snapshotReject(path, "feature must be true when the array is non-empty")
+	}
+	return nil
+}
+
+// validateSchemaOneEnvelope enforces only what both generations agree on. Routing
+// is absent because the two generations resolve the same rules differently, so
+// the publisher drops it; policies are present because their field set and
+// `policy_allows` are unchanged, and a policy that silently stopped applying
+// would widen which upstream models a request can see. The schema 2 rules about
+// position, pattern uniqueness and upstream_model_id do not apply here.
+func validateSchemaOneEnvelope(envelope snapshotEnvelope) error {
+	if len(envelope.ModelRoutes) > 0 {
+		return snapshotReject("model_routes", "a schema 1 snapshot must not carry routing")
+	}
+	raw, present := envelope.Features[FeatureModelNameRouting]
+	if present {
+		var enabled bool
+		if json.Unmarshal(raw, &enabled) == nil && enabled {
+			return snapshotReject("features."+FeatureModelNameRouting, "a schema 1 snapshot must not declare routing support")
+		}
+	}
+	// Policies travel on both shapes, so the flag is allowed but must accompany
+	// the array it guards.
+	if len(envelope.UpstreamPolicies) > 0 {
+		if err := requireFeatureTrue(envelope.Features, FeatureUpstreamModelPolicy, "features."+FeatureUpstreamModelPolicy); err != nil {
+			return err
+		}
+	}
+	models := map[string]bool{}
+	for _, m := range envelope.Models {
+		models[m.ModelID] = true
+	}
+	upstreams := map[string]bool{}
+	for i, item := range envelope.Upstreams {
+		if field, ok := firstUnknownField(item, upstreamFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("upstreams[%d].%s", i, field), "unknown upstream field")
+		}
+		var u struct {
+			ID string `json:"id"`
+		}
+		if err := unmarshalObject(item, &u); err != nil {
+			return snapshotReject(fmt.Sprintf("upstreams[%d]", i), "invalid upstream field type")
+		}
+		upstreams[u.ID] = true
 	}
 	return nil
 }

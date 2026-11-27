@@ -10,10 +10,20 @@
 
 协议有两个独立版本：
 
-| 版本 | 作用 | v1 值 |
+| 版本 | 作用 | 当前值 |
 | --- | --- | --- |
 | `protocol_version` | 线协议、端点、信封、错误格式 | `1` |
-| `config_schema_version` | 配置快照字段和语义 | `1` |
+| `config_schema_version` | 配置快照字段和语义 | `2` |
+
+`config_schema_version` 为 `2` 的原因是第一阶段到第二阶段的字段替换不是增量的：`model_routes[]` 用 `position` 取代了 `priority`，`upstream_models[]` 从 `upstream_model_name`/`priority`/`weight` 改成必需的 `upstream_model_id`。
+
+控制面同时支持 `[1, 2]`：它按每个实例声明的 `config_schema_min/max` 渲染，取双方都懂的最新一版（`docs/adr/0006` 的「schema 有交集」）。因此滚动升级期间两代核心可以同时接流量，不需要停机整体切换。
+
+对声明范围为 `1` 的核心，控制面渲染旧字段形状，并**不发送 `model_routes[]`**。两代核心对同一组规则的解析方式不同（`1` 用「精确优先于 Glob + `priority` + 上游只缩小候选」，`2` 用「作用域优先 + 顺序首命中 + 锁定上游」），翻译过去会让同一请求在混编期内落到不同模型上。改为不发送后，未命中的请求名在旧核心上返回 `404`——这是可见且可回滚的失败，而不是静默的错误路由。该实例升级到 `2` 后路由立即生效。
+
+`upstream_policies[]` 在两代之间**原样发送**：字段集相同，`policy_allows` 的实现一行未改，语义一致。删掉它只会让策略静默失效，把原本被拒绝的上游模型重新暴露给请求——这是安全回退，不属于兼容协商的范围。旧核心需要 `features.upstream_model_policy` 为 `true` 才能携带该数组，控制面据此渲染。
+
+没有支持的形状可用（`config_schema_max < 1` 或 `config_schema_min > 2`）的核心仍被登记、部署与推送三处拒绝。
 
 核心还声明：
 
@@ -95,8 +105,8 @@
 ```json
 {
   "protocol_version": 1,
-  "config_schema_min": 1,
-  "config_schema_max": 1,
+  "config_schema_min": 2,
+  "config_schema_max": 2,
   "features": ["chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite", "egress_proxy"],
   "version": "0.2.0",
   "build": {
@@ -150,7 +160,7 @@ X-Token-Ne-Config-Signature: <optional hmac>
   "protocol_version": 1,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "applied_revision": 43,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "signature_state": "valid"
 }
 ```
@@ -295,7 +305,7 @@ Idempotency-Key: <batch_id>
 ```json
 {
   "protocol_version": 1,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "revision": 43,
   "issued_at": "2026-11-21T09:00:00Z",
@@ -376,9 +386,9 @@ Idempotency-Key: <batch_id>
 - `upstreams[]` 继续允许未知字段以保持前向兼容，因此 `egressProxyId` 之类的拼写错误不会被 JSON Schema 拒绝，而会被当作直连语义。控制面在生成快照前必须按封闭字段集校验上游对象并拒绝这类键；core 只承认 `egress_proxy_id`。
 - `upstreams[].base_url` 必须是 `https`（开发模式可显式放开），规范格式不含隐式版本段，不能包含用户名/密码，不能指向 loopback、link-local、私网或元数据地址；历史末尾 `/v1` 后缀由 core 兼容剥离。
 - `upstreams[].auth_style` 只允许 `bearer`、`api_key`；未知值拒绝。
-- `models[].model_id` 非空且全局唯一；`default_upstream_model` 可空；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
-- `upstream_models[]` 的 `(upstream_id, model_id)` 必须唯一；引用必须存在；`priority` 0 到 100000，`weight` 0 到 10000；`upstream_model_name` 可空。
-- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`exact` 的 `pattern` 是全局 Model ID 或精确别名；`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。全局 Model ID 保留给对应 Model，`pattern` 等于已有或之后新建、导入的全局 Model ID 时按冲突拒绝。启用的 exact 规则按 `pattern` 唯一。同优先级 Glob 规则的匹配范围必须按同一套 Glob 语言判定，重叠时目标和上游限制必须相同。
+- `models[].model_id` 非空且全局唯一；不接受任何上游命名或映射字段；计费字段为非负数或 `null`；`shutdown_date` 为 `date` 或 `null`；`created_at` 为 Unix 秒整数或 `null`，用于 `/v1/models` 的 `created`。
+- `upstream_models[]` 的 `(upstream_id, upstream_model_id)` 与 `(upstream_id, model_id)` 必须各自唯一；引用必须存在；`upstream_model_id` 非空且不超过 256 字符。
+- `model_routes[]` 的 `match_type` 为 `exact` 或 `glob`，目标和上游引用必须存在。`glob` 的 `pattern` 使用与承接策略相同的受限 Glob（`*`、`?` 通配，区分大小写，方括号、花括号、反斜线和控制字符拒绝）。每条规则带作用域与作用域内顺序 `position`：核先按 `upstream_id` 升序逐个尝试上游作用域（各自按 `position`，第一条命中即锁定该上游），全部未命中再按全局作用域顺序尝试，最后按系统模型 ID 兜底；第一条命中即生效。不设 `pattern` 唯一性或重叠约束，重复规则由顺序决定；`pattern` 等于系统模型 ID 也不算冲突。同一作用域内的 `position` 必须唯一。
 - `upstream_policies[]` 按 `upstream_id` 唯一，`default_action` 取 `allow` 或 `deny`。两个列表分别校验受限 Glob 语法及去重。发布方必须为每个存在策略行的上游导出一条策略；快照是控制面当前状态的完整函数，省略某个上游的策略表示该上游当前没有策略，核心不得沿用上一份快照中的策略，也不得继续沿用已清空的黑名单。没有策略行的上游等价于 `default_action=allow` 且两个列表为空。
 - 模型启用不代表有候选；候选只来自启用的 `upstream_models`。
 - `downstream_keys[].sha256` 必须是 64 位十六进制；同一个哈希不能重复；`allowed_models` 为空表示无模型，`["*"]` 表示全部。

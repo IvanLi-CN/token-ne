@@ -6,12 +6,50 @@ import {
 } from "react";
 export const Button = forwardRef<
   HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }
->(function Button({ variant = "primary", className = "", type = "button", ...props }, ref) {
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: "primary" | "secondary" | "danger";
+    /** Icon-only action: no padding box, hover ring only. */
+    ghost?: boolean;
+  }
+>(function Button(
+  { variant = "primary", ghost = false, className = "", type = "button", ...props },
+  ref,
+) {
   return (
-    <button ref={ref} type={type} className={`button button-${variant} ${className}`} {...props} />
+    <button
+      ref={ref}
+      type={type}
+      className={`button button-${variant}${ghost ? " button-ghost" : ""} ${className}`}
+      {...props}
+    />
   );
 });
+/** The one toggle control of the console: a switch, never a checkbox. */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`switch${checked ? " is-on" : ""}`}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="switch-thumb" aria-hidden="true" />
+    </button>
+  );
+}
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className = "", ...props }, ref) {
     return <input ref={ref} className={`input ${className}`} {...props} />;

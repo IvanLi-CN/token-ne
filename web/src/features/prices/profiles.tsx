@@ -319,6 +319,7 @@ export function PriceProfilesSection({
         <div className="px-5 pb-5">
           <DataTable
             caption="价格档案"
+            captionHidden
             rows={rows}
             rowKey={(row) =>
               row.kind === "global"

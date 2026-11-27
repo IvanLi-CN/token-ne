@@ -5,7 +5,7 @@ use axum::{
     routing::get,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use rand::{SeedableRng, rngs::StdRng};
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, atomic::Ordering};
@@ -38,6 +38,20 @@ fn configured() -> Arc<CoreState> {
         .unwrap();
     s
 }
+
+// The heartbeat's config block reports the schema the core actually applies. It
+// used to be a literal 1, so raising the accepted schema left the control plane
+// rejecting every heartbeat as incompatible without naming the field.
+#[test]
+fn heartbeat_reports_the_applied_schema_version() {
+    let status = configured().status();
+    assert_eq!(status["config"]["schema_version"], 2);
+    // The engine's own contract must accept what it publishes.
+    assert_eq!(
+        status["config"]["schema_version"],
+        fixture()["config_schema_version"]
+    );
+}
 #[test]
 fn valid_fixture_and_unknown_fields() {
     assert!(parse(&fixture()).is_ok());
@@ -50,7 +64,7 @@ fn valid_fixture_and_unknown_fields() {
 fn invalid_fixtures() {
     let cases = [
         ("/protocol_version", json!(2)),
-        ("/config_schema_version", json!(2)),
+        ("/config_schema_version", json!(3)),
         ("/instance_id", json!("key_bad")),
         ("/revision", json!(0)),
         ("/issued_at", json!("2099-01-01T00:00:00Z")),
@@ -73,9 +87,10 @@ fn invalid_fixtures() {
         ),
         ("/upstreams/0/connect_timeout_ms", json!(99)),
         ("/upstreams/0/idle_timeout_ms", json!(86_400_001)),
-        ("/upstream_models/0/weight", json!(10001)),
-        ("/upstream_models/0/priority", json!(-1)),
+        ("/upstream_models/0/upstream_model_id", json!("")),
         ("/upstream_models/0/model_id", json!("missing")),
+        // One system model is served by one upstream model inside an upstream.
+        ("/upstream_models/1/model_id", json!("gpt-5")),
         ("/downstream_keys/0/sha256", json!("bad")),
         ("/downstream_keys/0/allowed_models", json!(["missing"])),
         ("/downstream_keys/0/allowed_models", json!(["*", "gpt-5"])),
@@ -165,51 +180,30 @@ fn model_mapping_and_candidates() {
     let mut c = parse(&fixture()).unwrap();
     let model = c.models[0].clone();
     let mut cap = c.upstream_models[0].clone();
-    assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5-2026-xx");
-    cap.upstream_model_name = Some("specific".into());
-    assert_eq!(routing::effective_model_name(&model, &cap), "specific");
-    cap.upstream_model_name = None;
-    let mut model = model;
-    model.default_upstream_model = None;
     assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5");
-    let mut rng = StdRng::seed_from_u64(3);
-    assert_eq!(routing::candidates(&c, "gpt-5", None, &mut rng).len(), 1);
-    c.upstream_models[0].weight = 0;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    // The binding owns the outgoing name: it must not fall back to model_id.
+    cap.upstream_model_id = "gpt-5-2026-xx".into();
+    assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5-2026-xx");
+    assert_eq!(routing::candidates(&c, "gpt-5", None).len(), 1);
+    c.upstream_models[0].enabled = false;
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
     assert_eq!(routing::visible_models(&c, &c.downstream_keys[0]).len(), 1);
-    c.upstream_models[0].weight = 100;
+    c.upstream_models[0].enabled = true;
     c.upstreams[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
     c.upstreams[0].enabled = true;
     let mut upstream = c.upstreams[0].clone();
     upstream.id = "0193f0c2-7b1a-7c3e-9f00-000000000005".into();
     c.upstreams.push(upstream);
     let mut relation = c.upstream_models[0].clone();
     relation.upstream_id = c.upstreams[1].id.clone();
-    relation.priority = 0;
-    relation.weight = 1;
     c.upstream_models.push(relation);
-    for _ in 0..50 {
-        assert_eq!(
-            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
-                .capability
-                .priority,
-            0
-        );
-    }
-    c.upstream_models[0].priority = 0;
-    c.upstream_models[0].weight = 9;
-    let selected = (0..1000)
-        .filter(|_| {
-            routing::candidates(&c, "gpt-5", None, &mut rng)[0]
-                .upstream
-                .id
-                == c.upstreams[0].id
-        })
-        .count();
-    assert!((840..960).contains(&selected), "weighted draw {selected}");
+    let ordered = routing::candidates(&c, "gpt-5", None);
+    assert_eq!(ordered.len(), 2);
+    assert_eq!(ordered[0].upstream.id, c.upstreams[0].id);
+    assert_eq!(ordered[1].upstream.id, c.upstreams[1].id);
     c.models[0].enabled = false;
-    assert!(routing::candidates(&c, "gpt-5", None, &mut rng).is_empty());
+    assert!(routing::candidates(&c, "gpt-5", None).is_empty());
 }
 #[test]
 fn atomic_revision_and_inflight() {
@@ -693,4 +687,90 @@ fn identical_revision_keeps_snapshot_identity() {
         .apply(&first.bytes, ConfigSource::ControlPlane, None)
         .unwrap();
     assert!(Arc::ptr_eq(&first, &second));
+}
+
+// During a rolling upgrade the control plane hands a core that predates
+// `position` a snapshot with the routing capability switched off and no rule
+// list. Requests that depend on a rule then 404, and without a separate counter
+// that is indistinguishable from a caller misspelling a model name. The two
+// counters are the only way an operator can tell a mid-rollout fleet from a
+// genuine client error, so they must be exported and must move independently.
+#[test]
+fn model_not_found_and_route_table_absent_are_separate_signals() {
+    let s = state();
+    let before = token_ne_core::telemetry::metrics(&s);
+    assert!(before.contains("token_ne_core_model_not_found_total 0"));
+    assert!(before.contains("token_ne_core_route_table_absent_total 0"));
+
+    s.model_not_found_total.fetch_add(1, Ordering::Relaxed);
+    let middle = token_ne_core::telemetry::metrics(&s);
+    assert!(middle.contains("token_ne_core_model_not_found_total 1"));
+    // A misspelled name must not look like a routeless instance.
+    assert!(middle.contains("token_ne_core_route_table_absent_total 0"));
+
+    s.route_table_absent_total.fetch_add(1, Ordering::Relaxed);
+    let after = token_ne_core::telemetry::metrics(&s);
+    assert!(after.contains("token_ne_core_model_not_found_total 1"));
+    assert!(after.contains("token_ne_core_route_table_absent_total 1"));
+}
+
+// The counter test above proves the series is exported; this one proves the 404
+// path actually moves it. Both halves matter: a counter wired to nothing looks
+// healthy on a dashboard while the fleet is mid-rollout.
+#[tokio::test]
+async fn an_unknown_model_name_moves_the_not_found_counter() {
+    let s = configured();
+    let app = router(ServerState::new(s.clone(), "control".into()));
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 0);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", "Bearer test-key")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"model":"no-such-model","messages":[]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 1);
+    // The fixture does not enable model_name_routing, which is exactly the shape
+    // a core gets mid-rollout: the 404 lands in both buckets so an operator can
+    // see "this instance cannot resolve names at all" separate from a mistyped
+    // model.
+    assert_eq!(s.route_table_absent_total.load(Ordering::Relaxed), 1);
+}
+
+// The other half: with routing enabled a miss must not be blamed on the rollout.
+#[tokio::test]
+async fn a_miss_under_routing_is_not_counted_as_a_routeless_instance() {
+    let s = configured();
+    let mut f = fixture();
+    f["features"]["model_name_routing"] = true.into();
+    // `configured()` swapped the key hash; a fresh fixture resets it to the
+    // placeholder, so re-apply the digest or the request stops at 401.
+    f["downstream_keys"][0]["sha256"] = hex::encode(Sha256::digest(b"test-key")).into();
+    let next = s.snapshot().unwrap().config.revision + 1;
+    f["revision"] = next.into();
+    s.apply(&bytes(&f), ConfigSource::ControlPlane, None)
+        .unwrap();
+    let app = router(ServerState::new(s.clone(), "control".into()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", "Bearer test-key")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"model":"no-such-model","messages":[]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 1);
+    assert_eq!(s.route_table_absent_total.load(Ordering::Relaxed), 0);
 }

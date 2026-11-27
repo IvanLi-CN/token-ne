@@ -63,11 +63,9 @@ const upstream = {
   capabilities_revision: 4,
   models: [
     {
+      upstream_model_id: "provider-example",
       model_id: "example",
-      upstream_model_name: "provider-example",
       enabled: true,
-      priority: 0,
-      weight: 1,
     },
   ],
   created_at: timestamp,

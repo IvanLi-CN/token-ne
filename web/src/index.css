@@ -290,6 +290,33 @@ h3 {
 .button-secondary:hover {
   background: var(--surface-raised);
 }
+.button-ghost {
+  min-height: 0;
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.button-ghost:hover {
+  color: var(--fg);
+  background: var(--surface-raised);
+  border-color: var(--border);
+}
+.button-ghost:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: grab;
+}
+tr[aria-grabbed="true"] {
+  opacity: 0.6;
+}
 .button-danger {
   color: var(--surface);
   background: var(--error);
@@ -340,6 +367,11 @@ kbd {
 #page-title {
   scroll-margin-top: 90px;
 }
+/* The router focuses the page title so screen readers announce the new page.
+   That is a programmatic focus, not a keyboard stop, so it takes no ring. */
+#page-title:focus-visible {
+  outline: none;
+}
 .page-header {
   display: flex;
   align-items: center;
@@ -376,8 +408,21 @@ kbd {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 16px 24px;
   padding: 20px 24px;
+}
+/* The action stays beside the title and only the copy shrinks, so a long
+   description never pushes the button onto its own row. The basis stays `auto`:
+   a fixed 20rem basis reserves 320px for the copy and makes the heading wrap
+   earlier than before, which is the opposite of the intent. Scoped to a
+   two-child heading: a heading with a single child owns the whole row. */
+.panel-heading > :first-child:not(:only-child) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.panel-heading > :last-child:not(:only-child) {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .panel-heading p {
   margin-top: 5px;
@@ -1163,6 +1208,37 @@ th {
 .table-scroll .flex {
   flex-wrap: nowrap;
 }
+/* A card never nests. Containers own the edge, border and radius; anything that
+   sits inside a card or a drawer separates itself with a hairline or a quiet
+   fill instead of a second card. */
+.surface-card .surface-card,
+.morph-panel .surface-card,
+.dialog-content .surface-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dialog-content .surface-card + .surface-card {
+  margin-top: 8px;
+  border-top: 1px solid var(--border-quiet);
+  padding-top: 16px;
+}
+/* Only the DataTable wrapper carries this marker. A bare `.table-scroll`
+   descendant rule would also restyle standalone tables such as the overview
+   trend data, which is not a card and keeps its own frame. */
+.surface-card .table-scroll-card,
+.morph-panel .table-scroll-card,
+.dialog-content .table-scroll-card {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--border-quiet);
+}
+.surface-card .table-scroll-card th,
+.dialog-content .table-scroll-card th {
+  background: transparent;
+}
+
 .pagination {
   display: flex;
   justify-content: flex-end;
@@ -1459,9 +1535,8 @@ th {
   gap: 0.25rem 1.5rem;
   min-height: 3.4rem;
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--border-quiet);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
 }
 .switch {
   display: inline-flex;

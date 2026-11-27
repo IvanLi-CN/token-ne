@@ -1,16 +1,17 @@
 // @vitest-environment jsdom
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentType } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../../lib/query-client";
+import UpstreamsPage from "../upstreams/page";
 import ModelsPage from "./page";
 
 const timestamp = "2026-11-22T00:00:00Z";
 const model = {
   model_id: "example",
   enabled: true,
-  default_upstream_model: null,
   shutdown_date: null,
   billing: { input_usd_per_mtok: 1, cached_input_usd_per_mtok: 0, output_usd_per_mtok: 2 },
   billing_state: {
@@ -33,15 +34,7 @@ const upstream = {
   api_key_hint: "****1234",
   enabled: true,
   capabilities_revision: 3,
-  models: [
-    {
-      model_id: "example",
-      upstream_model_name: "provider-example",
-      enabled: true,
-      priority: 0,
-      weight: 1,
-    },
-  ],
+  models: [{ upstream_model_id: "provider-example", model_id: "example", enabled: true }],
   created_at: timestamp,
   updated_at: timestamp,
 };
@@ -51,9 +44,21 @@ const route = {
   match_type: "glob" as const,
   target_model_id: "example",
   upstream_id: null,
-  priority: 10,
+  position: 0,
   enabled: true,
   description: "别名",
+  created_at: timestamp,
+  updated_at: timestamp,
+};
+const scopedRoute = {
+  id: "route-2",
+  pattern: "gpt-4o",
+  match_type: "exact" as const,
+  target_model_id: "example",
+  upstream_id: upstream.id,
+  position: 0,
+  enabled: true,
+  description: "只给主上游",
   created_at: timestamp,
   updated_at: timestamp,
 };
@@ -99,14 +104,14 @@ function base(second = true): Handler {
     if (url === "/api/version") return response(phase(second));
     if (url === "/api/models") return response({ data: [model] });
     if (url === "/api/upstreams") return response({ data: [upstream] });
-    if (url === "/api/model-routes") return response({ data: [route] });
+    if (url === "/api/model-routes") return response({ data: [route, scopedRoute] });
     return undefined;
   };
 }
-function mount() {
+function mount(Page: ComponentType = ModelsPage) {
   const client = createQueryClient();
   client.setDefaultOptions({ queries: { retry: false }, mutations: { retry: false } });
-  const router = createMemoryRouter([{ path: "/", Component: ModelsPage }], {
+  const router = createMemoryRouter([{ path: "/", Component: Page }], {
     initialEntries: ["/"],
   });
   render(
@@ -134,7 +139,7 @@ describe("models route rules", () => {
           candidates: [
             {
               upstream_id: upstream.id,
-              upstream_model_name: "provider-example",
+              upstream_model_id: "provider-example",
               allowed: true,
               reason: null,
             },
@@ -143,8 +148,8 @@ describe("models route rules", () => {
       return base()(url, init);
     });
     mount();
-    expect(await screen.findByRole("heading", { name: "模型路由" })).toBeTruthy();
-    expect(await screen.findByText("gpt-*")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "模型路由（全局）" })).toBeTruthy();
+    expect((await screen.findAllByText("gpt-*")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("请求模型名"), {
       target: { value: "gpt-4o-mini" },
     });
@@ -173,7 +178,7 @@ describe("models route rules", () => {
       return base()(url, init);
     });
     mount();
-    await screen.findByRole("heading", { name: "模型路由" });
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
     fireEvent.change(screen.getByLabelText("请求模型名"), { target: { value: "gpt-4o-mini" } });
     fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
     const resolved = within(await screen.findByRole("region", { name: "路由预览" }));
@@ -194,48 +199,314 @@ describe("models route rules", () => {
       return base()(url, init);
     });
     mount();
-    await screen.findByRole("heading", { name: "模型路由" });
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
     fireEvent.change(screen.getByLabelText("请求模型名"), {
       target: { value: "unknown-model" },
     });
     fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
-    expect(await screen.findByRole("heading", { name: "未解析到全局模型" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "未解析到系统模型" })).toBeTruthy();
     expect(screen.getByText("命中规则：无 · 候选上游：0")).toBeTruthy();
   });
 
-  it("renders the conflict field path and keeps the route form open", async () => {
+  it("renders a system-model fallback as resolved without a matched rule", async () => {
     mock((url, init) => {
-      if (url === "/api/model-routes" && init.method === "POST")
-        return response(
-          {
-            error: {
-              code: "conflict",
-              message: "路由规则冲突",
-              request_id: "req-route",
-              details: [{ path: "pattern", reason: "与全局模型 ID example 冲突" }],
-            },
-          },
-          409,
-        );
+      if (url === "/api/model-routes/preview" && init.method === "POST")
+        return response({
+          requested_model: "example",
+          resolved_model: "example",
+          matched_rule: null,
+          rule_kind: null,
+          candidates: [],
+        });
       return base()(url, init);
     });
     mount();
-    await screen.findByRole("heading", { name: "模型路由" });
-    fireEvent.click(screen.getByRole("button", { name: "创建路由规则" }));
-    fireEvent.change(screen.getByLabelText("Pattern"), { target: { value: "example" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存路由规则" }));
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.change(screen.getByLabelText("请求模型名"), { target: { value: "example" } });
+    fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
+    expect(await screen.findByText("已解析")).toBeTruthy();
+    expect(screen.getByText("无命中规则（按系统模型 ID 兜底）")).toBeTruthy();
+  });
+
+  it("saves a duplicate pattern in the same scope and never sends position", async () => {
+    let createBody: unknown;
+    mock((url, init) => {
+      if (url === "/api/model-routes" && init.method === "POST") {
+        createBody = JSON.parse(String(init.body));
+        return response(
+          {
+            ...route,
+            id: "route-dup",
+            pattern: "gpt-*",
+            position: 1,
+          },
+          201,
+        );
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    // The create row is always present: no button, no dialog, no extra step.
+    expect(await screen.findByRole("region", { name: "新增路由" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "新建路由规则" })).toBeNull();
+    fireEvent.change(await screen.findByLabelText("Pattern"), { target: { value: "gpt-*" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
+    expect(createBody).toMatchObject({
+      pattern: "gpt-*",
+      match_type: "glob",
+      target_model_id: "example",
+      upstream_id: null,
+      enabled: true,
+    });
+    expect(createBody).not.toHaveProperty("position");
+    expect(createBody).not.toHaveProperty("priority");
+  });
+
+  it("keeps the create row and returns focus to it after a save", async () => {
+    mock((url, init) => {
+      if (url === "/api/model-routes" && init.method === "POST") return response(route, 201);
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.change(await screen.findByLabelText("Pattern"), { target: { value: "focus-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
+    // The row survives the save, cleared, with the caret back in it.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Pattern")));
+  });
+
+  it("toggles a rule from the row switch without moving it", async () => {
+    let putBody: unknown;
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        putBody = JSON.parse(String(init.body));
+        return response({ ...route, enabled: false });
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    const row = await screen.findByRole("switch", { name: "gpt-* 启用" });
+    expect(row.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(row);
+    await waitFor(() => expect(putBody).toBeTruthy());
+    expect(putBody).toMatchObject({ enabled: false, pattern: "gpt-*" });
+    expect(putBody).not.toHaveProperty("position");
+  });
+
+  it("saves a description from the cell with Enter and sends no position", async () => {
+    const puts: unknown[] = [];
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return response(route);
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 gpt-* 的说明" }));
+    const input = await screen.findByLabelText("gpt-* 的说明");
+    fireEvent.change(input, { target: { value: "新的说明" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toMatchObject({ description: "新的说明", pattern: "gpt-*" });
+    expect(puts[0]).not.toHaveProperty("position");
+    await waitFor(() => expect(screen.queryByLabelText("gpt-* 的说明")).toBeNull());
+  });
+
+  it("clears a description by emptying the cell", async () => {
+    const puts: unknown[] = [];
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return response(route);
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 gpt-* 的说明" }));
+    const input = await screen.findByLabelText("gpt-* 的说明");
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect((puts[0] as { description: string | null }).description).toBeNull();
+  });
+
+  it("opens the description editor on a double click of the cell", async () => {
+    mock(base());
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.doubleClick(await screen.findByText("别名"));
+    expect(await screen.findByLabelText("gpt-* 的说明")).toBeTruthy();
+  });
+
+  it("reorders a whole scope with one reorder request carrying every id", async () => {
+    const second = {
+      ...route,
+      id: "route-9",
+      pattern: "gpt-4*",
+      position: 1,
+      description: "第二条",
+    };
+    const reorderBodies: unknown[] = [];
+    const fetch = mock((url, init) => {
+      if (url === "/api/model-routes/reorder" && init.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        reorderBodies.push(body);
+        const byId = new Map([route, second].map((item) => [item.id, item]));
+        return response({
+          data: (body.route_ids as string[]).map((id, position) => ({
+            ...byId.get(id),
+            position,
+          })),
+        });
+      }
+      if (url === "/api/model-routes") return response({ data: [route, second, scopedRoute] });
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    // The upstream-scoped rule belongs to another scope and stays out of this table.
+    expect(screen.queryByText("gpt-4o")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "下移 gpt-*" }));
+    await waitFor(() => expect(reorderBodies).toHaveLength(1));
+    expect(reorderBodies[0]).toEqual({
+      upstream_id: null,
+      route_ids: [second.id, route.id],
+    });
+    const reorderCalls = fetch.mock.calls.filter(([url]) =>
+      String(url).endsWith("/model-routes/reorder"),
+    );
+    expect(reorderCalls).toHaveLength(1);
+  });
+
+  it("drops a dragged rule into another row's slot with one reorder request", async () => {
+    const second = {
+      ...route,
+      id: "route-9",
+      pattern: "gpt-4*",
+      position: 1,
+      description: "第二条",
+    };
+    const reorderBodies: unknown[] = [];
+    mock((url, init) => {
+      if (url === "/api/model-routes/reorder" && init.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        reorderBodies.push(body);
+        const byId = new Map([route, second].map((item) => [item.id, item]));
+        return response({
+          data: (body.route_ids as string[]).map((id, position) => ({
+            ...byId.get(id),
+            position,
+          })),
+        });
+      }
+      if (url === "/api/model-routes") return response({ data: [route, second] });
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    const table = await screen.findByRole("table", { name: "模型路由（全局）列表" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    fireEvent.dragStart(rows[1] as HTMLElement);
+    fireEvent.dragOver(rows[0] as HTMLElement);
+    fireEvent.drop(rows[0] as HTMLElement);
+    await waitFor(() => expect(reorderBodies).toHaveLength(1));
+    expect(reorderBodies[0]).toEqual({
+      upstream_id: null,
+      route_ids: [second.id, route.id],
+    });
+  });
+
+  it("restores the previous order when the reorder request fails", async () => {
+    const second = { ...route, id: "route-9", pattern: "gpt-4*", position: 1 };
+    mock((url, init) => {
+      if (url === "/api/model-routes/reorder" && init.method === "POST")
+        return response(
+          {
+            error: {
+              code: "validation_failed",
+              message: "顺序无效",
+              request_id: "req-reorder",
+              details: [{ path: "route_ids", reason: "路由不属于该作用域" }],
+            },
+          },
+          422,
+        );
+      if (url === "/api/model-routes") return response({ data: [route, second] });
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.click(await screen.findByRole("button", { name: "下移 gpt-*" }));
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("pattern");
-    expect(alert.textContent).toContain("与全局模型 ID example 冲突");
-    expect(screen.getByLabelText("Pattern").getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByRole("dialog", { name: "创建路由规则" })).toBeTruthy();
+    expect(alert.textContent).toContain("route_ids");
+    const table = screen.getByRole("table", { name: "模型路由（全局）列表" });
+    const patterns = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.textContent ?? "");
+    expect(patterns[0]).toContain("gpt-*");
+    expect(patterns[1]).toContain("gpt-4*");
+  });
+
+  it("saves a scoped rule from the upstream drawer without submitting the upstream form", async () => {
+    const writes: string[] = [];
+    mock((url, init) => {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") writes.push(`${method} ${String(url)}`);
+      if (url === "/api/model-routes" && method === "POST")
+        return response({ ...scopedRoute, id: "route-new", pattern: "drawer-new" }, 201);
+      return base()(url, init);
+    });
+    mount(UpstreamsPage);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    const panel = await screen.findByRole("region", { name: "模型路由（Primary）" });
+    // The create row is present from the start; the select needs the model list.
+    await waitFor(() => expect(within(panel).getByLabelText("Pattern")).toBeTruthy());
+    fireEvent.change(within(panel).getByLabelText("Pattern"), { target: { value: "drawer-new" } });
+    // Save is disabled until the system-model list arrives and a target is picked.
+    await waitFor(() =>
+      expect(
+        (within(panel).getByRole("button", { name: "保存规则" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(within(panel).getByRole("button", { name: "保存规则" }));
+    await waitFor(() => expect(writes).toContain("POST /api/model-routes"));
+    // The rule form must never bubble into the surrounding upstream form.
+    expect(writes.some((entry) => entry.startsWith("PUT /api/upstreams/"))).toBe(false);
+    expect(screen.getByRole("dialog", { name: "编辑上游" })).toBeTruthy();
+  });
+
+  it("lists only this upstream's rules inside the upstream editor", async () => {
+    const otherScope = {
+      ...scopedRoute,
+      id: "route-3",
+      pattern: "embed-*",
+      upstream_id: "upstream-2",
+    };
+    mock((url, init) => {
+      if (url === "/api/upstreams") return response({ data: [upstream] });
+      if (url === "/api/model-routes") return response({ data: [route, scopedRoute, otherScope] });
+      return base()(url, init);
+    });
+    mount(UpstreamsPage);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    const panel = await screen.findByRole("region", { name: "模型路由（Primary）" });
+    expect(await within(panel).findByText("gpt-4o")).toBeTruthy();
+    expect(within(panel).queryByText("gpt-*")).toBeNull();
+    expect(within(panel).queryByText("embed-*")).toBeNull();
+    expect(within(panel).getByText(/未命中时回退全局路由/)).toBeTruthy();
   });
 
   it("keeps the phase-one Models shape when the feature is off", async () => {
     const fetch = mock(base(false));
     mount();
     await screen.findAllByText("example");
-    expect(screen.queryByRole("heading", { name: "模型路由" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "模型路由（全局）" })).toBeNull();
     expect(screen.queryByText("价格修订 / 锁定")).toBeNull();
     expect(fetch.mock.calls.some(([url]) => String(url) === "/api/model-routes")).toBe(false);
     await waitFor(() =>
@@ -298,8 +569,8 @@ describe("models route rules", () => {
     expect(await screen.findByTitle(/rev-global-0001/)).toBeTruthy();
     expect(screen.getAllByText("已锁定").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-    const lock = await screen.findByLabelText("锁定全局默认价格");
-    expect((lock as HTMLInputElement).checked).toBe(true);
+    const lock = await screen.findByRole("switch", { name: "锁定全局默认价格" });
+    expect(lock.getAttribute("aria-checked")).toBe("true");
     fireEvent.change(screen.getByLabelText("输入价格"), { target: { value: "9" } });
     fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
     expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);

@@ -33,10 +33,10 @@ func routingSnapshotRows() (keys, models, entries, capabilities json.RawMessage)
 		panic(err)
 	}
 	keys = json.RawMessage(`[]`)
-	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"default_upstream_model":null,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
+	models = json.RawMessage(`[{"model_id":"gpt-4o","enabled":true,"shutdown_date":null,"created_at":1764806400,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}]`)
 	entries = []byte(`[{"id":"` + routingUpstreamID + `","name":"mock","base_url":"https://mock.example.com","auth_style":"bearer","enabled":true,"connect_timeout_ms":10000,"first_byte_timeout_ms":90000,"idle_timeout_ms":300000,"cipher":"` +
 		base64.StdEncoding.EncodeToString(ciphertext) + `","nonce":"` + base64.StdEncoding.EncodeToString(nonce) + `"}]`)
-	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","model_id":"gpt-4o","upstream_model_name":"upstream-gpt-4o","enabled":true,"priority":100,"weight":100}]`)
+	capabilities = json.RawMessage(`[{"upstream_id":"` + routingUpstreamID + `","upstream_model_id":"upstream-gpt-4o","model_id":"gpt-4o","enabled":true}]`)
 	return keys, models, entries, capabilities
 }
 
@@ -47,7 +47,7 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 		case strings.Contains(q, "core_config_generation"):
 			return fakeRow{err: pgx.ErrNoRows}
 		case strings.Contains(q, "config_schema_min"):
-			return fakeRow{values: []any{1, 1, 1}}
+			return fakeRow{values: []any{2, 2, 1}}
 		case strings.Contains(q, "jsonb_agg"):
 			keys, models, entries, capabilities := routingSnapshotRows()
 			return fakeRow{values: []any{keys, models, entries, capabilities}}
@@ -73,10 +73,11 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 }
 
 func routingRoutes() [][]any {
-	// The SQL query orders by priority,id; the fake returns rows as given.
+	// The SQL orders upstream scopes before the global scope, then by position; the
+	// fake returns rows verbatim, so this is the order the query must produce.
 	return [][]any{
-		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 100, true, "primary"},
-		{uuid.NewString(), "alias", "exact", routingModelID, nil, 300, true, nil},
+		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 0, true, "primary"},
+		{uuid.NewString(), "alias", "exact", routingModelID, nil, 1, true, nil},
 	}
 }
 
@@ -138,7 +139,11 @@ func TestSnapshotRoutingContentAndAdmission(t *testing.T) {
 		if !body.Features[FeatureModelNameRouting] || !body.Features[FeatureUpstreamModelPolicy] {
 			t.Fatalf("missing feature flags: %v", body.Features)
 		}
-		if len(body.Routes) != 2 || body.Routes[0]["priority"].(float64) != 100 || body.Routes[1]["pattern"] != "alias" {
+		// The array order IS the resolution order: the upstream scope precedes the
+		// global scope even though the global one may hold a lower position.
+		if len(body.Routes) != 2 || body.Routes[0]["position"].(float64) != 0 ||
+			body.Routes[0]["upstream_id"] == nil || body.Routes[1]["pattern"] != "alias" ||
+			body.Routes[1]["upstream_id"] != nil {
 			t.Fatalf("route ordering or content: %+v", body.Routes)
 		}
 		if body.Routes[0]["description"] != "primary" || body.Routes[0]["upstream_id"] == nil {
@@ -186,7 +191,7 @@ func TestSnapshotRoutingContentAndAdmission(t *testing.T) {
 	t.Run("disabled route target stays in the snapshot", func(t *testing.T) {
 		models := `[{"model_id":"enabled-model","enabled":true,"billing":{"input_usd_per_mtok":null,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":null}},{"model_id":"disabled-model","enabled":false,"billing":{"input_usd_per_mtok":null,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":null}}]`
 		declared := append(append([]string{}, coreFeaturesOnly...), FeatureModelNameRouting)
-		db := routingSnapshotDB([][]any{{uuid.NewString(), "legacy-*", "glob", "disabled-model", nil, 10, true, nil}}, nil, declared, true)
+		db := routingSnapshotDB([][]any{{uuid.NewString(), "legacy-*", "glob", "disabled-model", nil, 0, true, nil}}, nil, declared, true)
 		base := db.row
 		db.row = func(q string, args []any) fakeRow {
 			if strings.Contains(q, "jsonb_agg") {
@@ -300,7 +305,7 @@ func TestSnapshotRoutingIntegration(t *testing.T) {
 	modelID := "p2s-" + suffix
 	full := `["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite","model_name_routing","upstream_model_policy"]`
 	old := `["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite"]`
-	if _, err = s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,1,1)", version, "v-"+suffix); err != nil {
+	if _, err = s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,2,2)", version, "v-"+suffix); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.Pool.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,state,control_status)
@@ -335,7 +340,7 @@ insert into models(model_id,enabled,billing_revision_id) select $1,false,id from
 		return store.Audit{Actor: "tester", Action: action, TargetType: kind}
 	}
 	pattern := "snapshot-" + suffix
-	if _, err = s.SaveRoute(ctx, store.ModelRoute{Pattern: pattern, MatchType: "exact", TargetModelID: modelID, Priority: 10, Enabled: true}, true, audit("model_route.create", "model_route")); err != nil {
+	if _, err = s.SaveRoute(ctx, store.ModelRoute{Pattern: pattern, MatchType: "exact", TargetModelID: modelID, Enabled: true}, true, audit("model_route.create", "model_route")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.SavePolicy(ctx, upstreamID, store.UpstreamPolicy{DefaultAction: "deny", AllowPatterns: []string{modelID}}, audit("upstream_policy.replace", "upstream")); err != nil {

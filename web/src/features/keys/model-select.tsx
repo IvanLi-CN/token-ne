@@ -24,7 +24,7 @@ export function ModelSelect({
         />
         所有模型（*，含未来新增模型）
       </label>
-      <div className="grid max-h-60 gap-3 overflow-auto rounded-xl border border-border p-4 sm:grid-cols-2">
+      <div className="grid max-h-60 gap-3 overflow-auto border-t border-[var(--border-quiet)] pt-3 sm:grid-cols-2">
         {choices.length ? (
           choices.map((id) => (
             <label className="flex items-center gap-2 break-all" key={id}>

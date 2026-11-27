@@ -41,7 +41,10 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	if e != nil {
 		return Deployment{}, e
 	}
-	if target.Protocol != Protocol || target.SchemaMin > Schema || target.SchemaMax < Schema {
+	if target.Protocol != Protocol {
+		return Deployment{}, ErrCompatibility
+	}
+	if _, e = SchemaFor(target.SchemaMin, target.SchemaMax); e != nil {
 		return Deployment{}, ErrCompatibility
 	}
 	image, e := r.prepareVersionImage(ctx, target)
@@ -69,7 +72,10 @@ func (r *Runtime) Deploy(ctx context.Context, actor string, req DeploymentReques
 	if e != nil {
 		return Deployment{}, e
 	}
-	if protocol != Protocol || min > Schema || max < Schema {
+	if protocol != Protocol {
+		return Deployment{}, ErrCompatibility
+	}
+	if _, e = SchemaFor(min, max); e != nil {
 		return Deployment{}, ErrCompatibility
 	}
 	var state string

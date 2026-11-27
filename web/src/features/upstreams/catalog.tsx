@@ -27,7 +27,9 @@ function syncFailure(error: unknown): string {
 function LatestRun({ run }: { run: CatalogSyncRun | null }) {
   if (!run)
     return (
-      <p className="muted">尚未同步目录。同步只更新目录快照，不创建模型、能力、路由或价格。</p>
+      <p className="muted">
+        尚未同步目录。同步只更新目录快照，不创建系统模型、上游模型、路由或价格。
+      </p>
     );
   return (
     <div className="grid gap-2 text-sm">
@@ -58,7 +60,7 @@ function LatestRun({ run }: { run: CatalogSyncRun | null }) {
       )}
       {run.error && (
         <p role="alert" className="field-error">
-          错误摘要：{run.error}。失败不会删除上一次成功目录，stale 项也不会自动禁用能力。
+          错误摘要：{run.error}。失败不会删除上一次成功目录，过期项也不会自动停用上游模型。
         </p>
       )}
     </div>
@@ -111,8 +113,8 @@ function ImportDialog({
   }
   return (
     <Editor
-      title="导入 / 绑定目录项"
-      description={`上游模型 ${item.upstream_model_id} 需要显式导入或绑定后才会产生能力关系。`}
+      title="导入目录项"
+      description={`上游模型 ${item.upstream_model_id} 需要显式导入或关联到系统模型后才会生效。`}
       onClose={onClose}
       pending={pending}
     >
@@ -128,9 +130,7 @@ function ImportDialog({
             />
             <span>
               新建全局模型
-              <small className="muted block">
-                新模型与能力默认禁用、weight=0，上游覆盖名使用原始目录 ID。
-              </small>
+              <small className="muted block">新系统模型默认停用；上游模型就是原始目录 ID。</small>
             </span>
           </label>
           <label className="flex items-start gap-2">
@@ -141,15 +141,16 @@ function ImportDialog({
               onChange={() => setMode("bind_existing")}
             />
             <span>
-              绑定已有模型
-              <small className="muted block">
-                绑定不改变已有能力的覆盖名、启用状态、优先级和权重。
-              </small>
+              关联到已有模型
+              <small className="muted block">关联不改变已有的上游模型与启用状态。</small>
             </span>
           </label>
         </fieldset>
         {mode === "create_model" ? (
-          <Field label="新全局模型 ID" hint="不得与已有全局模型或已保存的路由 pattern 冲突。">
+          <Field
+            label="新全局模型 ID"
+            hint="不得与已有系统模型 ID 重复；路由 pattern 不占用模型 ID。"
+          >
             <input
               className="input rounded-xl"
               name="target_model_id"
@@ -178,13 +179,10 @@ function ImportDialog({
           </Field>
         )}
         {mode === "bind_existing" && models.length === 0 && (
-          <p className="field-error">没有可绑定的全局模型；先创建模型或使用“新建全局模型”。</p>
+          <p className="field-error">没有可关联的系统模型；先创建模型或使用“新建全局模型”。</p>
         )}
         {error instanceof ApiError && error.status === 409 && (
-          <p className="field-error">
-            冲突：该目录项或能力已绑定其他目标，或目标模型 ID 与已有路由 pattern
-            冲突；刷新目录后重试。
-          </p>
+          <p className="field-error">冲突：该目录项已关联其他系统模型；刷新目录后重试。</p>
         )}
         <FieldFailure error={error} />
         <div className="dialog-actions">
@@ -257,13 +255,16 @@ export function UpstreamCatalogDialog({
     <Editor
       drawer
       title={`目录与策略 · ${upstream.name}`}
-      description="目录来自最近一次成功同步；stale 项不会自动删除或禁用能力。导入、绑定和策略都需要显式保存。"
+      description="目录来自最近一次成功同步；过期项不会自动删除或停用上游模型。导入、关联和策略都需要显式保存。"
       onClose={onClose}
       dirty={policyDirty}
     >
       <div className="flex flex-col gap-6">
-        <section className="surface-card" aria-label="模型目录">
-          <div className="panel-heading">
+        <section
+          className="border-t border-[var(--border-quiet)] pt-5 first:border-t-0 first:pt-0"
+          aria-label="模型目录"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
             <div>
               <h3>模型目录</h3>
               <p className="muted">
@@ -287,23 +288,23 @@ export function UpstreamCatalogDialog({
             {importReceipt && (
               <p role="status" className="text-sm text-[var(--success)]">
                 已导入 <code>{importReceipt.model_id}</code>；
-                {importReceipt.capability_created ? "已新建能力" : "已绑定已有能力"}；能力版本{" "}
-                <strong className="tabular-nums">{importReceipt.capabilities_revision}</strong>。
+                {importReceipt.capability_created ? "已新建上游模型" : "已关联到已有上游模型"}。
               </p>
             )}
             <DataTable
               caption="上游模型目录"
+              captionHidden
               rows={catalog.data?.data ?? []}
               rowKey={(item) => item.upstream_model_id}
               loading={catalog.isPending}
               error={catalog.error ? errorMessage(catalog.error) : undefined}
               onRetry={() => void catalog.refetch()}
               emptyTitle={run ? "本次同步没有目录项" : "尚未同步目录"}
-              emptyDescription="同步成功后，发现的上游模型会显示在这里；目录项不会自动变成可路由能力。"
+              emptyDescription="同步成功后，发现的上游模型会显示在这里；目录项不会自动生效。"
               columns={[
                 {
                   key: "id",
-                  header: "上游模型 ID",
+                  header: "上游模型",
                   cell: (item) => (
                     <div>
                       <code className="break-all">{item.upstream_model_id}</code>
@@ -332,17 +333,17 @@ export function UpstreamCatalogDialog({
                 { key: "seen", header: "最近发现", cell: (item) => formatTime(item.last_seen_at) },
                 {
                   key: "bound",
-                  header: "绑定状态",
+                  header: "关联状态",
                   cell: (item) =>
                     item.bound_model_id ? (
                       <div>
-                        <StatusBadge tone="success">已绑定</StatusBadge>
+                        <StatusBadge tone="success">已关联</StatusBadge>
                         <div>
                           <code className="text-xs break-all">{item.bound_model_id}</code>
                         </div>
                       </div>
                     ) : (
-                      <span className="muted">未绑定</span>
+                      <span className="muted">未关联</span>
                     ),
                 },
                 {
@@ -350,7 +351,7 @@ export function UpstreamCatalogDialog({
                   header: "操作",
                   cell: (item) => (
                     <Button variant="secondary" onClick={() => setSelected(item)}>
-                      导入 / 绑定
+                      导入
                     </Button>
                   ),
                 },

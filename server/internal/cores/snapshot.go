@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -147,7 +148,7 @@ type routeRule struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      int     `json:"priority"`
+	Position      int     `json:"position"`
 	Enabled       bool    `json:"enabled"`
 	Description   *string `json:"description"`
 }
@@ -185,10 +186,13 @@ type generation struct {
 	Policy   policy
 }
 
-// modelRoutes reads the enabled rules in the same order the core resolves
-// them: ascending priority, with the ID as a deterministic tie-break.
+// modelRoutes reads the enabled rules in the same order the core resolves them:
+// upstream scopes first by ascending id, then the global scope, and position
+// inside each. The array order is the resolution order, so the global scope must
+// not come first even though the schema stores it as the zero-UUID scope key.
+// The unique (scope, position) index makes the order total.
 func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, error) {
-	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,priority,enabled,description from model_route_rules where enabled order by priority,id`)
+	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,position,enabled,description from model_route_rules where enabled order by (upstream_id is null),upstream_id,position`)
 	if e != nil {
 		return nil, e
 	}
@@ -196,7 +200,7 @@ func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, er
 	var out []routeRule
 	for rows.Next() {
 		var r routeRule
-		if e = rows.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Priority, &r.Enabled, &r.Description); e != nil {
+		if e = rows.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Position, &r.Enabled, &r.Description); e != nil {
 			return nil, e
 		}
 		out = append(out, r)
@@ -421,15 +425,21 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if e != nil {
 		return Snapshot{}, e
 	}
-	if protocol != Protocol || min > Schema || max < Schema {
+	if protocol != Protocol {
 		return Snapshot{}, ErrCompatibility
+	}
+	// The instance's declared range decides the shape, so a mixed deployment keeps
+	// running: older cores get the older body while the rest get the newest.
+	schema, e := SchemaFor(min, max)
+	if e != nil {
+		return Snapshot{}, e
 	}
 	p := s.readPolicy(last.Policy)
 	injection, e := s.streamUsageInjection(ctx, tx)
 	if e != nil {
 		return Snapshot{}, e
 	}
-	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []boundUpstream{}, Policy: p,
+	c := configBody{Protocol: Protocol, Schema: schema, Features: map[string]bool{}, Upstreams: []boundUpstream{}, Policy: p,
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
 		Usage: map[string]any{"endpoint": strings.TrimRight(s.BaseURL, "/") + "/internal/v1/usage/batch", "token": s.Token, "batch_max_events": 500, "queue_max_events": 10000,
@@ -467,12 +477,12 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	var entries []byte
 	e = tx.QueryRow(ctx, `select
  (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'sha256',encode(key_sha256,'hex'),'enabled',enabled,'allowed_models',allowed_models,'max_inflight',max_inflight) order by id),'[]') from downstream_api_keys),
- (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
+ (select coalesce(jsonb_agg(jsonb_build_object('model_id',model_id,'enabled',enabled,'shutdown_date',to_char(shutdown_date,'YYYY-MM-DD'),
   'created_at',extract(epoch from created_at)::bigint,
   'billing',jsonb_build_object('input_usd_per_mtok',input_usd_per_mtok,'cached_input_usd_per_mtok',cached_input_usd_per_mtok,'output_usd_per_mtok',output_usd_per_mtok)) order by model_id),'[]') from models),
 	 (select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'base_url',base_url,'auth_style',auth_style,'enabled',enabled,'connect_timeout_ms',connect_timeout_ms,'first_byte_timeout_ms',first_byte_timeout_ms,'idle_timeout_ms',idle_timeout_ms,'egress_proxy_id',egress_proxy_id,
   'cipher',encode(api_key_ciphertext,'base64'),'nonce',encode(api_key_nonce,'base64')) order by id),'[]') from upstreams),
- (select coalesce(jsonb_agg(jsonb_build_object('upstream_id',upstream_id,'model_id',model_id,'upstream_model_name',upstream_model_name,'enabled',enabled,'priority',priority,'weight',weight) order by upstream_id,model_id),'[]') from upstream_models)`).Scan(&c.Keys, &c.Models, &entries, &c.Capabilities)
+ (select coalesce(jsonb_agg(jsonb_build_object('upstream_id',upstream_id,'model_id',model_id,'upstream_model_id',upstream_model_id,'enabled',enabled) order by upstream_id,upstream_model_id),'[]') from upstream_models)`).Scan(&c.Keys, &c.Models, &entries, &c.Capabilities)
 	if e != nil {
 		return Snapshot{}, e
 	}
@@ -522,6 +532,22 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		last = previous
 	}
 	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, previous.Revision, previous.IssuedAt, override
+	if schema == 1 {
+		// A schema 1 core cannot decode position, upstream_model_id or the absence of
+		// the old naming fields. Rendering the older shape keeps that core serving
+		// models and upstreams during a rolling upgrade.
+		//
+		// Routing and policy are deliberately dropped rather than translated. The two
+		// generations resolve the same rules differently — v1 puts every exact rule
+		// ahead of every Glob and reads upstream_id as a candidate filter, v2 tries
+		// scopes in order — so a translated rule set would route some requests to a
+		// different model on the old core than on the new one. A name that no longer
+		// resolves fails with 404, which is visible and reversible; a silently
+		// different model is not.
+		if e = renderSchemaOne(&c); e != nil {
+			return Snapshot{}, e
+		}
+	}
 	raw, e = json.Marshal(c)
 	if e != nil {
 		return Snapshot{}, e
@@ -535,7 +561,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if len(raw) > MaxSnapshot {
 		return Snapshot{}, fmt.Errorf("%w: snapshot exceeds 8 MiB", ErrInvalid)
 	}
-	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw, ProxyBound: proxyBound}
+	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw, Schema: schema, ProxyBound: proxyBound}
 	if override {
 		return result, nil
 	}
@@ -558,6 +584,99 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		return Snapshot{}, ErrUnknown
 	}
 	return result, tx.Commit(ctx)
+}
+
+// renderSchemaOne rewrites the assembled body into the shape a schema 1 core
+// decodes. Only the fields that changed shape are touched; everything else is
+// already identical between the two generations.
+//
+// Routing and policy are removed rather than translated: the generations resolve
+// the same rules differently, so translating would let the two halves of a
+// rolling deployment answer the same request with different models. The feature
+// flags go with them because a v1 core rejects a body that carries rules or
+// policies without the matching declaration.
+func renderSchemaOne(c *configBody) error {
+	models, err := renameJSONFields(c.Models, nil, func(m map[string]json.RawMessage) {
+		// v1 requires the key to be present even when it is null.
+		if _, ok := m["default_upstream_model"]; !ok {
+			m["default_upstream_model"] = json.RawMessage("null")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	c.Models = models
+
+	var items []map[string]json.RawMessage
+	if len(c.Capabilities) > 0 {
+		if err := json.Unmarshal(c.Capabilities, &items); err != nil {
+			return err
+		}
+	}
+	// The candidates arrive ordered by (upstream_id, upstream_model_id), which is
+	// exactly the order v2 tries them and is unique per model. v1 instead sorts by
+	// `priority` and breaks ties by weight — a random draw. Writing the position in
+	// that ordered list as the priority makes the older reader walk the same
+	// sequence: priority is strictly increasing, so no two candidates ever share a
+	// tier and the tie-break never runs. A constant priority would collapse the
+	// ordering into a uniform random choice across upstreams and move live traffic.
+	tier := map[string]int{}
+	for _, m := range items {
+		var modelID string
+		if raw, ok := m["model_id"]; ok {
+			_ = json.Unmarshal(raw, &modelID)
+		}
+		m["priority"] = json.RawMessage(strconv.Itoa(tier[modelID]))
+		tier[modelID]++
+		// Weight only breaks ties inside a tier. One candidate per tier means any
+		// positive value is equivalent, and it keeps v1's `weight > 0` filter happy.
+		m["weight"] = json.RawMessage("100")
+		// The binding's upstream ID becomes the v1 name override; the system model
+		// keeps its own field.
+		if raw, ok := m["upstream_model_id"]; ok {
+			m["upstream_model_name"] = raw
+			delete(m, "upstream_model_id")
+		}
+	}
+	caps, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	c.Capabilities = caps
+
+	// Routes are dropped: v1 and v2 read the same rule list differently (v1 tries
+	// exact before glob and breaks ties by `priority`; v2 walks the list in order and
+	// locks the upstream), so sending them would let one request resolve to two
+	// different models across the fleet. Policies stay: the field set and
+	// `policy_allows` are unchanged between the two generations (ADR 0006 allows
+	// unchanged semantics to keep flowing), and dropping them would silently widen
+	// which upstream models a request may see — a security regression, not a
+	// degraded feature.
+	c.ModelRoutes = nil
+	delete(c.Features, FeatureModelNameRouting)
+	return nil
+}
+
+// renameJSONFields applies rename to every object in a raw array. The callback
+// runs after the renames so it can fill in fields v1 requires.
+func renameJSONFields(raw json.RawMessage, rename map[string]string, fill func(map[string]json.RawMessage)) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return raw, nil
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		for from, to := range rename {
+			if value, ok := item[from]; ok {
+				item[to] = value
+				delete(item, from)
+			}
+		}
+		fill(item)
+	}
+	return json.Marshal(items)
 }
 
 func filterConfig(modelsRaw, keysRaw, capsRaw []byte) (json.RawMessage, json.RawMessage, json.RawMessage, error) {

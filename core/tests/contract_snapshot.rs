@@ -7,7 +7,7 @@ use axum::{
     extract::Request,
     http::StatusCode,
 };
-use rand::{SeedableRng, rngs::StdRng};
+
 use serde_json::{Value, json};
 use token_ne_core::{
     config::{Config, PolicyAction, ValidationOptions},
@@ -86,10 +86,7 @@ fn control_plane_snapshot_parses_with_the_same_semantics() {
     assert_eq!(config.model_routes.len(), 2);
     assert_eq!(config.upstream_policies.len(), 1);
     assert_eq!(config.upstream_models.len(), 1);
-    assert_eq!(
-        config.upstream_models[0].upstream_model_name.as_deref(),
-        Some("mock-model")
-    );
+    assert_eq!(config.upstream_models[0].upstream_model_id, "mock-model");
     assert!(matches!(
         config.upstream_policies[0].default_action,
         PolicyAction::Allow
@@ -100,8 +97,7 @@ fn control_plane_snapshot_parses_with_the_same_semantics() {
     let resolution = routing::resolve(&config, "chat-fast").expect("alias resolves");
     assert_eq!(resolution.model.model_id, "gpt-4o-mini");
     assert!(resolution.upstream_id.is_none());
-    let mut rng = StdRng::seed_from_u64(7);
-    let candidates = routing::candidates(&config, "gpt-4o-mini", None, &mut rng);
+    let candidates = routing::candidates(&config, "gpt-4o-mini", None);
     assert_eq!(candidates.len(), 1);
     assert_eq!(
         routing::effective_model_name(resolution.model, candidates[0].capability),

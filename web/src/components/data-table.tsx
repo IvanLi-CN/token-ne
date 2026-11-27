@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { Button, EmptyState, ErrorState, Spinner } from "./primitives";
 export interface Column<T> {
   key: string;
@@ -9,6 +9,7 @@ export interface Column<T> {
 }
 export function DataTable<T>({
   caption,
+  captionHidden = false,
   columns,
   rows,
   rowKey,
@@ -20,8 +21,11 @@ export function DataTable<T>({
   nextCursor,
   onNext,
   onPrevious,
+  rowAttrs,
 }: {
   caption: string;
+  /** Keep the accessible name but drop the visible title when a host heading already names it. */
+  captionHidden?: boolean;
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
@@ -33,6 +37,13 @@ export function DataTable<T>({
   nextCursor?: string | null;
   onNext?: (cursor: string) => void;
   onPrevious?: () => void;
+  /**
+   * Row-level attributes, e.g. native HTML5 drag handlers for an ordered list.
+   * `key` and `children` are excluded: React reads `key` from a spread props
+   * object after the explicit one, so allowing it would silently rekey rows and
+   * carry stale cell state across reloads.
+   */
+  rowAttrs?: (row: T) => Omit<ComponentPropsWithoutRef<"tr">, "key" | "children"> | undefined;
 }) {
   if (loading) return <Spinner label={`正在加载${caption}`} />;
   if (error) return <ErrorState message={error} onRetry={onRetry} />;
@@ -40,9 +51,9 @@ export function DataTable<T>({
   return (
     <>
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users must scroll wide tables. */}
-      <section className="table-scroll" aria-label={caption} tabIndex={0}>
+      <section className="table-scroll table-scroll-card" aria-label={caption} tabIndex={0}>
         <table>
-          <caption>{caption}</caption>
+          <caption className={captionHidden ? "visually-hidden" : undefined}>{caption}</caption>
           <thead>
             <tr>
               {columns.map((column) => (
@@ -54,7 +65,7 @@ export function DataTable<T>({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={rowKey(row)}>
+              <tr key={rowKey(row)} {...rowAttrs?.(row)}>
                 {columns.map((column) => (
                   <td
                     key={column.key}

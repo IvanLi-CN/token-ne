@@ -399,7 +399,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         );
     }
     if value.get("protocol_version").and_then(Value::as_u64) != Some(1)
-        || value.get("config_schema_version").and_then(Value::as_u64) != Some(1)
+        || value.get("config_schema_version").and_then(Value::as_u64) != Some(2)
     {
         return control_json_error(
             &request_id,
@@ -426,7 +426,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
                 "protocol_version": 1,
                 "instance_id": applied.config.instance_id,
                 "applied_revision": applied.config.revision,
-                "config_schema_version": 1,
+                "config_schema_version": 2,
                 "signature_state": signature_state,
             }))
             .into_response()
@@ -502,6 +502,21 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"),
     };
     let Some(resolution) = routing::resolve(config, &body.model) else {
+        // A 404 has two very different causes and they need separating. When the
+        // config carries no routing capability this reader cannot resolve names
+        // at all — during a rolling upgrade the control plane renders that shape
+        // for cores predating `position`, so a burst here means the fleet is
+        // mid-rollout, not that callers are misspelling model names.
+        state
+            .core
+            .model_not_found_total
+            .fetch_add(1, Ordering::Relaxed);
+        if !config.features.model_name_routing {
+            state
+                .core
+                .route_table_absent_total
+                .fetch_add(1, Ordering::Relaxed);
+        }
         return api_error(StatusCode::NOT_FOUND, "model_not_found");
     };
     // 权限检查使用解析后的全局 Model ID，别名不能绕过 Key 的模型白名单。
@@ -511,12 +526,8 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
     ) {
         return api_error(StatusCode::FORBIDDEN, "model_not_allowed");
     }
-    let candidates = routing::candidates(
-        config,
-        &resolution.model.model_id,
-        resolution.upstream_id,
-        &mut rand::rng(),
-    );
+    let candidates =
+        routing::candidates(config, &resolution.model.model_id, resolution.upstream_id);
     retry::forward(ForwardRequest {
         parts,
         body,

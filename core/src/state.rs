@@ -63,6 +63,16 @@ pub struct CoreState {
     keys: Mutex<HashMap<String, u64>>,
     pub signature_invalid_total: AtomicU64,
     pub requests_total: AtomicU64,
+    /// Requests whose name matched neither a route rule nor a system model.
+    /// Distinct from `model_not_allowed`, which means the name resolved but the
+    /// key may not use it.
+    pub model_not_found_total: AtomicU64,
+    /// 404s where routing is engaged in the snapshot but this reader was handed
+    /// none of the rules. During a rolling upgrade the control plane renders the
+    /// older shape for cores that predate position, so this counter is the only
+    /// signal that a request failed because the instance is behind, not because
+    /// the operator typed a wrong name.
+    pub route_table_absent_total: AtomicU64,
     spool: Mutex<Option<Arc<Spool>>>,
     pub started_at: DateTime<Utc>,
 }
@@ -77,6 +87,8 @@ impl CoreState {
             keys: Mutex::new(HashMap::new()),
             signature_invalid_total: AtomicU64::new(0),
             requests_total: AtomicU64::new(0),
+            model_not_found_total: AtomicU64::new(0),
+            route_table_absent_total: AtomicU64::new(0),
             spool: Mutex::new(None),
             started_at: Utc::now(),
         })
@@ -281,7 +293,7 @@ impl CoreState {
     }
     pub fn status(&self) -> Value {
         let snapshot = self.snapshot();
-        let config=snapshot.as_ref().map(|s|json!({"revision":s.config.revision,"hash":s.hash,"schema_version":1,"source":s.source,"signature_state":s.signature_state,"override_active":self.override_active()}));
+        let config=snapshot.as_ref().map(|s|json!({"revision":s.config.revision,"hash":s.hash,"schema_version":s.config.config_schema_version,"source":s.source,"signature_state":s.signature_state,"override_active":self.override_active()}));
         let policy=snapshot.as_ref().map(|s|json!({"source":s.config.status_rewrite.policy_source,"schema_version":s.config.status_rewrite.schema_version,"hash":s.config.status_rewrite.policy_hash}));
         let spool = self.spool_stats();
         let oldest = self.spool.lock().ok().and_then(|s| {

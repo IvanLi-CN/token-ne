@@ -96,8 +96,8 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 		}
 	}
 
-	// A route rule that reserves the target name turns the row into a conflict
-	// instead of creating a model.
+	// A route rule matching the target name no longer blocks the install: the
+	// model is created and marked synced like any other missing row.
 	free := ""
 	freeTarget := ""
 	for _, row := range catalog.Data {
@@ -108,9 +108,9 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 		}
 	}
 	if free == "" {
-		t.Skip("no spare source row to exercise the conflict path")
+		t.Skip("no spare source row to exercise the install path")
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority,enabled) values(gen_random_uuid(),$1,'glob',$2,10,true)", freeTarget, result.Data[0].ModelID); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position,enabled) values(gen_random_uuid(),$1,'glob',$2,0,true)", freeTarget, result.Data[0].ModelID); e != nil {
 		t.Fatalf("insert route rule: %v", e)
 	}
 	t.Cleanup(func() {
@@ -119,13 +119,16 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 		if _, err := s.Pool.Exec(cleanupCtx, "delete from model_route_rules where pattern=$1", freeTarget); err != nil {
 			t.Logf("cleanup route rule %q: %v", freeTarget, err)
 		}
+		if _, err := s.Pool.Exec(cleanupCtx, "delete from models where model_id=$1", freeTarget); err != nil {
+			t.Logf("cleanup installed model %q: %v", freeTarget, err)
+		}
 	})
-	conflict, e := s.InstallPriceSourceModels(ctx, "builtin", []string{free}, audit)
+	installed, e := s.InstallPriceSourceModels(ctx, "builtin", []string{free}, audit)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(conflict.Data) != 1 || conflict.Data[0].Outcome != "conflict" {
-		t.Fatalf("reserved-name install = %+v, want conflict", conflict.Data)
+	if len(installed.Data) != 1 || installed.Data[0].Outcome != "created" {
+		t.Fatalf("route-matched install = %+v, want created", installed.Data)
 	}
 
 	if _, e = s.PriceSourceCatalog(ctx, "unknown-source"); !errors.Is(e, ErrNotFound) {
@@ -153,8 +156,8 @@ func TestPriceSourceCatalogAndInstallIntegration(t *testing.T) {
 			t.Fatalf("row %s synced=%v installed=%v after install, want both true", id, row.Synced, row.Installed)
 		}
 	}
-	if row := markedRows[free]; row.Synced || row.Installed {
-		t.Fatalf("conflicted row %s synced=%v installed=%v, want both false", free, row.Synced, row.Installed)
+	if row := markedRows[free]; !row.Synced || !row.Installed {
+		t.Fatalf("route-matched row %s synced=%v installed=%v, want both true", free, row.Synced, row.Installed)
 	}
 
 	// Turning the switch off clears the mark and leaves every model untouched.

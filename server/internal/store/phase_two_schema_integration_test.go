@@ -116,7 +116,7 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 			{"model_route_rules", "match_type", "text", "", false},
 			{"model_route_rules", "target_model_id", "text", "", false},
 			{"model_route_rules", "upstream_id", "uuid", "", true},
-			{"model_route_rules", "priority", "int4", "100", false},
+			{"model_route_rules", "position", "int4", "", false},
 			{"model_route_rules", "enabled", "bool", "true", false},
 			{"price_revisions", "model_id", "text", "", false},
 			{"price_revisions", "upstream_id", "uuid", "", true},
@@ -207,7 +207,7 @@ func TestPhaseTwoSchemaIntegration(t *testing.T) {
 			{"upstream_models_one_global_binding", []string{"unique index", "using btree (upstream_id, catalog_model_id)", "where (catalog_model_id is not null)"}},
 			{"upstream_model_sync_runs_one_running", []string{"unique index", "where (state = 'running'"}},
 			{"upstream_model_sync_runs_upstream_run", []string{"unique index", "using btree (upstream_id, id)"}},
-			{"model_route_rules_exact_pattern", []string{"unique index", "where (enabled and (match_type = 'exact'"}},
+			{"model_route_rules_scope_position", []string{"unique index", "using btree (coalesce(upstream_id", "position"}},
 			{"model_prices_upstream_scope", []string{"unique index", "using btree (model_id, upstream_id)"}},
 			{"usage_events_resolved_model_time", []string{"using btree (resolved_model, occurred_at desc)"}},
 		}
@@ -279,12 +279,12 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 		if _, e = s.Pool.Exec(ctx, "insert into upstream_model_catalog(upstream_id,upstream_model_id,first_seen_at,last_seen_at) values($1,$2,now(),now())", upstreamID, catalogItem); e != nil {
 			t.Fatalf("insert catalog item: %v", e)
 		}
-		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,catalog_model_id) values($1,$2,$3)", upstreamID, modelA, catalogItem); e != nil {
+		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,catalog_model_id) values($1,$2,$2,$3)", upstreamID, modelA, catalogItem); e != nil {
 			t.Fatalf("bind model a: %v", e)
 		}
-		_, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,catalog_model_id) values($1,$2,$3)", upstreamID, modelB, catalogItem)
+		_, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,catalog_model_id) values($1,$2,$2,$3)", upstreamID, modelB, catalogItem)
 		requirePgError(t, e, "23505", "upstream_models_one_global_binding")
-		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id) values($1,$2)", upstreamID, modelB); e != nil {
+		if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id) values($1,$2,$2)", upstreamID, modelB); e != nil {
 			t.Fatalf("insert unbound capability: %v", e)
 		}
 		_, e = s.Pool.Exec(ctx, "update upstream_models set catalog_model_id=$3 where upstream_id=$1 and model_id=$2", upstreamID, modelB, catalogItem)
@@ -326,30 +326,37 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 		}
 	})
 
-	t.Run("route rule exact uniqueness", func(t *testing.T) {
+	t.Run("route rule positions are unique inside a scope", func(t *testing.T) {
 		pattern := "exact-" + suffix
-		insertRule := "insert into model_route_rules(id,pattern,match_type,target_model_id,enabled) values($1,$2,$3,$4,$5)"
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "exact", modelA, true); e != nil {
-			t.Fatalf("insert exact rule: %v", e)
+		insertRule := "insert into model_route_rules(id,pattern,match_type,target_model_id,position,enabled) values($1,$2,$3,$4,$5,$6)"
+		// The shared test database can already hold global rules, so start past them
+		// instead of assuming positions 0..2 are free.
+		var base int
+		if e = s.Pool.QueryRow(ctx, "select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null").Scan(&base); e != nil {
+			t.Fatalf("read next position: %v", e)
 		}
-		_, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "exact", modelA, true)
-		requirePgError(t, e, "23505", "model_route_rules_exact_pattern")
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "exact", modelA, false); e != nil {
-			t.Fatalf("insert disabled duplicate rule: %v", e)
+		var ids []string
+		for i := 0; i < 3; i++ {
+			id := uuid.NewString()
+			ids = append(ids, id)
+			match := "exact"
+			if i == 2 {
+				match = "glob"
+			}
+			if _, e = s.Pool.Exec(ctx, insertRule, id, pattern, match, modelA, base+i, true); e != nil {
+				t.Fatalf("insert rule %d: %v", i, e)
+			}
 		}
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "glob", modelA, true); e != nil {
-			t.Fatalf("insert glob rule sharing pattern: %v", e)
-		}
-	})
-
-	t.Run("capabilities revision default", func(t *testing.T) {
-		var revision int64
-		if e = s.Pool.QueryRow(ctx, "select capabilities_revision from upstreams where id=$1", upstreamID).Scan(&revision); e != nil {
-			t.Fatal(e)
-		}
-		if revision != 1 {
-			t.Fatalf("capabilities_revision default = %d, want 1", revision)
-		}
+		t.Cleanup(func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cleanupCancel()
+			for _, id := range ids {
+				_, _ = s.Pool.Exec(cleanupCtx, "delete from model_route_rules where id=$1", id)
+			}
+		})
+		// The same position inside one scope is the only machine-side conflict.
+		_, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern+"-dup", "exact", modelA, base, true)
+		requirePgError(t, e, "23505", "model_route_rules_scope_position")
 	})
 }
 

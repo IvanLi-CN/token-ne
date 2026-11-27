@@ -54,7 +54,7 @@ r as (insert into price_revisions(id,model_id,scope,source,locked) select gen_ra
 insert into models(model_id,enabled,billing_revision_id) select m.model_id,true,r.id from m join r using(model_id)`, modelA, modelX); e != nil {
 		t.Fatalf("insert models: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values($1,$2,'vendor/a',true,10,100)", upstreamID, modelA); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'vendor/a',$2,true)", upstreamID, modelA); e != nil {
 		t.Fatalf("insert capability: %v", e)
 	}
 	audit := func(action string) Audit { return Audit{Actor: "tester", Action: action, TargetType: "upstream"} }
@@ -106,7 +106,7 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,true,
 	})
 
 	t.Run("policy filters preview and deny wins", func(t *testing.T) {
-		route, err := s.SaveRoute(ctx, ModelRoute{Pattern: "policy-" + suffix, MatchType: "exact", TargetModelID: modelA, Priority: 10, Enabled: true}, true, Audit{Actor: "tester", Action: "model_route.create", TargetType: "model_route"})
+		route, err := s.SaveRoute(ctx, ModelRoute{Pattern: "policy-" + suffix, MatchType: "exact", TargetModelID: modelA, Enabled: true}, true, Audit{Actor: "tester", Action: "model_route.create", TargetType: "model_route"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +166,7 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,true,
 		if count != 1 {
 			t.Fatalf("policy created a capability: %d rows", count)
 		}
-		if _, err := s.SaveRoute(ctx, ModelRoute{Pattern: "policy-x-" + suffix, MatchType: "exact", TargetModelID: modelX, Priority: 10, Enabled: true}, true, Audit{Actor: "tester", Action: "model_route.create", TargetType: "model_route"}); err != nil {
+		if _, err := s.SaveRoute(ctx, ModelRoute{Pattern: "policy-x-" + suffix, MatchType: "exact", TargetModelID: modelX, Enabled: true}, true, Audit{Actor: "tester", Action: "model_route.create", TargetType: "model_route"}); err != nil {
 			t.Fatal(err)
 		}
 		preview, err := s.PreviewRoute(ctx, "policy-x-"+suffix)

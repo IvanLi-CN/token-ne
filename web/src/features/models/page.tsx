@@ -5,7 +5,7 @@ import { usePhaseFeatures } from "../../app/phase";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { Column } from "../../components/data-table";
 import { FieldFailure } from "../../components/field-errors";
-import { Button, PageTitle, StatusBadge } from "../../components/primitives";
+import { Button, PageTitle, StatusBadge, Switch } from "../../components/primitives";
 import {
   ApiError,
   type PriceRevisionState,
@@ -196,6 +196,7 @@ function ModelEditor({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [lock, setLock] = useState(model?.billing_state?.locked ?? false);
+  const [enabled, setEnabled] = useState(model?.enabled ?? true);
   const [confirmation, setConfirmation] = useState<ModelUpdateInput | null>(null);
   async function send(modelId: string, update: ModelUpdateInput) {
     setPending(true);
@@ -233,8 +234,7 @@ function ModelEditor({
     } as unknown as Billing;
     const body: ModelInput = {
       model_id: String(data.get("model_id")),
-      enabled: data.has("enabled"),
-      default_upstream_model: String(data.get("default_upstream_model")).trim() || null,
+      enabled,
       shutdown_date: String(data.get("shutdown_date")) || null,
       billing,
     };
@@ -255,7 +255,6 @@ function ModelEditor({
     }
     const update: ModelUpdateInput = {
       enabled: body.enabled,
-      default_upstream_model: body.default_upstream_model,
       shutdown_date: body.shutdown_date,
       billing: body.billing,
     };
@@ -289,14 +288,6 @@ function ModelEditor({
               readOnly={!!model}
             />
           </Field>
-          <Field label="全局映射" hint="留空回退为模型 ID；映射不创建候选。">
-            <input
-              className="input rounded-xl"
-              name="default_upstream_model"
-              maxLength={256}
-              defaultValue={model?.default_upstream_model ?? ""}
-            />
-          </Field>
           <Field label="停用日期">
             <input
               className="input rounded-xl"
@@ -324,22 +315,20 @@ function ModelEditor({
             </div>
           )}
           {secondPhase && model?.billing_state && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
+            <Field label="锁定全局默认价格">
+              <Switch
                 checked={lock}
-                onChange={(event) => {
-                  setLock(event.target.checked);
+                onChange={(next) => {
+                  setLock(next);
                   setDirty(true);
                 }}
+                label="锁定全局默认价格"
               />
-              锁定全局默认价格
-            </label>
+            </Field>
           )}
-          <label className="flex items-center gap-2">
-            <input type="checkbox" name="enabled" defaultChecked={model?.enabled ?? true} />
-            启用模型
-          </label>
+          <Field label="启用模型">
+            <Switch checked={enabled} onChange={setEnabled} label="启用模型" />
+          </Field>
         </fieldset>
         <FormError error={error} />
         <div className="dialog-actions">
@@ -432,10 +421,10 @@ export default function ModelsPage() {
       };
     }
     if (upstreams.isPending) {
-      return { label: "加载中", tone: "neutral", title: "正在加载上游能力。" };
+      return { label: "加载中", tone: "neutral", title: "正在加载上游模型。" };
     }
     if (upstreams.isError) {
-      return { label: "未知", tone: "error", title: "上游能力加载失败，无法判断候选。" };
+      return { label: "未知", tone: "error", title: "上游模型加载失败，无法判断候选。" };
     }
     if (policies.isLoading) {
       return { label: "加载中", tone: "neutral", title: "正在加载上游承接策略。" };
@@ -454,30 +443,22 @@ export default function ModelsPage() {
     );
     if (!capabilities.length) {
       return {
-        label: "无能力",
+        label: "未配置",
         tone: "warning",
-        title: "没有任何上游声明该模型的能力；先在对应上游里添加能力。",
+        title: "没有任何上游提供该模型；先在对应上游里添加上游模型。",
       };
     }
     const enabledCapabilities = capabilities.filter(({ capability }) => capability.enabled);
     if (!enabledCapabilities.length) {
       return {
-        label: "能力禁用",
+        label: "上游模型停用",
         tone: "warning",
-        title: `${capabilities.length} 个上游能力都已禁用。`,
+        title: `${capabilities.length} 个上游模型都已停用。`,
       };
     }
-    const weighted = enabledCapabilities.filter(({ capability }) => capability.weight > 0);
-    if (!weighted.length) {
-      return {
-        label: "权重为 0",
-        tone: "warning",
-        title: "启用的能力权重都是 0，请求不会被分配。",
-      };
-    }
-    const live = weighted.filter(({ upstream }) => upstream.enabled);
+    const live = enabledCapabilities.filter(({ upstream }) => upstream.enabled);
     if (!live.length) {
-      return { label: "上游禁用", tone: "warning", title: "持有该模型能力的上游都未启用。" };
+      return { label: "上游禁用", tone: "warning", title: "提供该模型的上游都未启用。" };
     }
     const allowed = live.filter(({ upstream }) =>
       policyAllows(policies.data?.get(upstream.id), model.model_id),
@@ -488,7 +469,7 @@ export default function ModelsPage() {
     return {
       label: "可路由",
       tone: "success",
-      title: `${allowed.length} 个候选，优先级内按权重随机；路由规则的上游限制请在下方的规则表核对。`,
+      title: `${allowed.length} 个候选；路由按作用域规则顺序解析，详见下方的模型路由。`,
     };
   };
   const references = (id: string) =>
@@ -510,9 +491,9 @@ export default function ModelsPage() {
       <section className="surface-card">
         <div className="panel-heading">
           <div>
-            <h2>模型目录</h2>
+            <h2>系统模型</h2>
             <p className="muted">
-              价格在「价格」页维护；这里调整模型是否被接受，以及它当前是否可路由。
+              价格在「价格」页维护；这里调整系统模型是否被接受，以及它当前是否可路由。
             </p>
           </div>
           <div className="panel-controls">
@@ -541,7 +522,8 @@ export default function ModelsPage() {
         <div className="px-5 pb-5">
           <FieldFailure error={toggleError} />
           <ManagementTable
-            caption="全局模型"
+            caption="系统模型"
+            captionHidden
             rows={(models.data ?? []).filter(
               (model) => filter === "all" || model.enabled === (filter === "enabled"),
             )}
@@ -555,7 +537,7 @@ export default function ModelsPage() {
             columns={[
               {
                 key: "id",
-                header: "模型",
+                header: "系统模型",
                 minWidth: "13rem",
                 cell: (model) => <ModelName value={model.model_id} />,
               },
@@ -590,18 +572,13 @@ export default function ModelsPage() {
               },
               ...billingColumns,
               {
-                key: "mapping",
-                header: "全局映射",
-                cell: (model) => model.default_upstream_model || "使用模型 ID",
-              },
-              {
                 key: "shutdown",
                 header: "停用日期",
                 cell: (model) => model.shutdown_date ?? "未设置",
               },
               {
                 key: "count",
-                header: "能力数",
+                header: "上游模型数",
                 cell: (model) => (upstreams.isSuccess ? references(model.model_id).length : "未知"),
               },
               {
@@ -615,16 +592,16 @@ export default function ModelsPage() {
                     <span
                       title={
                         !upstreams.isSuccess
-                          ? "能力关系尚未加载，无法安全删除"
+                          ? "上游模型尚未加载，无法安全删除"
                           : references(model.model_id).length
-                            ? `仍有 ${references(model.model_id).length} 个上游能力引用，请先移除`
+                            ? `仍有 ${references(model.model_id).length} 个上游模型在使用，请先移除`
                             : undefined
                       }
                     >
                       <DangerAction
                         label="删除"
                         title={`删除 ${model.model_id}？`}
-                        description="当前没有已知能力引用；若存在并发新增引用，服务器将拒绝删除并返回冲突。"
+                        description="当前没有上游模型在使用这个模型；若刚好有人添加，服务器会拒绝删除并返回冲突。"
                         disabled={!upstreams.isSuccess || references(model.model_id).length > 0}
                         action={async () => {
                           await modelsApi.remove(model.model_id);
@@ -634,7 +611,7 @@ export default function ModelsPage() {
                     </span>
                     {upstreams.isSuccess && references(model.model_id).length > 0 && (
                       <small className="muted">
-                        {references(model.model_id).length} 个引用，禁止删除
+                        {references(model.model_id).length} 个上游模型在用，禁止删除
                       </small>
                     )}
                   </ActionGroup>
@@ -646,7 +623,7 @@ export default function ModelsPage() {
             <div className="mt-4">
               <FormError error={upstreams.error} />
               <Button variant="secondary" onClick={() => void upstreams.refetch()}>
-                重试能力加载
+                重试加载
               </Button>
             </div>
           )}

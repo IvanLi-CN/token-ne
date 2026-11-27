@@ -6,8 +6,8 @@
 //! 不得改用 regex crate。
 //!
 //! Go 侧必须使用同一语言定义：按 rune 而非 byte 判定 `?`，`*` 可匹配空串，
-//! 匹配范围是完整字符串。`matches` 是标准双指针回溯算法，`overlap` 用同一套
-//! token 语义构造乘积自动机，因此两处不会出现“能否匹配”与“是否重叠”分歧。
+//! 匹配范围是完整字符串。`matches` 是标准双指针回溯算法，与 `modelglob.Match`
+//! 逐 rune 对齐，因此两处不会出现“能否匹配”分歧。
 
 /// 模式按 Unicode 标量计数，与配置 schema 的 `maxLength` 对齐。
 pub const MAX_CHARS: usize = 256;
@@ -50,67 +50,9 @@ pub fn matches(pattern: &str, text: &str) -> bool {
     pattern[p..].iter().all(|c| *c == '*')
 }
 
-/// 两个模式是否存在共同可匹配的字符串。
-///
-/// 仅对通过 [`validate`] 的模式定义；调用方必须先完成语法校验。
-pub fn overlap(a: &str, b: &str) -> bool {
-    debug_assert!(validate(a) && validate(b));
-    let p: Vec<char> = a.chars().collect();
-    let q: Vec<char> = b.chars().collect();
-    let width = q.len() + 1;
-    let mut seen = vec![false; (p.len() + 1) * width];
-    let mut stack = vec![(0usize, 0usize)];
-    seen[0] = true;
-    while let Some((i, j)) = stack.pop() {
-        if i == p.len() && j == q.len() {
-            return true;
-        }
-        // `*` 可以结束当前匹配，等价于跳过该 token。
-        if p.get(i) == Some(&'*') {
-            visit(&mut stack, &mut seen, width, (i + 1, j));
-        }
-        if q.get(j) == Some(&'*') {
-            visit(&mut stack, &mut seen, width, (i, j + 1));
-        }
-        // 一条边只在两侧都能消耗同一个字符时存在：一侧是通配符时字符由另一侧
-        // 决定，否则两侧字面量必须相等。与 Go 侧 consume 的组合语义一致，
-        // 每个乘积状态只产生一个消耗边，不再枚举整个字母表。
-        if let Some(next) = pair_step(&p, i, &q, j) {
-            visit(&mut stack, &mut seen, width, next);
-        }
-    }
-    false
-}
-
-fn visit(stack: &mut Vec<(usize, usize)>, seen: &mut [bool], width: usize, (i, j): (usize, usize)) {
-    let slot = &mut seen[i * width + j];
-    if !*slot {
-        *slot = true;
-        stack.push((i, j));
-    }
-}
-
-/// 两侧同时消耗一个字符后的状态；`lit`/`any` 描述 token 消费的字符。
-fn pair_step(p: &[char], i: usize, q: &[char], j: usize) -> Option<(usize, usize)> {
-    let (a_lit, a_any, a_next, a_ok) = token(p, i);
-    let (b_lit, b_any, b_next, b_ok) = token(q, j);
-    (a_ok && b_ok && (a_any || b_any || a_lit == b_lit)).then_some((a_next, b_next))
-}
-
-/// `index` 处唯一的消耗转移：`*` 原地重复，`?` 与字面量前进一步。
-#[allow(clippy::type_complexity)]
-fn token(pattern: &[char], index: usize) -> (char, bool, usize, bool) {
-    match pattern.get(index) {
-        None => ('\u{0}', false, 0, false),
-        Some('*') => ('\u{0}', true, index, true),
-        Some('?') => ('\u{0}', true, index + 1, true),
-        Some(&lit) => (lit, false, index + 1, true),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{MAX_CHARS, matches, overlap, validate};
+    use super::{MAX_CHARS, matches, validate};
 
     #[test]
     fn wildcard_semantics_are_full_string_and_case_sensitive() {
@@ -150,20 +92,5 @@ mod tests {
         ] {
             assert!(!validate(bad), "accepted {bad:?}");
         }
-    }
-
-    #[test]
-    fn overlap_uses_the_same_language() {
-        assert!(overlap("*", "anything"));
-        assert!(overlap("gpt-*", "gpt-4o"));
-        assert!(overlap("gpt-4?", "gpt-45"));
-        assert!(overlap("chat-??", "chat-*"));
-        assert!(overlap("a*", "*a"));
-        assert!(overlap("gpt-*", "gpt-4o*"));
-        assert!(!overlap("gpt-4*", "gpt-5*"));
-        assert!(!overlap("a*c", "a*d"));
-        assert!(!overlap("ab?", "ab"));
-        assert!(!overlap("chat-?", "chat-??"));
-        assert!(overlap("chat-?*", "chat-??"));
     }
 }

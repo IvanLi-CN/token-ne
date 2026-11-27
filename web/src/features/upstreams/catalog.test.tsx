@@ -11,7 +11,6 @@ const timestamp = "2026-11-22T00:00:00Z";
 const model = {
   model_id: "example",
   enabled: true,
-  default_upstream_model: null,
   shutdown_date: null,
   billing: { input_usd_per_mtok: 1, cached_input_usd_per_mtok: 0, output_usd_per_mtok: 2 },
   created_at: timestamp,
@@ -26,15 +25,7 @@ const upstream = {
   api_key_hint: "****1111",
   enabled: true,
   capabilities_revision: 4,
-  models: [
-    {
-      model_id: "example",
-      upstream_model_name: "provider-example",
-      enabled: true,
-      priority: 0,
-      weight: 1,
-    },
-  ],
+  models: [{ upstream_model_id: "provider-example", model_id: "example", enabled: true }],
   created_at: timestamp,
   updated_at: timestamp,
 };
@@ -131,6 +122,7 @@ function base(overrides: { catalog?: CatalogView; policy?: UpstreamPolicy } = {}
     if (url === "/api/version") return response(phase());
     if (url === "/api/models") return response({ data: [model] });
     if (url === "/api/upstreams") return response({ data: [upstream, secondary] });
+    if (url === "/api/model-routes") return response({ data: [] });
     if (url === "/api/egress-proxies") return response({ data: [] });
     if (url === `/api/upstreams/${upstream.id}/models/catalog`)
       return response(overrides.catalog ?? catalog);
@@ -173,8 +165,8 @@ describe("upstream model catalog", () => {
     expect(dialog.textContent).toContain("能力版本：4");
     expect(within(dialog).getByText("已过期")).toBeTruthy();
     expect(within(dialog).getByText("本次同步未返回")).toBeTruthy();
-    expect(within(dialog).getByText("已绑定")).toBeTruthy();
-    expect(within(dialog).getByText("未绑定")).toBeTruthy();
+    expect(within(dialog).getByText("已关联")).toBeTruthy();
+    expect(within(dialog).getByText("未关联")).toBeTruthy();
     expect(within(dialog).getByText("provider-example")).toBeTruthy();
   });
 
@@ -190,14 +182,8 @@ describe("upstream model catalog", () => {
   });
 
   it("matches a glob ? against one astral code point in the preview", async () => {
-    const rocket = {
-      model_id: "gpt-🚀",
-      upstream_model_name: null,
-      enabled: true,
-      priority: 0,
-      weight: 1,
-    };
-    const rocketLong = { ...rocket, model_id: "gpt-🚀x" };
+    const rocket = { upstream_model_id: "gpt-🚀", model_id: "gpt-🚀", enabled: true };
+    const rocketLong = { ...rocket, upstream_model_id: "gpt-🚀x", model_id: "gpt-🚀x" };
     mock((url, init) =>
       url === "/api/upstreams"
         ? response({ data: [{ ...upstream, models: [rocket, rocketLong] }, secondary] })
@@ -320,9 +306,9 @@ describe("upstream model catalog", () => {
       return base()(url, init);
     });
     const dialog = await openCatalog();
-    const buttons = await within(dialog).findAllByRole("button", { name: "导入 / 绑定" });
+    const buttons = await within(dialog).findAllByRole("button", { name: "导入" });
     fireEvent.click(buttons[1]);
-    const importDialog = await screen.findByRole("dialog", { name: "导入 / 绑定目录项" });
+    const importDialog = await screen.findByRole("dialog", { name: "导入目录项" });
     expect((within(importDialog).getByLabelText("新全局模型 ID") as HTMLInputElement).value).toBe(
       "provider-new",
     );
@@ -330,7 +316,7 @@ describe("upstream model catalog", () => {
       target: { value: "new-model" },
     });
     fireEvent.click(within(importDialog).getByRole("button", { name: "确认导入" }));
-    await waitFor(() => expect(dialog.textContent).toContain("能力版本 7"));
+    await waitFor(() => expect(dialog.textContent).toContain("已新建上游模型"));
     expect(importBody).toMatchObject({
       upstream_model_id: "provider-new",
       mode: "create_model",
@@ -352,12 +338,12 @@ describe("upstream model catalog", () => {
       return base()(url, init);
     });
     const dialog = await openCatalog();
-    const buttons = await within(dialog).findAllByRole("button", { name: "导入 / 绑定" });
+    const buttons = await within(dialog).findAllByRole("button", { name: "导入" });
     fireEvent.click(buttons[1]);
-    const importDialog = await screen.findByRole("dialog", { name: "导入 / 绑定目录项" });
-    fireEvent.click(within(importDialog).getByRole("radio", { name: /绑定已有模型/ }));
+    const importDialog = await screen.findByRole("dialog", { name: "导入目录项" });
+    fireEvent.click(within(importDialog).getByRole("radio", { name: /关联到已有模型/ }));
     fireEvent.click(within(importDialog).getByRole("button", { name: "确认导入" }));
-    await waitFor(() => expect(dialog.textContent).toContain("能力版本 8"));
+    await waitFor(() => expect(dialog.textContent).toContain("已关联到已有上游模型"));
     expect(importBody).toMatchObject({ mode: "bind_existing", model_id: "example" });
   });
 
@@ -378,15 +364,15 @@ describe("upstream model catalog", () => {
         : base()(url, init),
     );
     const dialog = await openCatalog();
-    const buttons = await within(dialog).findAllByRole("button", { name: "导入 / 绑定" });
+    const buttons = await within(dialog).findAllByRole("button", { name: "导入" });
     fireEvent.click(buttons[1]);
-    const importDialog = await screen.findByRole("dialog", { name: "导入 / 绑定目录项" });
+    const importDialog = await screen.findByRole("dialog", { name: "导入目录项" });
     fireEvent.click(within(importDialog).getByRole("button", { name: "确认导入" }));
     const alerts = await within(importDialog).findAllByRole("alert");
     const text = alerts.map((alert) => alert.textContent).join(" ");
     expect(text).toContain("model_id");
     expect(text).toContain("目标模型已存在");
-    expect(screen.getByRole("dialog", { name: "导入 / 绑定目录项" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "导入目录项" })).toBeTruthy();
   });
 
   it("keeps policy save errors with their field paths", async () => {
@@ -417,19 +403,35 @@ describe("upstream model catalog", () => {
     expect(within(section).getByLabelText("Glob 白名单").getAttribute("aria-invalid")).toBe("true");
   });
 
+  it("keeps 保存上游 submittable with an untouched preview field in the drawer", async () => {
+    let putBody: unknown;
+    mock((url, init) => {
+      if (url === `/api/upstreams/${upstream.id}` && init.method === "PUT") {
+        putBody = JSON.parse(String(init.body));
+        return response(upstream);
+      }
+      return base()(url, init);
+    });
+    mount();
+    const edit = await screen.findAllByRole("button", { name: "编辑" });
+    fireEvent.click(edit[0]);
+    await screen.findByRole("region", { name: "路由预览" });
+    // The preview's input must not carry `required`: inside the upstream form it
+    // would silently block every save while empty.
+    expect(
+      document.querySelector<HTMLInputElement>('input[name="requested_model"]')?.required,
+    ).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: "保存上游" }));
+    await waitFor(() => expect(putBody).toBeTruthy());
+  });
+
   it("reloads the server capability collection after a revision conflict", async () => {
     const latest = {
       ...upstream,
       capabilities_revision: 5,
       models: [
         ...upstream.models,
-        {
-          model_id: "new-example",
-          upstream_model_name: null,
-          enabled: true,
-          priority: 1,
-          weight: 1,
-        },
+        { upstream_model_id: "new-example", model_id: "new-example", enabled: true },
       ],
     };
     let getCalls = 0;
@@ -439,7 +441,7 @@ describe("upstream model catalog", () => {
           {
             error: {
               code: "conflict",
-              message: "能力版本已过期",
+              message: "列表已过期",
               request_id: "req-revision",
               details: [{ path: "capabilities_revision", reason: "版本已过期" }],
             },
@@ -455,13 +457,15 @@ describe("upstream model catalog", () => {
     mount();
     const edit = await screen.findAllByRole("button", { name: "编辑" });
     fireEvent.click(edit[0]);
-    await screen.findByLabelText("能力 1 Weight");
+    await screen.findByLabelText("provider-example 启用");
     fireEvent.click(await screen.findByRole("button", { name: "保存上游" }));
     await screen.findByText("重新加载最新能力");
     fireEvent.click(screen.getByRole("button", { name: "重新加载最新能力" }));
-    await waitFor(() => expect(screen.getByText(/已重新加载能力版本 5/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/已重新加载最新能力/)).toBeTruthy());
     expect(getCalls).toBeGreaterThan(0);
     expect(screen.getByText(/新增 new-example/)).toBeTruthy();
-    expect((screen.getByLabelText("能力 1 Weight") as HTMLInputElement).value).toBe("1");
+    const list = screen.getByRole("region", { name: "上游模型绑定" });
+    expect(within(list).getByText("provider-example")).toBeTruthy();
+    expect(within(list).getByText("new-example")).toBeTruthy();
   });
 });

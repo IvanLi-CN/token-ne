@@ -341,7 +341,7 @@ func TestRegisterVersionDerivesImage(t *testing.T) {
 		return fakeRow{values: []any{"version-id"}}
 	}}
 	r := Runtime{Pool: db, CoreImage: repo}
-	version, e := r.RegisterVersion(context.Background(), Target{Version: "0.3.0", Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema})
+	version, e := r.RegisterVersion(context.Background(), Target{Version: "0.3.0", Protocol: Protocol, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -352,15 +352,15 @@ func TestRegisterVersionDerivesImage(t *testing.T) {
 		t.Fatalf("registration statement: %q", statement)
 	}
 
-	version, e = r.RegisterVersion(context.Background(), Target{Version: "0.3.0", Digest: &digest, Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema})
+	version, e = r.RegisterVersion(context.Background(), Target{Version: "0.3.0", Digest: &digest, Protocol: Protocol, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent})
 	if e != nil || version.ImageRef != repo+"@"+digest {
 		t.Fatalf("digest registration: %#v %v", version, e)
 	}
 
 	for _, input := range []Target{
-		{Version: "0.3.0", Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema},
-		{Version: "0.3.0", Digest: ptr("sha256:abcd"), Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema},
-		{Version: "0.3.0", Protocol: Protocol + 1, SchemaMin: Schema, SchemaMax: Schema},
+		{Version: "0.3.0", Protocol: Protocol, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent},
+		{Version: "0.3.0", Digest: ptr("sha256:abcd"), Protocol: Protocol, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent},
+		{Version: "0.3.0", Protocol: Protocol + 1, SchemaMin: SchemaCurrent, SchemaMax: SchemaCurrent},
 	} {
 		empty := Runtime{Pool: &fakeDB{}}
 		if _, e := empty.RegisterVersion(context.Background(), input); !errors.Is(e, ErrInvalid) {

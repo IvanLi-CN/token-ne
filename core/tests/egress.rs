@@ -9,7 +9,6 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
-use rand::{SeedableRng, rngs::StdRng};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::{
@@ -308,9 +307,8 @@ async fn disabled_profile_yields_no_candidate_and_never_falls_back_to_direct() {
         !egress::routable(&config, &config.upstreams[0]),
         "disabled profile must not be routable"
     );
-    let mut rng = StdRng::seed_from_u64(7);
     assert!(
-        routing::candidates(&config, "gpt-5", None, &mut rng).is_empty(),
+        routing::candidates(&config, "gpt-5", None).is_empty(),
         "disabled profile must produce no candidate"
     );
 

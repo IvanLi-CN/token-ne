@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"os"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 			"delete from model_prices where model_id='" + modelID + "'",
 			"delete from upstream_models where model_id='" + modelID + "'",
 			"delete from models where model_id='" + modelID + "'",
+			"delete from price_revisions where model_id='" + modelID + "'",
 			"delete from upstreams where id in ('" + upstreamA + "','" + upstreamB + "')",
 		} {
 			_, _ = s.Pool.Exec(ctx, statement)
@@ -45,7 +47,13 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 	t.Cleanup(cleanup)
 	cleanup()
 	for _, id := range []string{upstreamA, upstreamB} {
-		if _, e = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", id, "ref-upstream-"+id[:8], []byte("cipher"), make([]byte, 12)); e != nil {
+		// A well-formed AES-GCM ciphertext: this row can outlive a failed run, and any
+		// later snapshot build decrypts every upstream in the database.
+		sealed, sealedNonce, sealErr := auth.Encrypt(make([]byte, 32), "sk-ref")
+		if sealErr != nil {
+			t.Fatal(sealErr)
+		}
+		if _, e = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", id, "ref-upstream-"+id[:8], sealed, sealedNonce); e != nil {
 			t.Fatalf("insert upstream: %v", e)
 		}
 	}
@@ -53,10 +61,10 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, modelID); e != nil {
 		t.Fatalf("insert model: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,model_id,enabled,priority,weight) values($1,$2,true,10,100)", upstreamA, modelID); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,$2,$2,true)", upstreamA, modelID); e != nil {
 		t.Fatalf("insert capability: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,priority,enabled) values($1,$2,'exact',$3,$4,10,true)", routeID, "alias-"+suffix, modelID, upstreamB); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,position,enabled) values($1,$2,'exact',$3,$4,10,true)", routeID, "alias-"+suffix, modelID, upstreamB); e != nil {
 		t.Fatalf("insert route: %v", e)
 	}
 	if _, e = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,upstream_id,scope,source,locked) values(gen_random_uuid(),$1,$2,'upstream','manual',false) returning id)
@@ -107,9 +115,9 @@ insert into model_prices(id,model_id,upstream_id,price_revision_id) select gen_r
 	}
 }
 
-// TestModelCreateRejectsRoutePatternIntegration keeps the shared name
-// namespace enforced for POST /api/models, not only for catalog import.
-func TestModelCreateRejectsRoutePatternIntegration(t *testing.T) {
+// TestModelCreateIgnoresRoutePatternsIntegration pins the removed name
+// namespace: a model may reuse a pattern that a rule already matches.
+func TestModelCreateIgnoresRoutePatternsIntegration(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -127,18 +135,30 @@ func TestModelCreateRejectsRoutePatternIntegration(t *testing.T) {
 	target := "create-target-" + suffix
 	audit := Audit{Actor: "tester", Action: "test", Payload: []byte(`{}`)}
 	t.Cleanup(func() {
-		_, _ = s.Pool.Exec(ctx, "delete from model_route_rules where id=$1", routeID)
-		_, _ = s.Pool.Exec(ctx, "delete from models where model_id=$1", target)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		// models.billing_revision_id references price_revisions, so the model has to
+		// go before the revision it was billed against; leaving the revision behind
+		// also leaks a row into every later run on a shared test database.
+		for _, step := range []string{
+			"delete from model_route_rules where id='" + routeID + "'",
+			"delete from models where model_id in ('" + target + "','" + alias + "')",
+			"delete from price_revisions where model_id in ('" + target + "','" + alias + "')",
+		} {
+			_, _ = s.Pool.Exec(cleanupCtx, step)
+		}
 	})
 	if _, e = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,scope,source,locked) values(gen_random_uuid(),$1,'global','manual',false) returning id)
 insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, target); e != nil {
 		t.Fatalf("insert target model: %v", e)
 	}
-	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,priority,enabled) values($1,$2,'glob',$3,10,true)", routeID, alias, target); e != nil {
+	if _, e = s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position,enabled) values($1,$2,'glob',$3,0,true)", routeID, alias, target); e != nil {
 		t.Fatal(e)
 	}
-	_, e = s.SaveModel(ctx, Model{ID: alias, Enabled: true}, true, audit)
-	if !errors.Is(e, ErrModelNameTaken) {
-		t.Fatalf("create model named by a route pattern = %v, want ErrModelNameTaken", e)
+	if _, e = s.SaveModel(ctx, Model{ID: alias, Enabled: true}, true, audit); e != nil {
+		t.Fatalf("create model named by a route pattern = %v, want success", e)
+	}
+	if _, e = s.Pool.Exec(ctx, "delete from models where model_id=$1", alias); e != nil {
+		t.Fatal(e)
 	}
 }

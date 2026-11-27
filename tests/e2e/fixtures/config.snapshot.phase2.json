@@ -1,5 +1,5 @@
 {
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "downstream_keys": [
     {
       "allowed_models": [
@@ -39,7 +39,7 @@
       "id": "0193f0c2-7b1a-7c3e-9f00-000000000011",
       "match_type": "glob",
       "pattern": "gpt-*",
-      "priority": 100,
+      "position": 0,
       "target_model_id": "gpt-4o-mini",
       "upstream_id": null
     },
@@ -49,7 +49,7 @@
       "id": "0193f0c2-7b1a-7c3e-9f00-000000000012",
       "match_type": "exact",
       "pattern": "chat-fast",
-      "priority": 300,
+      "position": 1,
       "target_model_id": "gpt-4o-mini",
       "upstream_id": null
     }
@@ -62,7 +62,6 @@
         "output_usd_per_mtok": 0.6
       },
       "created_at": 1764806400,
-      "default_upstream_model": null,
       "enabled": true,
       "model_id": "gpt-4o-mini",
       "shutdown_date": null
@@ -180,10 +179,8 @@
     {
       "enabled": true,
       "model_id": "gpt-4o-mini",
-      "priority": 100,
       "upstream_id": "0193f0c2-7b1a-7c3e-9f00-000000000004",
-      "upstream_model_name": "mock-model",
-      "weight": 100
+      "upstream_model_id": "mock-model"
     }
   ],
   "upstream_policies": [

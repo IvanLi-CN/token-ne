@@ -22,7 +22,7 @@ pub const FEATURES: [&str; 8] = [
     "egress_proxy",
 ];
 pub fn meta() -> Value {
-    json!({"protocol_version":1,"config_schema_min":1,"config_schema_max":1,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
+    json!({"protocol_version":1,"config_schema_min":2,"config_schema_max":2,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
 }
 pub fn metrics(state: &CoreState) -> String {
     let snapshot = state.snapshot();
@@ -35,13 +35,15 @@ pub fn metrics(state: &CoreState) -> String {
         });
     let spool = state.spool_stats();
     format!(
-        "# TYPE token_ne_core_up gauge\ntoken_ne_core_up 1\n# TYPE token_ne_core_inflight_requests gauge\ntoken_ne_core_inflight_requests {}\n# TYPE token_ne_core_config_revision gauge\ntoken_ne_core_config_revision {}\n# TYPE token_ne_core_config_age_seconds gauge\ntoken_ne_core_config_age_seconds {}\n# TYPE token_ne_core_config_override_active gauge\ntoken_ne_core_config_override_active {}\n# TYPE token_ne_core_config_signature_invalid_total counter\ntoken_ne_core_config_signature_invalid_total {}\n# TYPE token_ne_core_requests_total counter\ntoken_ne_core_requests_total {}\n",
+        "# TYPE token_ne_core_up gauge\ntoken_ne_core_up 1\n# TYPE token_ne_core_inflight_requests gauge\ntoken_ne_core_inflight_requests {}\n# TYPE token_ne_core_config_revision gauge\ntoken_ne_core_config_revision {}\n# TYPE token_ne_core_config_age_seconds gauge\ntoken_ne_core_config_age_seconds {}\n# TYPE token_ne_core_config_override_active gauge\ntoken_ne_core_config_override_active {}\n# TYPE token_ne_core_config_signature_invalid_total counter\ntoken_ne_core_config_signature_invalid_total {}\n# TYPE token_ne_core_requests_total counter\ntoken_ne_core_requests_total {}\n# TYPE token_ne_core_model_not_found_total counter\ntoken_ne_core_model_not_found_total {}\n# TYPE token_ne_core_route_table_absent_total counter\ntoken_ne_core_route_table_absent_total {}\n",
         state.inflight.load(Ordering::Acquire),
         revision,
         age,
         u8::from(state.override_active()),
         state.signature_invalid_total.load(Ordering::Relaxed),
-        state.requests_total.load(Ordering::Relaxed)
+        state.requests_total.load(Ordering::Relaxed),
+        state.model_not_found_total.load(Ordering::Relaxed),
+        state.route_table_absent_total.load(Ordering::Relaxed)
     ) + &format!(
         "# TYPE token_ne_core_spool_bytes gauge\ntoken_ne_core_spool_bytes {}\n# TYPE token_ne_core_spool_unacked_events gauge\ntoken_ne_core_spool_unacked_events {}\n# TYPE token_ne_core_spool_oldest_unacked_seconds gauge\ntoken_ne_core_spool_oldest_unacked_seconds {}\n# TYPE token_ne_core_spool_dropped_total counter\ntoken_ne_core_spool_dropped_total {}\n# TYPE token_ne_core_usage_send_total counter\ntoken_ne_core_usage_send_total{{result=\"accepted\"}} {}\ntoken_ne_core_usage_send_total{{result=\"retry\"}} {}\ntoken_ne_core_usage_send_total{{result=\"rejected\"}} {}\n# TYPE token_ne_core_usage_replayed_total counter\ntoken_ne_core_usage_replayed_total {}\n",
         spool.bytes,

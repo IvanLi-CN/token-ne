@@ -163,7 +163,7 @@ jq -e '.username == "'"$ADMIN_USER"'"' "$TMP/login.json" >/dev/null || fail "une
 echo "closure: registering the core version and instance"
 CORE_VERSION="$(cd "$ROOT/core" && cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
 [[ -n "$CORE_VERSION" && "$CORE_VERSION" != "null" ]] || fail "cannot read core version"
-expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":1,\"config_schema_max\":1}" "$TMP/version.json")" 201 "register core version" "$TMP/version.json"
+expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":2,\"config_schema_max\":2}" "$TMP/version.json")" 201 "register core version" "$TMP/version.json"
 VERSION_ID="$(jq -r '.id' "$TMP/version.json")"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "insert into core_instances(id,version_id,container_id,container_name,address,weight,state) values('$INSTANCE_ID','$VERSION_ID','closure-core','closure-core','127.0.0.1:$CORE_PORT',100,'running')"
@@ -206,21 +206,34 @@ jq -e --arg m "$MODEL_ID" '.model_id == $m' "$TMP/import.json" >/dev/null || fai
 
 get_json "/api/upstreams/$UPSTREAM_ID" "$TMP/upstream-after-import.json"
 CAPS_REV="$(jq -r '.capabilities_revision' "$TMP/upstream-after-import.json")"
-jq -e --arg m "$MODEL_ID" '.models | any(.model_id == $m and .upstream_model_name == "mock-model")' "$TMP/upstream-after-import.json" >/dev/null || fail "catalog binding did not preserve the upstream name override"
+jq -e --arg m "$MODEL_ID" '.models | any(.model_id == $m and .upstream_model_id == "mock-model")' "$TMP/upstream-after-import.json" >/dev/null || fail "catalog binding did not keep the upstream model ID"
 # Imported capabilities start disabled; enabling one is an explicit revisioned edit.
-UPDATED="$(jq -c --arg m "$MODEL_ID" --arg rev "$CAPS_REV" '{name,kind,base_url,auth_style,enabled,capabilities_revision:($rev|tonumber),models:[{model_id:$m,upstream_model_name:"mock-model",enabled:true,priority:100,weight:100}]}' "$TMP/upstream-after-import.json")"
+UPDATED="$(jq -c --arg m "$MODEL_ID" --arg rev "$CAPS_REV" '{name,kind,base_url,auth_style,enabled,capabilities_revision:($rev|tonumber),models:[{upstream_model_id:"mock-model",model_id:$m,enabled:true}]}' "$TMP/upstream-after-import.json")"
 expect_code "$(call PUT "/api/upstreams/$UPSTREAM_ID" "$UPDATED" "$TMP/upstream-enabled.json")" 200 "enable capability" "$TMP/upstream-enabled.json"
-jq -e --arg m "$MODEL_ID" '.models | any(.model_id == $m and .enabled == true and .weight == 100)' "$TMP/upstream-enabled.json" >/dev/null || fail "capability not enabled"
+jq -e --arg m "$MODEL_ID" '.models | any(.model_id == $m and .enabled == true)' "$TMP/upstream-enabled.json" >/dev/null || fail "binding not enabled"
 
 echo "closure: configuring the upstream policy"
 expect_code "$(call PUT "/api/upstreams/$UPSTREAM_ID/model-policy" "{\"default_action\":\"allow\",\"allow_patterns\":[\"gpt-*\"],\"deny_patterns\":[\"gpt-4o-mini-experimental\"]}" "$TMP/policy.json")" 200 "save policy" "$TMP/policy.json"
 jq -e '.default_action == "allow" and (.deny_patterns | index("gpt-4o-mini-experimental"))' "$TMP/policy.json" >/dev/null || fail "policy not stored"
 
 echo "closure: configuring model-name routing"
-expect_code "$(call POST /api/model-routes "{\"pattern\":\"$ROUTE_PATTERN\",\"match_type\":\"exact\",\"target_model_id\":\"$MODEL_ID\",\"priority\":100,\"enabled\":true}" "$TMP/route.json")" 201 "create route" "$TMP/route.json"
+expect_code "$(call POST /api/model-routes "{\"pattern\":\"$ROUTE_PATTERN\",\"match_type\":\"exact\",\"target_model_id\":\"$MODEL_ID\",\"enabled\":true}" "$TMP/route.json")" 201 "create route" "$TMP/route.json"
+ROUTE_ID="$(jq -r '.id' "$TMP/route.json")"
+jq -e '.position == 0' "$TMP/route.json" >/dev/null || fail "first route did not land at position 0: $(cat "$TMP/route.json")"
+# A second rule proves appending, then the reorder proves that order is the
+# only thing that decides which rule wins.
+expect_code "$(call POST /api/model-routes "{\"pattern\":\"$ROUTE_PATTERN-shadow\",\"match_type\":\"glob\",\"target_model_id\":\"$MODEL_ID\",\"enabled\":true}" "$TMP/route2.json")" 201 "create second route" "$TMP/route2.json"
+SHADOW_ID="$(jq -r '.id' "$TMP/route2.json")"
+jq -e '.position == 1' "$TMP/route2.json" >/dev/null || fail "second route did not append: $(cat "$TMP/route2.json")"
+expect_code "$(call POST /api/model-routes/reorder "{\"upstream_id\":null,\"route_ids\":[\"$SHADOW_ID\",\"$ROUTE_ID\"]}" "$TMP/reorder.json")" 200 "reorder routes" "$TMP/reorder.json"
+jq -e --arg first "$SHADOW_ID" --arg second "$ROUTE_ID" '.data | length == 2 and .[0].id == $first and .[0].position == 0 and .[1].id == $second and .[1].position == 1' "$TMP/reorder.json" >/dev/null || fail "reorder result: $(cat "$TMP/reorder.json")"
+expect_code "$(call POST /api/model-routes/reorder "{\"upstream_id\":null,\"route_ids\":[\"$ROUTE_ID\"]}" "$TMP/reorder-bad.json")" 422 "reject partial reorder" "$TMP/reorder-bad.json"
+jq -e '.error.details[0].path == "route_ids"' "$TMP/reorder-bad.json" >/dev/null || fail "partial reorder rejection: $(cat "$TMP/reorder-bad.json")"
+# Restore the exact rule first so the request below resolves through it.
+expect_code "$(call POST /api/model-routes/reorder "{\"upstream_id\":null,\"route_ids\":[\"$ROUTE_ID\",\"$SHADOW_ID\"]}" "$TMP/reorder-restore.json")" 200 "restore route order" "$TMP/reorder-restore.json"
 expect_code "$(call POST /api/model-routes/preview "{\"requested_model\":\"$ROUTE_PATTERN\"}" "$TMP/preview.json")" 200 "preview route" "$TMP/preview.json"
 jq -e --arg m "$MODEL_ID" '.resolved_model == $m and .rule_kind == "exact"' "$TMP/preview.json" >/dev/null || fail "route preview: $(cat "$TMP/preview.json")"
-jq -e --arg m "$MODEL_ID" '.candidates | any(.upstream_id != null and .upstream_model_name == "mock-model" and .allowed == true)' "$TMP/preview.json" >/dev/null || fail "route preview candidates: $(cat "$TMP/preview.json")"
+jq -e --arg m "$MODEL_ID" '.candidates | any(.upstream_id != null and .upstream_model_id == "mock-model" and .allowed == true)' "$TMP/preview.json" >/dev/null || fail "route preview candidates: $(cat "$TMP/preview.json")"
 
 echo "closure: setting the price and applying a reviewed quote"
 expect_code "$(call PUT "/api/models/$MODEL_ID" "{\"enabled\":true,\"billing\":{\"input_usd_per_mtok\":0.9,\"cached_input_usd_per_mtok\":0.4,\"output_usd_per_mtok\":4.5}}" "$TMP/price.json")" 200 "set global price" "$TMP/price.json"

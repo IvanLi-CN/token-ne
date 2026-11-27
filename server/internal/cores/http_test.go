@@ -39,7 +39,7 @@ func TestInternalAuthenticationAndMismatch(t *testing.T) {
 		}
 	}
 	id := uuid.NewString()
-	r := httptest.NewRequest("PUT", "/internal/v1/config", strings.NewReader(`{"protocol_version":1,"config_schema_version":1,"instance_id":"`+id+`","revision":2}`))
+	r := httptest.NewRequest("PUT", "/internal/v1/config", strings.NewReader(`{"protocol_version":1,"config_schema_version":2,"instance_id":"`+id+`","revision":2}`))
 	r.Header.Set("Authorization", "Bearer control-secret")
 	r.Header.Set(ProtocolHeader, "1")
 	rid, _ := uuid.NewV7()
@@ -59,11 +59,13 @@ func TestCoreClientStrictAcknowledgement(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer secret" || !UUID(r.Header.Get(RequestHeader), true) || r.Header.Get(InstanceHeader) != id {
 			t.Error("missing control headers")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"protocol_version": 1, "instance_id": id, "applied_revision": 2, "config_schema_version": 1, "signature_state": "off"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"protocol_version": 1, "instance_id": id, "applied_revision": 2, "config_schema_version": 2, "signature_state": "off"})
 	}))
 	defer srv.Close()
 	c := NewClient("secret")
-	if e := c.Push(context.Background(), strings.TrimPrefix(srv.URL, "http://"), id, Snapshot{Revision: 1, Body: []byte(`{}`)}); e != ErrInvalid {
+	// The pushed schema matches the ack, so the rejection under test is the
+	// revision mismatch below it, not a schema disagreement.
+	if e := c.Push(context.Background(), strings.TrimPrefix(srv.URL, "http://"), id, Snapshot{Revision: 1, Schema: SchemaCurrent, Body: []byte(`{}`)}); e != ErrInvalid {
 		t.Fatalf("mismatched ack: %v", e)
 	}
 }

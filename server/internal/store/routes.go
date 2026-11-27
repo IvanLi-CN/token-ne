@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -14,11 +15,20 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// routeCatalogLock serializes route-set mutations. The per-pattern advisory
-// lock only serializes writers that reserve the same name; Glob overlap is a
-// property of a pair of different patterns, so the catalog lock keeps the
-// overlap check and the insert/update in one critical section.
-const routeCatalogLock = 4927816043
+// globalScopeKey is the zero UUID the schema uses for the global route scope, so
+// an unscoped rule compares and sorts like any other scope.
+const globalScopeKey = "00000000-0000-0000-0000-000000000000"
+
+// routeScope is the SQL expression naming a route row's scope.
+const routeScope = "coalesce(upstream_id,'" + globalScopeKey + "'::uuid)"
+
+// lockRouteScope serializes writers that compete for positions inside one
+// scope. Positions are allocated as max+1 under this lock, so two concurrent
+// creates cannot pick the same slot; unrelated scopes never wait on each other.
+func lockRouteScope(ctx context.Context, tx pgx.Tx, upstreamID *string) error {
+	_, e := tx.Exec(ctx, "select pg_advisory_xact_lock(hashtextextended(coalesce($1::uuid,'"+globalScopeKey+"'::uuid)::text,0))", upstreamID)
+	return e
+}
 
 // FieldError reports a rejected write together with the request field that
 // caused it. Kind is ErrConflict (409) or ErrReference (422) so callers map the
@@ -35,16 +45,17 @@ func (e *FieldError) Error() string { return e.Path + ": " + e.Reason }
 // ErrReference) work.
 func (e *FieldError) Unwrap() error { return e.Kind }
 
-// ModelRoute is one exact or Glob rule resolving a requested name to a global
-// model. The JSON shape is the management API contract; the configuration
-// snapshot uses its own projection.
+// ModelRoute is one exact or Glob rule resolving a requested name to a system
+// model. Rules belong to a scope (global, or one upstream) and are tried in
+// ascending position; the first match wins. The JSON shape is the management
+// API contract; the configuration snapshot uses its own projection.
 type ModelRoute struct {
 	ID            string    `json:"id"`
 	Pattern       string    `json:"pattern"`
 	MatchType     string    `json:"match_type"`
 	TargetModelID string    `json:"target_model_id"`
 	UpstreamID    *string   `json:"upstream_id"`
-	Priority      int       `json:"priority"`
+	Position      int       `json:"position"`
 	Enabled       bool      `json:"enabled"`
 	Description   *string   `json:"description"`
 	Created       time.Time `json:"created_at"`
@@ -54,10 +65,10 @@ type ModelRoute struct {
 // RouteCandidate is one upstream that can serve the resolved model together
 // with the policy decision applied to it.
 type RouteCandidate struct {
-	UpstreamID        string  `json:"upstream_id"`
-	UpstreamModelName string  `json:"upstream_model_name"`
-	Allowed           bool    `json:"allowed"`
-	Reason            *string `json:"reason"`
+	UpstreamID      string  `json:"upstream_id"`
+	UpstreamModelID string  `json:"upstream_model_id"`
+	Allowed         bool    `json:"allowed"`
+	Reason          *string `json:"reason"`
 }
 
 // RoutePreview is the read-only result of resolving a requested model name the
@@ -70,20 +81,15 @@ type RoutePreview struct {
 	Candidates     []RouteCandidate `json:"candidates"`
 }
 
-const routeColumns = "id::text,pattern,match_type,target_model_id,upstream_id::text,priority,enabled,description,created_at,updated_at"
+const routeColumns = "id::text,pattern,match_type,target_model_id,upstream_id::text,position,enabled,description,created_at,updated_at"
 
 func scanRoute(row pgx.Row) (ModelRoute, error) {
 	var r ModelRoute
-	e := row.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Priority, &r.Enabled, &r.Description, &r.Created, &r.Updated)
+	e := row.Scan(&r.ID, &r.Pattern, &r.MatchType, &r.TargetModelID, &r.UpstreamID, &r.Position, &r.Enabled, &r.Description, &r.Created, &r.Updated)
 	return r, normalize(e)
 }
 
-func (s *Store) Routes(ctx context.Context) ([]ModelRoute, error) {
-	rows, e := s.Pool.Query(ctx, "select "+routeColumns+" from model_route_rules order by priority,id")
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
+func scanRoutes(rows pgx.Rows) ([]ModelRoute, error) {
 	out := []ModelRoute{}
 	for rows.Next() {
 		r, e := scanRoute(rows)
@@ -95,17 +101,25 @@ func (s *Store) Routes(ctx context.Context) ([]ModelRoute, error) {
 	return out, rows.Err()
 }
 
+// Routes lists every rule in resolution order: scope key, then position. The
+// unique (scope, position) index makes the order total without an ID tie-break.
+func (s *Store) Routes(ctx context.Context) ([]ModelRoute, error) {
+	rows, e := s.Pool.Query(ctx, "select "+routeColumns+" from model_route_rules order by "+routeScope+",position")
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	return scanRoutes(rows)
+}
+
+// SaveRoute creates or updates one rule. A new rule always lands at the end of
+// its scope; position is only ever changed by ReorderRoutes, so an update keeps
+// the stored order even when the pattern or target changes.
 func (s *Store) SaveRoute(ctx context.Context, route ModelRoute, create bool, a Audit) (ModelRoute, error) {
 	if route.ID == "" {
 		route.ID = uuid.NewString()
 	}
 	e := s.mutate(ctx, a, func(tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", routeCatalogLock); e != nil {
-			return e
-		}
-		if _, e := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", modelglob.AdvisoryKey(route.Pattern)); e != nil {
-			return e
-		}
 		if e := validateRouteRule(route); e != nil {
 			return e
 		}
@@ -119,24 +133,118 @@ func (s *Store) SaveRoute(ctx context.Context, route ModelRoute, create bool, a 
 		if route.Description != nil {
 			description = *route.Description
 		}
-		query := "update model_route_rules set pattern=$2,match_type=$3,target_model_id=$4,upstream_id=$5,priority=$6,enabled=$7,description=$8,updated_at=now() where id=$1 returning " + routeColumns
+		var query string
 		if create {
-			query = "insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,priority,enabled,description) values($1,$2,$3,$4,$5,$6,$7,$8) returning " + routeColumns
+			if e := lockRouteScope(ctx, tx, route.UpstreamID); e != nil {
+				return e
+			}
+			query = `insert into model_route_rules(id,pattern,match_type,target_model_id,upstream_id,position,enabled,description)
+values($1,$2,$3,$4,$5::uuid,coalesce((select max(position)+1 from model_route_rules where ` + routeScope + ` = coalesce($5::uuid,'` + globalScopeKey + `'::uuid)),0),$6,$7)
+returning ` + routeColumns
+		} else {
+			// The scope is part of a rule's identity, not an editable field: moving a
+			// rule between scopes would leave a gap in the source scope and could
+			// collide in the target, neither under that scope's lock.
+			var stored *string
+			if e := tx.QueryRow(ctx, "select upstream_id::text from model_route_rules where id=$1", route.ID).Scan(&stored); e != nil {
+				return normalize(e)
+			}
+			if !sameScope(stored, route.UpstreamID) {
+				return &FieldError{Path: "upstream_id", Reason: "cannot move a rule to another scope; create it there instead", Kind: ErrReference}
+			}
+			query = "update model_route_rules set pattern=$2,match_type=$3,target_model_id=$4,enabled=$5,description=$6,updated_at=now() where id=$1 returning " + routeColumns
 		}
-		var err error
-		route, err = scanRoute(tx.QueryRow(ctx, query, route.ID, route.Pattern, route.MatchType, route.TargetModelID, upstream, route.Priority, route.Enabled, description))
+		args := []any{route.ID, route.Pattern, route.MatchType, route.TargetModelID, upstream, route.Enabled, description}
+		if !create {
+			args = []any{route.ID, route.Pattern, route.MatchType, route.TargetModelID, route.Enabled, description}
+		}
+		saved, err := scanRoute(tx.QueryRow(ctx, query, args...))
+		route = saved
 		return err
 	})
 	if e != nil {
-		var field *FieldError
-		if errors.Is(e, ErrConflict) && !errors.As(e, &field) {
-			// A concurrent writer reserved the same name between validation and
-			// insert; the unique index is the final guard and still carries a path.
-			return ModelRoute{}, &FieldError{Path: "pattern", Reason: "conflicts with an existing route rule", Kind: ErrConflict}
-		}
 		return ModelRoute{}, e
 	}
 	return route, nil
+}
+
+// ReorderRoutes rewrites one scope's positions to 0..n-1 in the given order.
+// The scope is locked for the transaction and must match the submitted set
+// exactly, so a stale editor cannot drop or duplicate a rule; any mismatch
+// rolls the whole reorder back.
+func (s *Store) ReorderRoutes(ctx context.Context, upstreamID *string, ids []string, a Audit) ([]ModelRoute, error) {
+	if len(ids) == 0 {
+		return nil, &FieldError{Path: "route_ids", Reason: "must list at least one route", Kind: ErrReference}
+	}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if _, e := uuid.Parse(id); e != nil {
+			return nil, &FieldError{Path: "route_ids", Reason: "every route id must be a UUID", Kind: ErrReference}
+		}
+		if seen[id] {
+			return nil, &FieldError{Path: "route_ids", Reason: "route ids must be unique", Kind: ErrReference}
+		}
+		seen[id] = true
+	}
+	var out []ModelRoute
+	e := s.mutate(ctx, a, func(tx pgx.Tx) error {
+		if e := lockRouteScope(ctx, tx, upstreamID); e != nil {
+			return e
+		}
+		rows, e := tx.Query(ctx, "select id::text from model_route_rules where "+routeScope+" = coalesce($1,'"+globalScopeKey+"'::uuid) for update", upstreamID)
+		if e != nil {
+			return e
+		}
+		existing := make(map[string]bool, len(ids))
+		for rows.Next() {
+			var id string
+			if e := rows.Scan(&id); e != nil {
+				rows.Close()
+				return e
+			}
+			existing[id] = true
+		}
+		rows.Close()
+		if e := rows.Err(); e != nil {
+			return e
+		}
+		if len(existing) != len(ids) {
+			return &FieldError{Path: "route_ids", Reason: "must list every route in this scope exactly once", Kind: ErrReference}
+		}
+		for _, id := range ids {
+			if !existing[id] {
+				return &FieldError{Path: "route_ids", Reason: "route does not belong to this scope", Kind: ErrReference}
+			}
+		}
+		// Offsetting first keeps the (scope, position) unique index satisfied
+		// while the new positions are written one by one. The offset clears the
+		// scope's real maximum, not len(ids): positions turn sparse when a
+		// non-tail rule is deleted, and an offset of len(ids) would then collide
+		// with a surviving position and make the scope unreorderable forever.
+		if _, e := tx.Exec(ctx, `update model_route_rules set position=position+(select coalesce(max(position),0)+1 from model_route_rules where `+routeScope+` = coalesce($1,'`+globalScopeKey+`'::uuid)) where `+routeScope+` = coalesce($1,'`+globalScopeKey+`'::uuid)`, upstreamID); e != nil {
+			return e
+		}
+		for i, id := range ids {
+			if _, e := tx.Exec(ctx, "update model_route_rules set position=$2,updated_at=now() where id=$1", id, i); e != nil {
+				return e
+			}
+		}
+		out, e = s.routesInScope(ctx, tx, upstreamID)
+		return e
+	})
+	if e != nil {
+		return nil, e
+	}
+	return out, nil
+}
+
+func (s *Store) routesInScope(ctx context.Context, tx pgx.Tx, upstreamID *string) ([]ModelRoute, error) {
+	rows, e := tx.Query(ctx, "select "+routeColumns+" from model_route_rules where "+routeScope+" = coalesce($1,'"+globalScopeKey+"'::uuid) order by position", upstreamID)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	return scanRoutes(rows)
 }
 
 func (s *Store) DeleteRoute(ctx context.Context, id string, a Audit) error {
@@ -168,9 +276,6 @@ func validateRouteRule(r ModelRoute) error {
 	if !validRouteName(r.TargetModelID) {
 		return &FieldError{Path: "target_model_id", Reason: "must contain 1 to 256 characters", Kind: ErrReference}
 	}
-	if r.Priority < 0 || r.Priority > 100000 {
-		return &FieldError{Path: "priority", Reason: "must be between 0 and 100000", Kind: ErrReference}
-	}
 	if r.Description != nil && utf8.RuneCountInString(*r.Description) > 1024 {
 		return &FieldError{Path: "description", Reason: "maximum length is 1024", Kind: ErrReference}
 	}
@@ -182,17 +287,11 @@ func validateRouteRule(r ModelRoute) error {
 	return nil
 }
 
-// validateRouteState checks the cross-row invariants that a table constraint
-// cannot express: the model-ID namespace, dangling references, unique enabled
-// exact patterns and same-priority Glob overlap.
+// validateRouteState checks the references a table constraint cannot express.
+// Patterns carry no uniqueness or overlap rule: order decides which one wins, so
+// duplicates and overlapping Globs are legitimate.
 func validateRouteState(ctx context.Context, tx pgx.Tx, r ModelRoute) error {
 	var exists bool
-	if e := tx.QueryRow(ctx, "select exists(select 1 from models where model_id=$1)", r.Pattern).Scan(&exists); e != nil {
-		return e
-	}
-	if exists {
-		return &FieldError{Path: "pattern", Reason: "pattern is reserved by a global model ID", Kind: ErrConflict}
-	}
 	if e := tx.QueryRow(ctx, "select exists(select 1 from models where model_id=$1)", r.TargetModelID).Scan(&exists); e != nil {
 		return e
 	}
@@ -207,48 +306,12 @@ func validateRouteState(ctx context.Context, tx pgx.Tx, r ModelRoute) error {
 			return &FieldError{Path: "upstream_id", Reason: "upstream does not exist", Kind: ErrReference}
 		}
 	}
-	if !r.Enabled {
-		return nil
-	}
-	if r.MatchType == "exact" {
-		var conflict bool
-		if e := tx.QueryRow(ctx, "select exists(select 1 from model_route_rules where pattern=$1 and match_type='exact' and enabled and id<>$2)", r.Pattern, r.ID).Scan(&conflict); e != nil {
-			return e
-		}
-		if conflict {
-			return &FieldError{Path: "pattern", Reason: "an enabled exact rule already uses this pattern", Kind: ErrConflict}
-		}
-		return nil
-	}
-	rows, e := tx.Query(ctx, "select pattern,target_model_id,coalesce(upstream_id::text,'') from model_route_rules where match_type='glob' and enabled and priority=$1 and id<>$2", r.Priority, r.ID)
-	if e != nil {
-		return e
-	}
-	defer rows.Close()
-	own := ""
-	if r.UpstreamID != nil {
-		own = *r.UpstreamID
-	}
-	for rows.Next() {
-		var pattern, target, upstream string
-		if e := rows.Scan(&pattern, &target, &upstream); e != nil {
-			return e
-		}
-		overlap, e := modelglob.Overlaps(r.Pattern, pattern)
-		if e != nil {
-			return e
-		}
-		if overlap && (target != r.TargetModelID || upstream != own) {
-			return &FieldError{Path: "pattern", Reason: "overlaps an enabled glob rule with the same priority but a different target or upstream", Kind: ErrConflict}
-		}
-	}
-	return rows.Err()
+	return nil
 }
 
 type previewModel struct {
-	ID      string  `json:"id"`
-	Enabled bool    `json:"enabled"`
-	Default *string `json:"default_upstream_model"`
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
 }
 
 type previewRule struct {
@@ -257,15 +320,13 @@ type previewRule struct {
 	MatchType     string  `json:"match_type"`
 	TargetModelID string  `json:"target_model_id"`
 	UpstreamID    *string `json:"upstream_id"`
-	Priority      int     `json:"priority"`
+	Position      int     `json:"position"`
 }
 
 type previewUpstream struct {
-	UpstreamID string  `json:"upstream_id"`
-	ModelID    string  `json:"model_id"`
-	Name       *string `json:"upstream_model_name"`
-	Priority   int     `json:"priority"`
-	Weight     int     `json:"weight"`
+	UpstreamID      string `json:"upstream_id"`
+	ModelID         string `json:"model_id"`
+	UpstreamModelID string `json:"upstream_model_id"`
 }
 
 type previewPolicy struct {
@@ -275,18 +336,20 @@ type previewPolicy struct {
 	DenyPatterns  []string `json:"deny_patterns"`
 }
 
-// PreviewRoute resolves requested exactly like the core: global model ID,
-// then the highest-priority enabled exact rule, then the highest-priority
-// enabled Glob rule. Unresolvable names still return a zero resolution.
+// PreviewRoute resolves a requested name the way the core does. The returned
+// model is what a request that falls through to the global scope gets: the
+// first matching global rule in position order. Candidates are computed per
+// enabled upstream, each trying its own scope first and the global scope second.
+// Unresolvable names still return a zero resolution.
 func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePreview, error) {
 	if !validRouteName(requested) {
 		return RoutePreview{}, &FieldError{Path: "requested_model", Reason: "must contain 1 to 256 characters", Kind: ErrReference}
 	}
 	var modelsRaw, rulesRaw, capabilitiesRaw, policiesRaw []byte
 	e := s.Pool.QueryRow(ctx, `select
- coalesce((select jsonb_agg(jsonb_build_object('id',model_id,'enabled',enabled,'default_upstream_model',default_upstream_model) order by model_id) from models),'[]'::jsonb),
- coalesce((select jsonb_agg(jsonb_build_object('id',id::text,'pattern',pattern,'match_type',match_type,'target_model_id',target_model_id,'upstream_id',upstream_id::text,'priority',priority) order by priority,id) from model_route_rules where enabled),'[]'::jsonb),
- coalesce((select jsonb_agg(jsonb_build_object('upstream_id',m.upstream_id::text,'model_id',m.model_id,'upstream_model_name',m.upstream_model_name,'priority',m.priority,'weight',m.weight) order by m.priority,m.upstream_id) from upstream_models m join upstreams u on u.id=m.upstream_id where m.enabled and u.enabled),'[]'::jsonb),
+ coalesce((select jsonb_agg(jsonb_build_object('id',model_id,'enabled',enabled) order by model_id) from models),'[]'::jsonb),
+ coalesce((select jsonb_agg(jsonb_build_object('id',id::text,'pattern',pattern,'match_type',match_type,'target_model_id',target_model_id,'upstream_id',upstream_id::text,'position',position) order by `+routeScope+`,position) from model_route_rules where enabled),'[]'::jsonb),
+ coalesce((select jsonb_agg(jsonb_build_object('upstream_id',m.upstream_id::text,'model_id',m.model_id,'upstream_model_id',m.upstream_model_id) order by m.upstream_id,m.upstream_model_id) from upstream_models m join upstreams u on u.id=m.upstream_id where m.enabled and u.enabled),'[]'::jsonb),
  coalesce((select jsonb_agg(jsonb_build_object('upstream_id',upstream_id::text,'default_action',default_action,'allow_patterns',allow_patterns,'deny_patterns',deny_patterns) order by upstream_id) from upstream_model_policies),'[]'::jsonb)`).Scan(&modelsRaw, &rulesRaw, &capabilitiesRaw, &policiesRaw)
 	if e != nil {
 		return RoutePreview{}, e
@@ -300,36 +363,21 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 		return RoutePreview{}, errors.New("invalid routing state")
 	}
 	preview := RoutePreview{RequestedModel: requested, Candidates: []RouteCandidate{}}
-	target := findPreviewModel(models, requested)
-	var rule *previewRule
-	if target != nil {
-		// A reserved global ID never falls through to Glob rules, even when the
-		// model is disabled.
-		if !target.Enabled {
-			return preview, nil
-		}
+	// Upstream scopes are tried first in ascending upstream_id order, then the
+	// global scope: the same order the core uses, so a preview never promises
+	// resolution the data plane would not perform.
+	rule := previewResolve(rules, requested)
+	var target *previewModel
+	if rule == nil {
+		// Neither scope matched: the core falls back to the system model ID, so
+		// the preview must too, or it would report 404 for a name the data plane
+		// serves. No rule is reported in that case.
+		target = findPreviewModel(models, requested)
 	} else {
-		for i := range rules {
-			if rules[i].MatchType == "exact" && rules[i].Pattern == requested {
-				rule = &rules[i]
-				break
-			}
-		}
-		if rule == nil {
-			for i := range rules {
-				if rules[i].MatchType == "glob" && modelglob.Match(rules[i].Pattern, requested) {
-					rule = &rules[i]
-					break
-				}
-			}
-		}
-		if rule == nil {
-			return preview, nil
-		}
 		target = findPreviewModel(models, rule.TargetModelID)
-		if target == nil || !target.Enabled {
-			return preview, nil
-		}
+	}
+	if target == nil || !target.Enabled {
+		return preview, nil
 	}
 	preview.ResolvedModel = &target.ID
 	if rule != nil {
@@ -338,7 +386,19 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 		preview.RuleKind = &kind
 	}
 	for _, c := range capabilities {
-		if c.ModelID != target.ID || rule != nil && rule.UpstreamID != nil && *rule.UpstreamID != c.UpstreamID {
+		// Each enabled upstream resolves on its own: its scope first, then the
+		// global scope. Another upstream's scoped rule never applies here, and a
+		// double miss falls back to the system model ID, exactly like the core.
+		scoped := previewScopeRule(rules, requested, &c.UpstreamID)
+		if scoped == nil {
+			scoped = previewScopeRule(rules, requested, nil)
+		}
+		scopedTarget := requested
+		if scoped != nil {
+			scopedTarget = scoped.TargetModelID
+		}
+		target := findPreviewModel(models, scopedTarget)
+		if target == nil || !target.Enabled || target.ID != c.ModelID {
 			continue
 		}
 		allowed := true
@@ -346,20 +406,59 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 		if !previewPolicyAllows(policies, c.UpstreamID, target.ID) {
 			allowed = false
 			reason = new("policy_denied")
-		} else if c.Weight == 0 {
-			allowed = false
-			reason = new("zero_weight")
 		}
-		name := target.ID
-		if target.Default != nil {
-			name = *target.Default
-		}
-		if c.Name != nil {
-			name = *c.Name
-		}
-		preview.Candidates = append(preview.Candidates, RouteCandidate{UpstreamID: c.UpstreamID, UpstreamModelName: name, Allowed: allowed, Reason: reason})
+		preview.Candidates = append(preview.Candidates, RouteCandidate{UpstreamID: c.UpstreamID, UpstreamModelID: c.UpstreamModelID, Allowed: allowed, Reason: reason})
 	}
 	return preview, nil
+}
+
+// previewResolve picks the rule the core would use: each enabled upstream scope
+// in ascending id order, then the global scope; within a scope the first match
+// in position order wins. Rules arrive grouped per scope in position order.
+func previewResolve(rules []previewRule, requested string) *previewRule {
+	scopes := map[string]bool{}
+	for i := range rules {
+		if rules[i].UpstreamID != nil {
+			scopes[*rules[i].UpstreamID] = true
+		}
+	}
+	ordered := make([]string, 0, len(scopes))
+	for id := range scopes {
+		ordered = append(ordered, id)
+	}
+	sort.Strings(ordered)
+	for _, id := range ordered {
+		if rule := previewScopeRule(rules, requested, &id); rule != nil {
+			return rule
+		}
+	}
+	return previewScopeRule(rules, requested, nil)
+}
+
+// previewScopeRule returns the first enabled rule that matches requested inside
+// one scope, or nil. Rules arrive in position order per scope.
+func previewScopeRule(rules []previewRule, requested string, upstreamID *string) *previewRule {
+	for i := range rules {
+		r := &rules[i]
+		if !sameScope(r.UpstreamID, upstreamID) {
+			continue
+		}
+		if r.MatchType == "exact" && r.Pattern != requested {
+			continue
+		}
+		if r.MatchType != "exact" && !modelglob.Match(r.Pattern, requested) {
+			continue
+		}
+		return r
+	}
+	return nil
+}
+
+func sameScope(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func findPreviewModel(models []previewModel, id string) *previewModel {

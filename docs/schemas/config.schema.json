@@ -74,7 +74,7 @@
   "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
   "properties": {
     "protocol_version": { "const": 1 },
-    "config_schema_version": { "type": "integer", "minimum": 1 },
+    "config_schema_version": { "type": "integer", "minimum": 2 },
     "instance_id": { "type": "string", "format": "uuid" },
     "revision": { "type": "integer", "minimum": 1 },
     "issued_at": { "type": "string", "format": "date-time" },
@@ -170,10 +170,6 @@
       "properties": {
         "model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
         "enabled": { "type": "boolean" },
-        "default_upstream_model": {
-          "type": ["string", "null"],
-          "maxLength": 256
-        },
         "shutdown_date": {
           "type": ["string", "null"],
           "format": "date"
@@ -239,30 +235,25 @@
     },
     "upstreamModel": {
       "type": "object",
-      "required": ["upstream_id", "model_id", "enabled", "priority", "weight"],
+      "required": ["upstream_id", "model_id", "upstream_model_id", "enabled"],
       "properties": {
         "upstream_id": { "type": "string", "format": "uuid" },
         "model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "upstream_model_name": {
-          "type": ["string", "null"],
-          "maxLength": 256
-        },
-        "enabled": { "type": "boolean" },
-        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "weight": { "type": "integer", "minimum": 0, "maximum": 10000 }
+        "upstream_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "enabled": { "type": "boolean" }
       },
       "additionalProperties": true
     },
     "modelRoute": {
       "type": "object",
-      "required": ["id", "pattern", "match_type", "target_model_id", "priority", "enabled"],
+      "required": ["id", "pattern", "match_type", "target_model_id", "position", "enabled"],
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "pattern": { "type": "string", "minLength": 1, "maxLength": 256 },
         "match_type": { "enum": ["exact", "glob"] },
         "target_model_id": { "type": "string", "minLength": 1, "maxLength": 256 },
         "upstream_id": { "type": ["string", "null"], "format": "uuid" },
-        "priority": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "position": { "type": "integer", "minimum": 0 },
         "enabled": { "type": "boolean" },
         "description": { "type": ["string", "null"], "maxLength": 1024 }
       },

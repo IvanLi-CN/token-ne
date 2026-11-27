@@ -345,6 +345,7 @@ function PriceRunPanel({
             </div>
             <DataTable
               caption="报价差异"
+              captionHidden
               rows={data.items}
               rowKey={(quote) => quote.id}
               columns={[
@@ -509,6 +510,7 @@ export function PriceQuotesSection({
         <div className="flex flex-col gap-4 px-5 pb-5">
           <DataTable
             caption="价格源"
+            captionHidden
             rows={sources.data ?? []}
             rowKey={(source) => source.id}
             loading={sources.isPending}

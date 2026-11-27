@@ -14,8 +14,20 @@ import (
 )
 
 const (
-	Protocol        = 1
-	Schema          = 1
+	Protocol = 1
+	// SchemaCurrent is the newest snapshot shape this control plane produces;
+	// SchemaFloor is the oldest it can still render. Between them lies the range a
+	// deployment may hold at once, which is what makes a rolling upgrade possible:
+	// the publisher renders the shape each instance declared instead of demanding
+	// that every instance match one constant.
+	//
+	// SchemaCurrent 2 replaced model_routes[].priority with position and reshaped
+	// upstream_models[] around a required upstream_model_id. A schema 1 core cannot
+	// decode those fields, so Build renders it the older shape and, because the two
+	// shapes resolve routes differently, leaves routing out of that snapshot
+	// entirely (see renderSchemaOne).
+	SchemaCurrent   = 2
+	SchemaFloor     = 1
 	MaxSnapshot     = 8 << 20
 	ProtocolHeader  = "X-Token-Ne-Protocol-Version"
 	RequestHeader   = "X-Token-Ne-Request-Id"
@@ -67,13 +79,29 @@ type Meta struct {
 	} `json:"build"`
 }
 
+// BrokerMeta is this control plane's own declaration: it produces the newest
+// shape and still renders every shape down to the floor.
 func BrokerMeta() Meta {
-	return Meta{Protocol: Protocol, SchemaMin: Schema, SchemaMax: Schema, Version: "v1", Features: append([]string{}, features...)}
+	return Meta{Protocol: Protocol, SchemaMin: SchemaFloor, SchemaMax: SchemaCurrent, Version: "v1", Features: append([]string{}, features...)}
+}
+
+// SchemaFor picks the shape to publish for a core that declared [min, max]. The
+// answer is the newest shape both sides understand, so a control plane can serve
+// a mixed fleet: an older core keeps receiving the older shape while the rest
+// move on. Overlap is required; a core that shares no version cannot be served.
+func SchemaFor(min, max int) (int, error) {
+	if min > max || max < SchemaFloor || min > SchemaCurrent {
+		return 0, ErrCompatibility
+	}
+	if max > SchemaCurrent {
+		max = SchemaCurrent
+	}
+	return max, nil
 }
 
 func (m Meta) Compatible() error {
-	if m.Protocol != Protocol || m.SchemaMin < 1 || m.SchemaMin > Schema || m.SchemaMax < Schema {
-		return ErrCompatibility
+	if _, err := SchemaFor(m.SchemaMin, m.SchemaMax); err != nil {
+		return err
 	}
 	return RequireFeatures(m.Features)
 }
@@ -202,7 +230,10 @@ func (s Status) Validate(now time.Time) error {
 		return ErrInvalid
 	}
 	if c := s.Config; c != nil {
-		if c.Schema != Schema {
+		// The applied schema must be one this control plane can still reason about,
+		// not the newest: a core upgraded later in a rolling deployment keeps
+		// reporting the older shape until it is replaced.
+		if c.Schema < SchemaFloor || c.Schema > SchemaCurrent {
 			return ErrCompatibility
 		}
 		if c.Revision < 1 || !digest(c.Hash) || c.Override == nil {
@@ -252,6 +283,10 @@ type Snapshot struct {
 	Hash      string
 	Signature string
 	Body      []byte
+	// Schema is the shape this body was rendered in. Two instances of the same
+	// deployment can legitimately hold different schemas, so the applied version
+	// is compared against the snapshot's own, never against a global constant.
+	Schema int
 	// ProxyBound reports whether the deployment held a proxy-bound upstream when
 	// this snapshot was built. A core that cannot enforce the binding must not
 	// keep a positive weight in that case.
@@ -260,7 +295,7 @@ type Snapshot struct {
 
 func (s Snapshot) Matches(status Status) bool {
 	c := status.Config
-	return c != nil && c.Schema == Schema && c.Source == "control_plane" && c.Override != nil && !*c.Override &&
+	return c != nil && c.Schema == s.Schema && c.Source == "control_plane" && c.Override != nil && !*c.Override &&
 		c.Revision == s.Revision && c.Hash == s.Hash && status.ControlledAt != nil && RequireFeatures(status.Features) == nil
 }
 

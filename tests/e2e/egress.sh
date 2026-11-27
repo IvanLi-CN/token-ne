@@ -363,7 +363,7 @@ expect_code "$(call POST /api/auth/login "{\"username\":\"$ADMIN_USER\",\"passwo
 echo "egress: registering the core version and the egress instance"
 CORE_VERSION="$(cd "$ROOT/core" && cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
 [[ -n "$CORE_VERSION" && "$CORE_VERSION" != "null" ]] || fail "cannot read core version"
-expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":1,\"config_schema_max\":1}" "$RESP/version.json")" 201 "register core version" "$RESP/version.json"
+expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":2,\"config_schema_max\":2}" "$RESP/version.json")" 201 "register core version" "$RESP/version.json"
 VERSION_ID="$(jq -r '.id' "$RESP/version.json")"
 
 # The egress core is a host process, so its row carries weight 0 and no deployment:
@@ -421,7 +421,7 @@ fi
 # name, binding and encrypted key are real control-plane facts.
 expect_code "$(call POST /api/models "{\"model_id\":\"$MODEL_ID\",\"enabled\":true,\"billing\":{\"input_usd_per_mtok\":1.0,\"cached_input_usd_per_mtok\":0.5,\"output_usd_per_mtok\":5.0}}" "$RESP/model.json")" 201 "create model" "$RESP/model.json"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
-  "insert into upstream_models(upstream_id,model_id,upstream_model_name,enabled,priority,weight) values('$UPSTREAM_ID','$MODEL_ID','$UPSTREAM_MODEL',true,100,100)"
+  "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values('$UPSTREAM_ID','$UPSTREAM_MODEL','$MODEL_ID',true)"
 get_json "/api/upstreams/$UPSTREAM_ID" "$RESP/upstream-enabled.json"
 check "the capability is enabled and the upstream still binds the profile" \
   jq -e --arg m "$MODEL_ID" --arg p "$EGRESS_ID" '.egress_proxy_id == $p and (.models | any(.model_id == $m and .enabled == true))' "$RESP/upstream-enabled.json"
@@ -455,7 +455,7 @@ from datetime import datetime, timezone
 # deliberately minimal: id, endpoint, enabled — the only fields a core may see.
 snapshot = {
     "protocol_version": 1,
-    "config_schema_version": 1,
+    "config_schema_version": 2,
     "instance_id": instance,
     "revision": int(revision),
     "issued_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -470,7 +470,7 @@ snapshot = {
         "enabled": True, "allowed_models": ["*"], "max_inflight": 64,
     }],
     "models": [{
-        "model_id": model, "enabled": True, "default_upstream_model": None,
+        "model_id": model, "enabled": True,
         "shutdown_date": None, "created_at": 1764806400,
         "billing": {"input_usd_per_mtok": 1.0, "cached_input_usd_per_mtok": 0.5,
                     "output_usd_per_mtok": 5.0},
@@ -485,13 +485,13 @@ snapshot = {
         "id": proxy, "endpoint": "socks5h://127.0.0.1:%s" % proxy_port, "enabled": True,
     }],
     "upstream_models": [{
-        "upstream_id": upstream, "model_id": model, "upstream_model_name": upstream_model,
-        "enabled": True, "priority": 100, "weight": 100,
+        "upstream_id": upstream, "upstream_model_id": upstream_model, "model_id": model,
+        "enabled": True,
     }],
     "model_routes": [{
         "id": "0193f0c2-7b1a-7c3e-9f00-00000000e0d1", "pattern": route_pattern,
         "match_type": "exact", "target_model_id": model, "upstream_id": None,
-        "priority": 100, "enabled": True, "description": None,
+        "position": 0, "enabled": True, "description": None,
     }],
     "upstream_policies": [],
     # One attempt: the terminal class of a single proxied attempt is the subject,

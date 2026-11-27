@@ -32,7 +32,7 @@ func TestValidation(t *testing.T) {
 	if len(ValidateModel(m)) == 0 {
 		t.Fatal("bad price")
 	}
-	u := store.Upstream{Name: "u", Kind: "api_key", BaseURL: "https://api.example.com/v1", AuthStyle: "bearer", Connect: 10000, FirstByte: 90000, Idle: 300000, Models: []store.Capability{{ModelID: "model", Priority: 100, Weight: 100}}}
+	u := store.Upstream{Name: "u", Kind: "api_key", BaseURL: "https://api.example.com/v1", AuthStyle: "bearer", Connect: 10000, FirstByte: 90000, Idle: 300000, Models: []store.Capability{{UpstreamModelID: "model", ModelID: "model"}}}
 	if len(ValidateUpstream(u, false)) != 0 {
 		t.Fatal("valid upstream rejected")
 	}

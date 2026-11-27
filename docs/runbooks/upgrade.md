@@ -65,10 +65,12 @@ curl -fsS -X POST https://$PUBLIC_DOMAIN/api/cores/versions \
     "version": "0.2.0",
     "image_digest": "sha256:...",
     "protocol_version": 1,
-    "config_schema_min": 1,
-    "config_schema_max": 1
+    "config_schema_min": 2,
+    "config_schema_max": 2
   }'
 ```
+
+`config_schema_min/max` 必须是该 core 镜像**自身**声明的范围，不是控制面的范围。写成 `1..1` 会被接受（控制面仍支持 `[1, 2]`），但该实例按旧形状渲染：拿不到 `model_routes[]`，未命中的请求名返回 `404`。确认镜像实际支持的 schema 后再填。**已发布的 `v0.0.11` 及更早的 core 声明 `1..1`**；本分支构建的 core 声明 `2..2`。因此升级顺序是：先发本分支的 API 与 core 镜像，控制面启动时按自身版本自动登记 `2..2` 的新 core 并平滑切流，旧 `1..1` 实例在排空后自动退出。混编期内旧实例不会收到 `model_routes[]`，依赖路由的请求名在旧实例上返回 `404`。
 
 客户端不传 `image_ref`：核心镜像只有一个仓库，由 `CORE_IMAGE_REPOSITORY` 指定（默认 `ghcr.io/ivanli-cn/token-ne-core`），镜像为 `<repo>:<version>` 或 `<repo>@<digest>`。`image_digest` 可选：给出时按 digest 精确锁定镜像；省略时部署阶段拉取 `<repo>:<version>` 标签，并把解析出的 digest 记录到版本上，后续回滚复用该 digest。
 

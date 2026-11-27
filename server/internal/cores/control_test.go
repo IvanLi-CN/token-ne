@@ -206,7 +206,7 @@ func (p *fakePeer) Push(context.Context, string, string, Snapshot) error {
 func ptr[T any](v T) *T { return &v }
 func validStatus() Status {
 	now := time.Now().UTC()
-	return Status{Instance: uuid.NewString(), Version: "0.1.0", Config: &ConfigStatus{Revision: 1, Hash: Hash([]byte("one")), Schema: 1, Source: "control_plane", Signature: "off", Override: ptr(false)}, ControlledAt: &now, Inflight: ptr(int64(0)), Spool: Spool{Bytes: ptr(int64(0)), Unacked: ptr(int64(0)), AckSeq: ptr(int64(0)), Dropped: ptr(int64(0))}, Draining: ptr(false), StartedAt: now.Add(-time.Hour), Features: append([]string{}, features...)}
+	return Status{Instance: uuid.NewString(), Version: "0.1.0", Config: &ConfigStatus{Revision: 1, Hash: Hash([]byte("one")), Schema: 2, Source: "control_plane", Signature: "off", Override: ptr(false)}, ControlledAt: &now, Inflight: ptr(int64(0)), Spool: Spool{Bytes: ptr(int64(0)), Unacked: ptr(int64(0)), AckSeq: ptr(int64(0)), Dropped: ptr(int64(0))}, Draining: ptr(false), StartedAt: now.Add(-time.Hour), Features: append([]string{}, features...)}
 }
 func instanceValues(i instanceRow) []any {
 	return []any{i.ID, i.Version, i.VersionID, i.ContainerID, i.Name, i.Address, i.Weight, i.State, i.Inflight, i.Desired, i.Applied, i.DesiredHash, i.Controlled, i.Heartbeat, i.Status, i.Observed, i.Spool, i.Ack, i.Deployment, i.ZeroSamples, i.DrainStarted}
@@ -214,7 +214,7 @@ func instanceValues(i instanceRow) []any {
 
 func TestSnapshotAdmissionGates(t *testing.T) {
 	s := validStatus()
-	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash}
+	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash, Schema: s.Config.Schema}
 	if !snapshot.Matches(s) {
 		t.Fatal("healthy controlled snapshot rejected")
 	}
@@ -542,7 +542,7 @@ func TestEnsureCurrentDoesNotDuplicateActiveVersion(t *testing.T) {
 		case strings.Contains(q, "insert into core_versions("):
 			return fakeRow{values: []any{"version-id"}}
 		case strings.Contains(q, "from core_versions where version=$1"):
-			return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 1, 1}}
+			return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 2, 2}}
 		case strings.Contains(q, "select exists(") && strings.Contains(q, "core_instances"):
 			return fakeRow{values: []any{true}}
 		case strings.Contains(q, "select exists(") && strings.Contains(q, "core_deployments"):
@@ -565,7 +565,7 @@ func TestEnsureCurrentDoesNotRetryFailedDeployment(t *testing.T) {
 	db := &fakeDB{row: func(q string, _ []any) fakeRow {
 		switch {
 		case strings.Contains(q, "from core_versions where version=$1"):
-			return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 1, 1}}
+			return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 2, 2}}
 		case strings.Contains(q, "select exists(") && strings.Contains(q, "core_instances"):
 			return fakeRow{values: []any{false}}
 		case strings.Contains(q, "state in ('failed','rolled_back')"):
@@ -607,12 +607,12 @@ func TestEnsureCurrentRegistersAndDeploysControlPlaneVersion(t *testing.T) {
 			registered = true
 			return fakeRow{values: []any{"version-id"}}
 		case strings.Contains(q, "from core_versions where version=$1 for share"):
-			return fakeRow{values: []any{"version-id", 1, 1, 1}}
+			return fakeRow{values: []any{"version-id", 1, 2, 2}}
 		case strings.Contains(q, "from core_versions where version=$1"):
 			if !registered {
 				return fakeRow{err: pgx.ErrNoRows}
 			}
-			return fakeRow{values: []any{"version-id", "0.0.5", repo + ":0.0.5", nil, false, 1, 1, 1}}
+			return fakeRow{values: []any{"version-id", "0.0.5", repo + ":0.0.5", nil, false, 1, 2, 2}}
 		case strings.Contains(q, "select exists("):
 			return fakeRow{values: []any{false}}
 		case strings.Contains(q, "from core_deployments where state not in"):
@@ -683,7 +683,7 @@ func TestSnapshotGenerationStableAcrossRestart(t *testing.T) {
 			}
 			return fakeRow{values: []any{saved}}
 		case strings.Contains(q, "config_schema_min"):
-			return fakeRow{values: []any{1, 1, 1}}
+			return fakeRow{values: []any{2, 2, 1}}
 		case strings.Contains(q, "jsonb_agg"):
 			return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
 		}
@@ -735,7 +735,7 @@ type fixedSnapshot struct{ snapshot Snapshot }
 func (f fixedSnapshot) Build(context.Context, string, bool) (Snapshot, error) { return f.snapshot, nil }
 func TestAdmitHealthyZeroAndRejectHash(t *testing.T) {
 	s := validStatus()
-	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash}
+	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash, Schema: s.Config.Schema}
 	now := time.Now()
 	i := instanceRow{ID: s.Instance, Version: s.Version, ContainerID: ptr("container"), State: "running", Weight: 0, Heartbeat: &now, Address: "core:8080"}
 	peer := &fakePeer{status: s}
@@ -926,7 +926,7 @@ func TestSnapshotHonoursStreamUsageInjectionSwitch(t *testing.T) {
 			case strings.Contains(q, "core_config_generation"):
 				return fakeRow{err: pgx.ErrNoRows}
 			case strings.Contains(q, "config_schema_min"):
-				return fakeRow{values: []any{1, 1, 1}}
+				return fakeRow{values: []any{2, 2, 1}}
 			case strings.Contains(q, "jsonb_agg"):
 				return fakeRow{values: []any{json.RawMessage(`[]`), json.RawMessage(`[]`), []byte(`[]`), json.RawMessage(`[]`)}}
 			case strings.Contains(q, "stream_usage_injection") && stored != nil:
@@ -992,7 +992,7 @@ func TestRollbackRestoresOldAndZerosNew(t *testing.T) {
 	peer := &fakePeer{status: oldStatus}
 	traffic := &fakeTraffic{}
 	docker := &fakeDocker{}
-	r := Runtime{Pool: db, Docker: docker, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	r := Runtime{Pool: db, Docker: docker, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash, Schema: oldStatus.Config.Schema}}}
 	if e := r.Rollback(context.Background(), uuid.NewString(), "operator"); e != nil {
 		t.Fatal(e)
 	}
@@ -1024,9 +1024,9 @@ func TestDeployEnsuresTargetImage(t *testing.T) {
 			db.row = func(q string, _ []any) fakeRow {
 				switch {
 				case strings.Contains(q, "from core_versions where version=$1 for share"):
-					return fakeRow{values: []any{"version-id", 1, 1, 1}}
+					return fakeRow{values: []any{"version-id", 1, 2, 2}}
 				case strings.Contains(q, "from core_versions where version=$1"):
-					return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 1, 1}}
+					return fakeRow{values: []any{"version-id", "0.2.0", repo + ":0.2.0", nil, false, 1, 2, 2}}
 				case strings.Contains(q, "from core_deployments where state not in"):
 					return fakeRow{err: pgx.ErrNoRows}
 				case strings.Contains(q, "from core_deployments where id=$1"):
@@ -1117,7 +1117,7 @@ func TestAutoAdvanceReadyToShifting(t *testing.T) {
 				meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version},
 				statuses: map[string]Status{"old": oldStatus, "new": newStatus},
 			}
-			r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: base.Config.Hash}}}
+			r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: base.Config.Hash, Schema: base.Config.Schema}}}
 			if e := r.advance(context.Background()); e != nil {
 				t.Fatal(e)
 			}
@@ -1183,7 +1183,7 @@ func TestShiftScopesWeightsToDeploymentInstances(t *testing.T) {
 		meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version, "other:8080": newStatus.Version},
 		statuses: map[string]Status{"old": oldStatus, "new": newStatus, "other": newStatus},
 	}
-	r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash, Schema: oldStatus.Config.Schema}}}
 	if e := r.Shift(context.Background(), uuid.NewString(), map[string]int{"0.1.0": 90, "1.0.0": 10}); e != nil {
 		t.Fatal(e)
 	}

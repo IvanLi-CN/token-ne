@@ -73,7 +73,7 @@ func registerUsageSource(t *testing.T, ctx context.Context, s *Store, suffix str
 	t.Helper()
 	version := "p6-" + suffix
 	versionID, instanceID := uuid.NewString(), uuid.NewString()
-	if _, err := s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,1,1)", versionID, version); err != nil {
+	if _, err := s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,2,2)", versionID, version); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Pool.Exec(ctx, "insert into core_instances(id,version_id,container_name,address,state) values($1,$2,$3,'127.0.0.1:1','running')", instanceID, versionID, "p6-"+suffix); err != nil {

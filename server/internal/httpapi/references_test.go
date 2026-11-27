@@ -32,20 +32,15 @@ func TestDeleteReportsBlockingReferences(t *testing.T) {
 	}
 }
 
-// TestCreateModelRejectsRoutePattern covers REQ-MUM-005 for the plain model
-// endpoint: a model_id matching an enabled route pattern is a 409 with a field
-// path, not a bare conflict.
-func TestCreateModelRejectsRoutePattern(t *testing.T) {
+// TestCreateModelAllowsRoutePatternName pins the removed shared namespace: a
+// model may reuse a name that a route rule already matches.
+func TestCreateModelAllowsRoutePatternName(t *testing.T) {
 	h, repo, cfg, cookie := testAPI(t)
-	repo.saveModelErr = store.ErrModelNameTaken
-	w := request(h, cfg, cookie, "POST", "/api/models", `{"model_id":"chat-fast","enabled":true,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}`)
-	if w.Code != 409 {
+	body := `{"model_id":"chat-fast","enabled":true,"billing":{"input_usd_per_mtok":1,"cached_input_usd_per_mtok":null,"output_usd_per_mtok":2}}`
+	if w := request(h, cfg, cookie, "POST", "/api/models", body); w.Code != 201 {
 		t.Fatalf("status %d %s", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, `"model_id"`) || !strings.Contains(body, "route rule") {
-		t.Fatalf("missing field path: %s", body)
-	}
-	if _, ok := repo.models["chat-fast"]; ok {
-		t.Fatal("reserved name was created")
+	if _, ok := repo.models["chat-fast"]; !ok {
+		t.Fatal("model named by a route pattern was not created")
 	}
 }
