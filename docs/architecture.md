@@ -1800,7 +1800,7 @@ networks:
 - `server` 镜像构建阶段把 `web/dist` 复制到 `server/internal/web/dist`，Go `go:embed` 嵌入。
 - API 镜像不包含 Node/Bun；前端和后端作为同一镜像发布，避免版本错配。
 - 静态资源使用内容哈希；`index.html` 不缓存。
-- demo 是独立构建目标 `bun run build:demo`：`base=/`，产物 `web/dist-demo`，构建结束时把 `demo.html` 改名为 `index.html`，使任意静态托管无需 `/` 专用规则。它复用正式 `App` 与 `routes`，运行前安装 `/api/*` 的 mock 拦截，router `basename` 由 `import.meta.env.BASE_URL` 派生。
+- demo 是独立构建目标 `bun run build:demo`（`--mode demo`）：产物 `web/dist-demo`。入口文档只有一个 `web/index.html`，其中唯一的入口脚本是占位 `__entry__`，由 mode 换成 `/src/main.tsx` 或 `/src/demo/entry.tsx`；标题与 robots 同理按 mode 替换。它复用正式 `App` 与 `routes`，运行前安装 `/api/*` 的 mock 拦截，router `basename` 由 `import.meta.env.BASE_URL` 派生；`base` 由构建参数决定，仓库不固定取值。它与生产前端不共用一次构建：两份产物，互不相通。
 - `web/dist-demo` 不复制进 `server/internal/web/dist`，API 镜像不包含 demo 资源；`server/internal/web/static.go` 对所有未命中嵌入文件的路径回退到生产 `index.html`，不为 demo 增加分支。demo 是独立站点：`/` 与未知子路径由 demo 自己的静态托管以 `index.html` 回退完成深链恢复。
 - 生产入口 `web/src/main.tsx` 不引用 `web/src/demo/`；生产 bundle 不得包含 demo 场景数据。
 

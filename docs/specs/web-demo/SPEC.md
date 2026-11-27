@@ -11,14 +11,15 @@
 ## Terms and Interfaces
 
 - `Demo runtime`：在 React 首次渲染之前安装 mock transport、提供演示身份（`session-expired` 场景在演示登录前返回未认证），并以正式 `routes` 启动的运行时。
-- `Demo build`：`web` 的独立 Vite 构建目标，`base=/`，产物 `web/dist-demo` 且入口文档为 `index.html`，不进入 API 镜像。
-- `Demo site`：以自己静态站点根路径提供的 demo 部署；资源 URL 为站点绝对路径，因此不占用生产域名的路径空间。
+- `Demo build`：`web` 的独立 Vite 构建目标，由 `--mode demo` 选中的入口替换 `web/index.html` 中的唯一入口脚本，产物 `web/dist-demo` 的入口文档仍为 `index.html`，不进入 API 镜像；`base` 由构建参数决定，仓库不固定取值。
+- `Demo base`：该次构建的站点路径前缀，经 `vite build --base=<prefix>` 传入；未传时取配置默认值。`base` 是部署参数，不是源码常量。
+- `Demo site`：由自己的静态站点提供的 demo 部署，站点前缀即 `Demo base`；不与生产 SPA 共用路径空间。
 - `Scene`：一组可复现的演示数据与初始状态（`overview`、`requests`、`models`、`upstreams`、`keys`、`cores`、`settings`，以及用于登录跳转演练的 `session-expired`）。
 - `Persona`：演示用的管理员身份；只影响 UI 可见文案与权限提示，不产生真实会话。
 - `Share state`：写入 URL query 的可分享状态（persona、network、data 开关），前缀 `d_`；scene 单独使用 `demo=<scene-id>`，不进入 `d_` 组。
 - `Panel layout`：Inspector 的展示形态（pinned rail / floating / drawer / collapsed bubble），**只**存 `localStorage`（沿用 `token-ne.` 前缀，例如 `token-ne.demo.panel`），不进入分享 URL。
 - `Simulated mutation`：只修改内存模型的写操作，必须在 Inspector 中标注并保留近期记录。
-- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、`web/src/demo/base-path.ts` 的 basename 派生、demo 站点根路径 `/` 与任意子路径。
+- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、`web/src/demo/base-path.ts` 的前缀派生、`Demo base` 与站点内任意子路径。
 - `Demo router`：以构建的 `BASE_URL` 派生出的 basename 启动的正式 `routes`，读写 `window.location` 与 history；不能用只存在于内存的 router，否则 `demo`/`d_*` 无法跨刷新保持。
 
 ## Requirements
@@ -53,10 +54,11 @@
 
 ### REQ-DEMO-005
 
-- The demo MUST build as a site of its own: `base=/`, entry document `index.html`, router `basename` derived from the build's `BASE_URL`, and it MUST NOT be embedded into the release image.
-- Inputs: `bun run build:demo` inside `web/`.
-- Outputs: `web/dist-demo` containing a self-contained static bundle whose asset URLs resolve from the site root. `web/demo.html` is the build input; the build MUST emit it as `index.html`, and a single `BASE_URL`-derived basename MUST drive both the router and asset URLs so no second hard-coded prefix can drift. Production `bun run build` continues to emit `web/dist`, which is the only front-end artifact copied into the API image.
-- Compatibility: because the asset URLs are site-absolute, mounting the demo under a path prefix of the production SPA's origin is out of scope; the demo is served from its own site root. A differently-rooted deployment stays possible because the router basename follows the build's `BASE_URL`, which remains the only prefix source.
+- The demo MUST build as a site of its own with a configurable `Demo base`: entry document `index.html`, router `basename` derived from the build's `BASE_URL`, and it MUST NOT be embedded into the release image.
+- The demo and production front ends MUST NOT share one build: `build:demo` (`--mode demo`) and the production `build` stay separate builds with separate outputs, both entered through `web/index.html` but assigned different entry modules, and neither module may be reachable from the other build.
+- Inputs: `bun run build:demo` inside `web/`, optionally with `-- --base=<prefix>`.
+- Outputs: `web/dist-demo` containing a self-contained static bundle one entry document per build: `web/index.html` is the only entry document, it carries the placeholder `__entry__` script, and the mode decides which module replaces it. A single `BASE_URL`-derived basename MUST drive both the router and asset URLs so no second hard-coded prefix can drift. Production `bun run build` continues to emit `web/dist`, which is the only front-end artifact copied into the API image.
+- Compatibility: `base` is not part of the demo/production boundary and the repository does not fix it; a deployment that needs a path prefix passes it to that build, and the build's own `BASE_URL` stays the only prefix source. Hosting the demo below any prefix does not make it part of another site's build. A deployment whose host cannot recover deep links from a single entry document supplies its own fallback document at build or deploy time.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-006
@@ -121,9 +123,9 @@
 
 ### VER-DEMO-005
 
-- Method: `bun run build:demo` plus `web/src/demo/session.test.tsx` basename assertions.
+- Method: `bun run build:demo` with and without `-- --base=<prefix>`, plus `web/src/demo/session.test.tsx` basename assertions.
 - covers: `REQ-DEMO-005`
-- Pass condition: `web/dist-demo` contains `index.html` and no `demo.html`, the build fails instead of emitting a directory without an entry document, asset URLs resolve from `/`, the router basename equals the stripped `BASE_URL`, and `bun run build` still emits only `web/dist`.
+- Pass condition: `web/dist-demo` and `web/dist` each contain `index.html` carrying only their own entry module; both builds fail instead of emitting a document with an unresolved `__entry__` placeholder; the router basename equals the stripped `BASE_URL` for both builds and emitted asset URLs are absolute from that same `BASE_URL`; the two builds share no entry module, and `bun run build` still emits only `web/dist` with no `demo-scene-` identifier.
 
 ### VER-DEMO-006
 

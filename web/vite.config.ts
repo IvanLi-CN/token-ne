@@ -1,4 +1,4 @@
-import { existsSync, renameSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -13,10 +13,30 @@ const demoModulePattern = /(^|[/\\])src[/\\]demo[/\\]/;
 const demoLeak = (ids: string[]) =>
   `Production build reached demo modules: ${ids.join(", ")}. web/src/demo must not be imported by web/src/main.tsx.`;
 
+/**
+ * The demo differs from production only by its mode: `index.html` is the single
+ * entry document and `demo` swaps the module it loads. `index.html` points at a
+ * placeholder so the substitution cannot drift from what it replaces.
+ */
+const entryMarker = "/src/__entry__.tsx";
+
+/** Rewrite the single entry script of `index.html` to this build's module. */
+const entrySwap = (entry: string, title: string, robots: string) => ({
+  name: "token-ne-entry-swap",
+  transformIndexHtml: {
+    order: "pre" as const,
+    handler(html: string) {
+      return html
+        .replace(entryMarker, entry)
+        .replace("<title>token-ne</title>", `<title>${title}</title>`)
+        .replace("__robots__", robots);
+    },
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const demo = mode === "demo";
   let versionOutDir = "";
-  let demoOutDir = "";
   return {
     base: "/",
     define: {
@@ -25,6 +45,11 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      entrySwap(
+        demo ? "/src/demo/entry.tsx" : "/src/main.tsx",
+        demo ? "token-ne demo" : "token-ne",
+        demo ? "noindex" : "index, follow",
+      ),
       {
         name: "token-ne-version-artifact",
         configResolved(config) {
@@ -60,24 +85,6 @@ export default defineConfig(({ mode }) => {
           if (leaked.length > 0) this.error(demoLeak(leaked));
         },
       },
-      {
-        // The demo is a site of its own: emit `index.html` so any static host
-        // serves `/` without a rule, leaving only the ordinary SPA rewrite.
-        name: "token-ne-demo-index",
-        apply: "build",
-        configResolved(config) {
-          demoOutDir = resolve(config.root, config.build.outDir);
-        },
-        closeBundle() {
-          if (!demo || !demoOutDir) return;
-          const emitted = resolve(demoOutDir, "demo.html");
-          if (!existsSync(emitted))
-            this.error(
-              `demo build emitted no demo.html in ${demoOutDir}; dist-demo would have no entry document.`,
-            );
-          renameSync(emitted, resolve(demoOutDir, "index.html"));
-        },
-      },
     ],
     server: {
       host: "127.0.0.1",
@@ -94,7 +101,6 @@ export default defineConfig(({ mode }) => {
       ? {
           outDir: "dist-demo",
           sourcemap: true,
-          rollupOptions: { input: { demo: resolve("demo.html") } },
         }
       : {
           outDir: "dist",
