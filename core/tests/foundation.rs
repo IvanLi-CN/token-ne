@@ -50,7 +50,7 @@ fn valid_fixture_and_unknown_fields() {
 fn invalid_fixtures() {
     let cases = [
         ("/protocol_version", json!(2)),
-        ("/config_schema_version", json!(2)),
+        ("/config_schema_version", json!(3)),
         ("/instance_id", json!("key_bad")),
         ("/revision", json!(0)),
         ("/issued_at", json!("2099-01-01T00:00:00Z")),

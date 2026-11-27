@@ -2,7 +2,7 @@
   "expect_path": "upstream_policies[0].action",
   "name": "unknown_policy_field",
   "snapshot": {
-    "config_schema_version": 1,
+    "config_schema_version": 2,
     "downstream_keys": [
       {
         "allowed_models": [

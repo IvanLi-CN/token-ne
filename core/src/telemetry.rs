@@ -21,7 +21,7 @@ pub const FEATURES: [&str; 7] = [
     "upstream_model_policy",
 ];
 pub fn meta() -> Value {
-    json!({"protocol_version":1,"config_schema_min":1,"config_schema_max":1,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
+    json!({"protocol_version":1,"config_schema_min":2,"config_schema_max":2,"features":FEATURES,"version":crate::version::VERSION,"build":{"commit":option_env!("GIT_COMMIT").unwrap_or("unknown"),"built_at":option_env!("BUILD_TIMESTAMP").unwrap_or("unknown")}})
 }
 pub fn metrics(state: &CoreState) -> String {
     let snapshot = state.snapshot();

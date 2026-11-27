@@ -46,7 +46,7 @@ func contractDB(t *testing.T) *fakeDB {
 		case strings.Contains(q, "core_config_generation"):
 			return fakeRow{err: pgx.ErrNoRows}
 		case strings.Contains(q, "config_schema_min"):
-			return fakeRow{values: []any{1, 1, 1}}
+			return fakeRow{values: []any{2, 2, 1}}
 		case strings.Contains(q, "jsonb_agg"):
 			return fakeRow{values: []any{json.RawMessage(keys), json.RawMessage(models), entries, json.RawMessage(capabilities)}}
 		case strings.Contains(q, "control_status->'features'"):

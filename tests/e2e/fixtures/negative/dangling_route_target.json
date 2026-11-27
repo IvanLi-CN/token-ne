@@ -2,7 +2,7 @@
   "expect_path": "model_routes[1].target_model_id",
   "name": "dangling_route_target",
   "snapshot": {
-    "config_schema_version": 1,
+    "config_schema_version": 2,
     "downstream_keys": [
       {
         "allowed_models": [

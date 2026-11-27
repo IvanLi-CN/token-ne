@@ -2,7 +2,7 @@
   "expect_path": "features.model_name_routing",
   "name": "feature_missing_routes",
   "snapshot": {
-    "config_schema_version": 1,
+    "config_schema_version": 2,
     "downstream_keys": [
       {
         "allowed_models": [

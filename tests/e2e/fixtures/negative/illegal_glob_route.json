@@ -2,7 +2,7 @@
   "expect_path": "model_routes[0].pattern",
   "name": "illegal_glob_route",
   "snapshot": {
-    "config_schema_version": 1,
+    "config_schema_version": 2,
     "downstream_keys": [
       {
         "allowed_models": [

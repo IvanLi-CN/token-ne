@@ -10,10 +10,12 @@
 
 协议有两个独立版本：
 
-| 版本 | 作用 | v1 值 |
+| 版本 | 作用 | 当前值 |
 | --- | --- | --- |
 | `protocol_version` | 线协议、端点、信封、错误格式 | `1` |
-| `config_schema_version` | 配置快照字段和语义 | `1` |
+| `config_schema_version` | 配置快照字段和语义 | `2` |
+
+`config_schema_version` 为 `2` 的原因是第一阶段到第二阶段的字段替换不是增量的：`model_routes[]` 用 `position` 取代了 `priority`，`upstream_models[]` 从 `upstream_model_name`/`priority`/`weight` 改成必需的 `upstream_model_id`。schema 为 `1` 的核心不接受这些字段（`model_routes[]` 拒绝未知字段），因此控制面必须拒绝登记、部署或推送 `config_schema_max < 2` 的核心，而不是先放行再让其被 `422` 逐次拒绝。schema `1` 的快照不再被本控制面生产。
 
 核心还声明：
 
@@ -95,8 +97,8 @@
 ```json
 {
   "protocol_version": 1,
-  "config_schema_min": 1,
-  "config_schema_max": 1,
+  "config_schema_min": 2,
+  "config_schema_max": 2,
   "features": ["chat_completions", "responses", "embeddings", "stream_usage_injection", "status_rewrite", "egress_proxy"],
   "version": "0.2.0",
   "build": {
@@ -150,7 +152,7 @@ X-Token-Ne-Config-Signature: <optional hmac>
   "protocol_version": 1,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "applied_revision": 43,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "signature_state": "valid"
 }
 ```
@@ -295,7 +297,7 @@ Idempotency-Key: <batch_id>
 ```json
 {
   "protocol_version": 1,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "revision": 43,
   "issued_at": "2026-11-21T09:00:00Z",

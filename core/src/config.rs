@@ -362,7 +362,7 @@ impl Config {
     }
     pub fn validate(&self, instance: &str, options: &ValidationOptions) -> Result<()> {
         require(
-            self.protocol_version == 1 && self.config_schema_version == 1,
+            self.protocol_version == 1 && self.config_schema_version == 2,
             "config_schema_version",
         )?;
         canonical_uuid(&self.instance_id, "instance_id")?;

@@ -163,7 +163,7 @@ jq -e '.username == "'"$ADMIN_USER"'"' "$TMP/login.json" >/dev/null || fail "une
 echo "closure: registering the core version and instance"
 CORE_VERSION="$(cd "$ROOT/core" && cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
 [[ -n "$CORE_VERSION" && "$CORE_VERSION" != "null" ]] || fail "cannot read core version"
-expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":1,\"config_schema_max\":1}" "$TMP/version.json")" 201 "register core version" "$TMP/version.json"
+expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":2,\"config_schema_max\":2}" "$TMP/version.json")" 201 "register core version" "$TMP/version.json"
 VERSION_ID="$(jq -r '.id' "$TMP/version.json")"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "insert into core_instances(id,version_id,container_id,container_name,address,weight,state) values('$INSTANCE_ID','$VERSION_ID','closure-core','closure-core','127.0.0.1:$CORE_PORT',100,'running')"

@@ -47,7 +47,7 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 		case strings.Contains(q, "core_config_generation"):
 			return fakeRow{err: pgx.ErrNoRows}
 		case strings.Contains(q, "config_schema_min"):
-			return fakeRow{values: []any{1, 1, 1}}
+			return fakeRow{values: []any{2, 2, 1}}
 		case strings.Contains(q, "jsonb_agg"):
 			keys, models, entries, capabilities := routingSnapshotRows()
 			return fakeRow{values: []any{keys, models, entries, capabilities}}
@@ -73,7 +73,8 @@ func routingSnapshotDB(routes, policies [][]any, declared []string, hasDeclarati
 }
 
 func routingRoutes() [][]any {
-	// The SQL query orders by scope then position; the fake returns rows as given.
+	// The SQL orders upstream scopes before the global scope, then by position; the
+	// fake returns rows verbatim, so this is the order the query must produce.
 	return [][]any{
 		{uuid.NewString(), "gpt-*", "glob", routingModelID, routingUpstreamID, 0, true, "primary"},
 		{uuid.NewString(), "alias", "exact", routingModelID, nil, 1, true, nil},
@@ -138,7 +139,11 @@ func TestSnapshotRoutingContentAndAdmission(t *testing.T) {
 		if !body.Features[FeatureModelNameRouting] || !body.Features[FeatureUpstreamModelPolicy] {
 			t.Fatalf("missing feature flags: %v", body.Features)
 		}
-		if len(body.Routes) != 2 || body.Routes[0]["position"].(float64) != 0 || body.Routes[1]["pattern"] != "alias" {
+		// The array order IS the resolution order: the upstream scope precedes the
+		// global scope even though the global one may hold a lower position.
+		if len(body.Routes) != 2 || body.Routes[0]["position"].(float64) != 0 ||
+			body.Routes[0]["upstream_id"] == nil || body.Routes[1]["pattern"] != "alias" ||
+			body.Routes[1]["upstream_id"] != nil {
 			t.Fatalf("route ordering or content: %+v", body.Routes)
 		}
 		if body.Routes[0]["description"] != "primary" || body.Routes[0]["upstream_id"] == nil {
@@ -300,7 +305,7 @@ func TestSnapshotRoutingIntegration(t *testing.T) {
 	modelID := "p2s-" + suffix
 	full := `["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite","model_name_routing","upstream_model_policy"]`
 	old := `["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite"]`
-	if _, err = s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,1,1)", version, "v-"+suffix); err != nil {
+	if _, err = s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,2,2)", version, "v-"+suffix); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.Pool.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,state,control_status)

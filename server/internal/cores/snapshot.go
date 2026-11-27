@@ -163,11 +163,13 @@ type generation struct {
 	Policy   policy
 }
 
-// modelRoutes reads the enabled rules in the same order the core resolves
-// them: scope key, then position. The unique (scope, position) index makes the
-// order total.
+// modelRoutes reads the enabled rules in the same order the core resolves them:
+// upstream scopes first by ascending id, then the global scope, and position
+// inside each. The array order is the resolution order, so the global scope must
+// not come first even though the schema stores it as the zero-UUID scope key.
+// The unique (scope, position) index makes the order total.
 func (s *Snapshots) modelRoutes(ctx context.Context, tx pgx.Tx) ([]routeRule, error) {
-	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,position,enabled,description from model_route_rules where enabled order by coalesce(upstream_id,'00000000-0000-0000-0000-000000000000'::uuid),position`)
+	rows, e := tx.Query(ctx, `select id::text,pattern,match_type,target_model_id,upstream_id::text,position,enabled,description from model_route_rules where enabled order by (upstream_id is null),upstream_id,position`)
 	if e != nil {
 		return nil, e
 	}

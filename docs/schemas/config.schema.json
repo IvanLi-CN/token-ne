@@ -74,7 +74,7 @@
   "$comment": "Publisher and core semantic validation rejects duplicate upstream_policies entries by upstream_id, duplicate egress_proxies ids, dangling upstream egress_proxy_id references, dangling model/upstream references, invalid full-string Glob patterns, and unknown modelRoute/upstreamPolicy/egressProxy fields. Only * and ? are wildcard operators; brackets, braces, backslash, and control characters are invalid. When model_name_routing, upstream_model_policy, or egress_proxy is absent or false, its corresponding fields must be absent or empty/null. Route, policy, and egress proxy object schemas reject unknown fields because silently ignoring a misspelled routing or egress-security field is unsafe. Third-party proxy protocol, server address and credentials never appear in the core snapshot.",
   "properties": {
     "protocol_version": { "const": 1 },
-    "config_schema_version": { "type": "integer", "minimum": 1 },
+    "config_schema_version": { "type": "integer", "minimum": 2 },
     "instance_id": { "type": "string", "format": "uuid" },
     "revision": { "type": "integer", "minimum": 1 },
     "issued_at": { "type": "string", "format": "date-time" },

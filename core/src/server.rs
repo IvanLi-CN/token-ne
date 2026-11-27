@@ -373,7 +373,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         );
     }
     if value.get("protocol_version").and_then(Value::as_u64) != Some(1)
-        || value.get("config_schema_version").and_then(Value::as_u64) != Some(1)
+        || value.get("config_schema_version").and_then(Value::as_u64) != Some(2)
     {
         return control_json_error(
             &request_id,
@@ -403,7 +403,7 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
                 "protocol_version": 1,
                 "instance_id": applied.config.instance_id,
                 "applied_revision": applied.config.revision,
-                "config_schema_version": 1,
+                "config_schema_version": 2,
                 "signature_state": signature_state,
             }))
             .into_response()

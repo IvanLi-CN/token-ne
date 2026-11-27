@@ -14,7 +14,11 @@ import (
 
 const (
 	Protocol        = 1
-	Schema          = 1
+	// Schema 2 replaced model_routes[].priority with position and reshaped
+	// upstream_models[] into (upstream_model_id, model_id). Those are neither
+	// additive nor optional, so a core built for schema 1 must fail the deploy and
+	// push gates instead of being admitted and then rejecting every snapshot.
+	Schema          = 2
 	MaxSnapshot     = 8 << 20
 	ProtocolHeader  = "X-Token-Ne-Protocol-Version"
 	RequestHeader   = "X-Token-Ne-Request-Id"

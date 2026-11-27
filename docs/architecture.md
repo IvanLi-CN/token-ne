@@ -311,7 +311,7 @@ core/src/
 ```json
 {
   "protocol_version": 1,
-  "config_schema_version": 1,
+  "config_schema_version": 2,
   "instance_id": "0193f0c2-7b1a-7c3e-9f00-000000000002",
   "revision": 42,
   "issued_at": "2026-11-21T09:00:00Z",
