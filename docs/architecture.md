@@ -204,7 +204,7 @@ core/src/
   server.rs         axum 路由、认证中间件、超时、错误映射
   proxy/
     body.rs         有界请求体读取、一次性快照、模型改写
-    routing.rs      全局模型查找、映射继承、上游候选排序与权重选择
+    routing.rs      名称路由（作用域 + 顺序）、系统模型查找、上游候选稳定排序
     egress.rs       出站代理绑定、每档案 SOCKS5h 客户端、连接失败分类
     upstream.rs     reqwest 客户端、URL/头构造、超时
     attempt.rs      单次尝试、状态分类、响应头处理

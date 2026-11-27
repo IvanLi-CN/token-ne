@@ -208,6 +208,26 @@ describe("models route rules", () => {
     expect(screen.getByText("命中规则：无 · 候选上游：0")).toBeTruthy();
   });
 
+  it("renders a system-model fallback as resolved without a matched rule", async () => {
+    mock((url, init) => {
+      if (url === "/api/model-routes/preview" && init.method === "POST")
+        return response({
+          requested_model: "example",
+          resolved_model: "example",
+          matched_rule: null,
+          rule_kind: null,
+          candidates: [],
+        });
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.change(screen.getByLabelText("请求模型名"), { target: { value: "example" } });
+    fireEvent.click(screen.getByRole("button", { name: "预览解析" }));
+    expect(await screen.findByText("已解析")).toBeTruthy();
+    expect(screen.getByText("无命中规则（按系统模型 ID 兜底）")).toBeTruthy();
+  });
+
   it("saves a duplicate pattern in the same scope and never sends position", async () => {
     let createBody: unknown;
     mock((url, init) => {

@@ -103,29 +103,3 @@ func Match(pattern, name string) bool {
 	}
 	return patternAt == len(pattern)
 }
-
-// AdvisoryKey maps a name to the 64-bit key passed to
-// pg_advisory_xact_lock so that writers reserving that name across models and
-// route rules serialize on the same lock.
-//
-// The key is FNV-1a 64 over the exact UTF-8 bytes of name: every process, every
-// release and every code path that reserves a name must call this function, so
-// the same name always yields the same key without any stored state or shared
-// counter. Callers must pass the stored name verbatim and decide any
-// normalization before hashing; there is no case folding here because model IDs
-// and patterns are case-sensitive.
-//
-// The hash is not cryptographic and 64-bit collisions are possible. A collision
-// only makes two unrelated names take the same lock, which serializes them
-// unnecessarily and never weakens the uniqueness check performed under the
-// lock.
-func AdvisoryKey(name string) int64 {
-	const offset64 uint64 = 14695981039346656037
-	const prime64 uint64 = 1099511628211
-	hash := offset64
-	for i := range len(name) {
-		hash ^= uint64(name[i])
-		hash *= prime64
-	}
-	return int64(hash)
-}

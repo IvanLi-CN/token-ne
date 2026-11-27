@@ -137,8 +137,7 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,m.ena
 			t.Fatalf("update missing rule: %v", err)
 		}
 		// A pattern equal to a system model ID is a plain pattern now.
-		md := save(t, ModelRoute{Pattern: modelD, MatchType: "exact", TargetModelID: modelA, Enabled: true})
-		t.Logf("DEBUG saved modelD rule=%+v", md)
+		save(t, ModelRoute{Pattern: modelD, MatchType: "exact", TargetModelID: modelA, Enabled: true})
 	})
 
 	t.Run("position is allocated per scope", func(t *testing.T) {
@@ -217,6 +216,19 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,m.ena
 		if positions[c.ID] != 0 || positions[a.ID] != 1 || positions[b.ID] != 2 {
 			t.Fatalf("failed reorder mutated positions: %v", positions)
 		}
+
+		// A non-tail delete leaves a gap; reordering the survivors must still work.
+		if err := s.DeleteRoute(ctx, b.ID, audit("model_route.delete")); err != nil {
+			t.Fatal(err)
+		}
+		afterDelete, err := s.ReorderRoutes(ctx, upstream, []string{c.ID, a.ID}, audit("model_route.reorder"))
+		if err != nil {
+			t.Fatalf("reorder after a gap-forming delete: %v", err)
+		}
+		if len(afterDelete) != 2 || afterDelete[0].ID != c.ID || afterDelete[0].Position != 0 ||
+			afterDelete[1].ID != a.ID || afterDelete[1].Position != 1 {
+			t.Fatalf("positions after reorder with a gap: %+v", afterDelete)
+		}
 	})
 
 	t.Run("preview resolution and candidates", func(t *testing.T) {
@@ -253,26 +265,20 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,m.ena
 			t.Fatalf("glob rule resolution: %+v", preview)
 		}
 
-		// A system model ID no longer short-circuits routing: with no matching
-		// rule the name simply stays unresolved, even though the model exists.
+		// A system model ID does not short-circuit routing, but it is the last
+		// resort: modelC matches no rule, so it resolves to itself with no rule
+		// reported, and offers no candidate because nothing binds it.
 		preview, err = s.PreviewRoute(ctx, modelC)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if preview.ResolvedModel != nil || preview.MatchedRule != nil || len(preview.Candidates) != 0 {
-			t.Fatalf("unrouted system model ID resolved: %+v", preview)
+		if preview.ResolvedModel == nil || *preview.ResolvedModel != modelC || preview.MatchedRule != nil ||
+			preview.RuleKind != nil || len(preview.Candidates) != 0 {
+			t.Fatalf("system model ID fallback: %+v", preview)
 		}
 
-		// A pattern equal to a system model ID resolves through its rule.
-		if all, e := s.Routes(ctx); e == nil {
-			for _, r := range all {
-				scope := "global"
-				if r.UpstreamID != nil {
-					scope = *r.UpstreamID
-				}
-				t.Logf("DEBUG rule %s %s pos=%d scope=%s target=%s enabled=%v", r.Pattern, r.MatchType, r.Position, scope, r.TargetModelID, r.Enabled)
-			}
-		}
+		// A pattern equal to a system model ID resolves through its rule, which
+		// proves the rule wins over the fallback.
 		preview, err = s.PreviewRoute(ctx, modelD)
 		if err != nil {
 			t.Fatal(err)
@@ -282,8 +288,7 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,m.ena
 		}
 
 		// An upstream-scoped rule only affects that upstream's candidates.
-		restricted := save(t, ModelRoute{Pattern: "restrict-" + suffix, MatchType: "exact", TargetModelID: modelA, UpstreamID: new(upstream1), Enabled: true})
-		_ = restricted
+		save(t, ModelRoute{Pattern: "restrict-" + suffix, MatchType: "exact", TargetModelID: modelA, UpstreamID: new(upstream1), Enabled: true})
 		preview, err = s.PreviewRoute(ctx, "restrict-"+suffix)
 		if err != nil {
 			t.Fatal(err)
@@ -293,9 +298,8 @@ insert into models(model_id,enabled,billing_revision_id) select m.model_id,m.ena
 		}
 
 		// A scoped rule that misses falls back to the global scope per upstream.
-		global := save(t, ModelRoute{Pattern: "fallback-" + suffix, MatchType: "exact", TargetModelID: modelB, Enabled: true})
+		save(t, ModelRoute{Pattern: "fallback-" + suffix, MatchType: "exact", TargetModelID: modelB, Enabled: true})
 		save(t, ModelRoute{Pattern: "fallback-other-" + suffix, MatchType: "exact", TargetModelID: modelA, UpstreamID: new(upstream1), Enabled: true})
-		_ = global
 		preview, err = s.PreviewRoute(ctx, "fallback-"+suffix)
 		if err != nil {
 			t.Fatal(err)

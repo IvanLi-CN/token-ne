@@ -142,9 +142,23 @@ func (s *Store) SaveRoute(ctx context.Context, route ModelRoute, create bool, a 
 values($1,$2,$3,$4,$5::uuid,coalesce((select max(position)+1 from model_route_rules where ` + routeScope + ` = coalesce($5::uuid,'` + globalScopeKey + `'::uuid)),0),$6,$7)
 returning ` + routeColumns
 		} else {
-			query = "update model_route_rules set pattern=$2,match_type=$3,target_model_id=$4,upstream_id=$5::uuid,enabled=$6,description=$7,updated_at=now() where id=$1 returning " + routeColumns
+			// The scope is part of a rule's identity, not an editable field: moving a
+			// rule between scopes would leave a gap in the source scope and could
+			// collide in the target, neither under that scope's lock.
+			var stored *string
+			if e := tx.QueryRow(ctx, "select upstream_id::text from model_route_rules where id=$1", route.ID).Scan(&stored); e != nil {
+				return normalize(e)
+			}
+			if !sameScope(stored, route.UpstreamID) {
+				return &FieldError{Path: "upstream_id", Reason: "cannot move a rule to another scope; create it there instead", Kind: ErrReference}
+			}
+			query = "update model_route_rules set pattern=$2,match_type=$3,target_model_id=$4,enabled=$5,description=$6,updated_at=now() where id=$1 returning " + routeColumns
 		}
-		saved, err := scanRoute(tx.QueryRow(ctx, query, route.ID, route.Pattern, route.MatchType, route.TargetModelID, upstream, route.Enabled, description))
+		args := []any{route.ID, route.Pattern, route.MatchType, route.TargetModelID, upstream, route.Enabled, description}
+		if !create {
+			args = []any{route.ID, route.Pattern, route.MatchType, route.TargetModelID, route.Enabled, description}
+		}
+		saved, err := scanRoute(tx.QueryRow(ctx, query, args...))
 		route = saved
 		return err
 	})
@@ -203,8 +217,11 @@ func (s *Store) ReorderRoutes(ctx context.Context, upstreamID *string, ids []str
 			}
 		}
 		// Offsetting first keeps the (scope, position) unique index satisfied
-		// while the new positions are written one by one.
-		if _, e := tx.Exec(ctx, "update model_route_rules set position=position+$2 where "+routeScope+" = coalesce($1,'"+globalScopeKey+"'::uuid)", upstreamID, len(ids)); e != nil {
+		// while the new positions are written one by one. The offset clears the
+		// scope's real maximum, not len(ids): positions turn sparse when a
+		// non-tail rule is deleted, and an offset of len(ids) would then collide
+		// with a surviving position and make the scope unreorderable forever.
+		if _, e := tx.Exec(ctx, `update model_route_rules set position=position+(select coalesce(max(position),0)+1 from model_route_rules where `+routeScope+` = coalesce($1,'`+globalScopeKey+`'::uuid)) where `+routeScope+` = coalesce($1,'`+globalScopeKey+`'::uuid)`, upstreamID); e != nil {
 			return e
 		}
 		for i, id := range ids {
@@ -350,29 +367,37 @@ func (s *Store) PreviewRoute(ctx context.Context, requested string) (RoutePrevie
 	// global scope: the same order the core uses, so a preview never promises
 	// resolution the data plane would not perform.
 	rule := previewResolve(rules, requested)
+	var target *previewModel
 	if rule == nil {
-		return preview, nil
+		// Neither scope matched: the core falls back to the system model ID, so
+		// the preview must too, or it would report 404 for a name the data plane
+		// serves. No rule is reported in that case.
+		target = findPreviewModel(models, requested)
+	} else {
+		target = findPreviewModel(models, rule.TargetModelID)
 	}
-	target := findPreviewModel(models, rule.TargetModelID)
 	if target == nil || !target.Enabled {
 		return preview, nil
 	}
 	preview.ResolvedModel = &target.ID
-	preview.MatchedRule = &rule.ID
-	kind := rule.MatchType
-	preview.RuleKind = &kind
+	if rule != nil {
+		preview.MatchedRule = &rule.ID
+		kind := rule.MatchType
+		preview.RuleKind = &kind
+	}
 	for _, c := range capabilities {
 		// Each enabled upstream resolves on its own: its scope first, then the
 		// global scope. Another upstream's scoped rule never applies here, and a
-		// miss offers no candidate.
+		// double miss falls back to the system model ID, exactly like the core.
 		scoped := previewScopeRule(rules, requested, &c.UpstreamID)
 		if scoped == nil {
 			scoped = previewScopeRule(rules, requested, nil)
 		}
-		if scoped == nil {
-			continue
+		scopedTarget := requested
+		if scoped != nil {
+			scopedTarget = scoped.TargetModelID
 		}
-		target := findPreviewModel(models, scoped.TargetModelID)
+		target := findPreviewModel(models, scopedTarget)
 		if target == nil || !target.Enabled || target.ID != c.ModelID {
 			continue
 		}

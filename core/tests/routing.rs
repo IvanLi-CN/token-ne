@@ -261,7 +261,7 @@ fn resolve_follows_scope_then_position_then_model_id() {
     // 目标未启用、规则未启用、无命中都返回 None（调用方 404）。
     assert!(routing::resolve(&config, "off-1").is_none());
     assert!(routing::resolve(&config, "disabled").is_none());
-    // 禁用的模型 ID 不会被 Glob 接管，也不会被自身兜底。
+    // 无规则命中且目标模型禁用：不被自身兜底。
     assert!(routing::resolve(&config, "gpt-4o-mini-retired").is_none());
     assert!(routing::resolve(&config, "Chat-fast").is_none());
     assert!(routing::resolve(&config, "missing").is_none());
@@ -269,6 +269,27 @@ fn resolve_follows_scope_then_position_then_model_id() {
     let scoped = routing::resolve(&config, "restricted").unwrap();
     assert_eq!(scoped.model.model_id, "gpt-4o-mini");
     assert_eq!(scoped.upstream_id, Some(UPSTREAM));
+}
+
+#[test]
+fn a_rule_may_resolve_a_name_equal_to_a_disabled_model_id() {
+    // 系统模型 ID 不短路路由，因此“禁用的模型 ID”也只是普通请求名：
+    // 命中规则时按规则解析，未被任何规则命中时才因目标禁用而没有结果。
+    let mut f = base();
+    f["models"]
+        .as_array_mut()
+        .unwrap()
+        .push(model("gpt-4o-mini-retired", false));
+    f["model_routes"] = json!([route("gpt-4o-mini-ret*", "glob", "gpt-5", 40, true)]);
+    let config = parse(&f).unwrap();
+    let r = routing::resolve(&config, "gpt-4o-mini-retired").unwrap();
+    assert_eq!(r.model.model_id, "gpt-5");
+    assert_eq!(r.upstream_id, None);
+
+    // 没有规则时同一个名字只因目标禁用而解析失败。
+    f["model_routes"] = json!([]);
+    let config = parse(&f).unwrap();
+    assert!(routing::resolve(&config, "gpt-4o-mini-retired").is_none());
 }
 
 #[test]

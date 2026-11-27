@@ -75,6 +75,8 @@ fn invalid_fixtures() {
         ("/upstreams/0/idle_timeout_ms", json!(86_400_001)),
         ("/upstream_models/0/upstream_model_id", json!("")),
         ("/upstream_models/0/model_id", json!("missing")),
+        // One system model is served by one upstream model inside an upstream.
+        ("/upstream_models/1/model_id", json!("gpt-5")),
         ("/downstream_keys/0/sha256", json!("bad")),
         ("/downstream_keys/0/allowed_models", json!(["missing"])),
         ("/downstream_keys/0/allowed_models", json!(["*", "gpt-5"])),
@@ -163,8 +165,11 @@ fn key_auth_and_allowed_models() {
 fn model_mapping_and_candidates() {
     let mut c = parse(&fixture()).unwrap();
     let model = c.models[0].clone();
-    let cap = c.upstream_models[0].clone();
+    let mut cap = c.upstream_models[0].clone();
     assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5");
+    // The binding owns the outgoing name: it must not fall back to model_id.
+    cap.upstream_model_id = "gpt-5-2026-xx".into();
+    assert_eq!(routing::effective_model_name(&model, &cap), "gpt-5-2026-xx");
     assert_eq!(routing::candidates(&c, "gpt-5", None).len(), 1);
     c.upstream_models[0].enabled = false;
     assert!(routing::candidates(&c, "gpt-5", None).is_empty());

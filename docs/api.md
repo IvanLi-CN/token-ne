@@ -67,8 +67,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则；`POST /api/model-routes/reorder` 用 `{upstream_id, route_ids}` 一次提交某作用域的新顺序，任一条失败整段回滚。创建与更新的请求体不含 `position`：创建时服务端追加到该作用域末尾，更新时位置不变。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、作用域 `upstream_id`（空表示全局）、`position`、`enabled` 和描述。`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。`pattern` 不设机器唯一性约束：同作用域内允许重复或重叠，由 `position` 决定生效顺序；`pattern` 等于既有系统模型 ID 也不再视为冲突。
 - `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的系统模型、命中规则、候选上游和发往上游的模型 ID；解析顺序为上游作用域优先（按 `upstream_id` 升序逐个尝试）、再全局作用域、最后系统模型 ID 兜底；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
-- 全局 Model ID 保留给对应 Model。启用的 exact 规则必须按 `pattern` 唯一。`pattern` 等于已有全局 Model ID 的规则不能保存；新建或导入 Model 时若已有规则使用同一 `pattern`，同样拒绝并返回 `409` 和字段路径 `model_id`。同优先级 Glob 规则按同一套 Glob 语言判定范围，重叠且目标或上游限制不同时保存失败并返回字段路径。
-- 路由规则写入、Model 创建和目录导入在事务内串行化校验命名冲突与 Glob 重叠；并发的后到者返回 `409` 并带字段路径。
+- 创建时服务端在事务内取该作用域的行锁，把新规则追加到 `max(position)+1`（空作用域为 `0`），因此并发创建不会抢到同一个槽位。
+- 同名 `pattern` 与重叠 Glob 都不再是写失败原因：界面只提示重复，解释权归顺序。命名空间也不再与系统模型 ID 互斥，Model 创建与目录导入不再检查路由 `pattern`，目录安装的结果只有 `created` 或 `exists`。
 
 ## 价格 API
 

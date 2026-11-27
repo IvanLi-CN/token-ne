@@ -208,3 +208,67 @@ fn positions_must_be_unique_inside_a_scope() {
     );
     assert!(cross_scope.validate(INSTANCE, &options()).is_ok());
 }
+
+#[test]
+fn lower_upstream_id_wins_between_two_matching_scopes() {
+    let low = "0193f0c2-7b1a-7c3e-9f00-000000000010";
+    let high = "0193f0c2-7b1a-7c3e-9f00-000000000020";
+    let c = config(
+        vec![model("low-target"), model("high-target")],
+        vec![
+            route_in(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000f5",
+                "shared",
+                "exact",
+                "high-target",
+                Some(high),
+                0,
+            ),
+            route_in(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000f6",
+                "shared",
+                "exact",
+                "low-target",
+                Some(low),
+                0,
+            ),
+        ],
+        vec![
+            binding(low, "low-target", "low-real"),
+            binding(high, "high-target", "high-real"),
+        ],
+    );
+    let r = routing::resolve(&c, "shared").expect("resolves");
+    assert_eq!(r.model.model_id, "low-target");
+    assert_eq!(r.upstream_id, Some(low));
+}
+
+#[test]
+fn scoped_hit_without_a_binding_does_not_fall_back_to_global() {
+    let c = config(
+        vec![model("global-target"), model("scoped-target")],
+        vec![
+            route(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000c1",
+                "chat",
+                "exact",
+                "global-target",
+                0,
+            ),
+            route_in(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000c2",
+                "chat",
+                "exact",
+                "scoped-target",
+                Some(UPSTREAM),
+                0,
+            ),
+        ],
+        // Only the global target is served, so the winning scoped rule has nothing
+        // to route through and must fail instead of silently using the global rule.
+        vec![binding(UPSTREAM, "global-target", "upstream-global")],
+    );
+    let r = routing::resolve(&c, "chat").expect("scoped rule still wins");
+    assert_eq!(r.upstream_id, Some(UPSTREAM));
+    assert!(routing::candidates(&c, &r.model.model_id, r.upstream_id).is_empty());
+}

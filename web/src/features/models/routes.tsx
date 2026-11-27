@@ -386,8 +386,8 @@ function PreviewResult({
     return (
       <div className="flex flex-col gap-3">
         <EmptyState title="未解析到系统模型">
-          “{preview.requested_model}”不匹配{unresolvedScope}中任何启用的规则；下游请求会返回
-          404。检查规则顺序与启用状态。
+          “{preview.requested_model}”不匹配{unresolvedScope}中任何启用的规则，也不是已启用的
+          系统模型 ID；下游请求会返回 404。检查规则顺序、启用状态与系统模型。
         </EmptyState>
         <p className="muted">命中规则：无 · 候选上游：0</p>
       </div>
@@ -408,7 +408,7 @@ function PreviewResult({
             {preview.matched_rule ? (
               <MatchedRule preview={preview} routes={routes} />
             ) : (
-              "无命中规则"
+              "无命中规则（按系统模型 ID 兜底）"
             )}
           </p>
         </div>

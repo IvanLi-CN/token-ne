@@ -116,7 +116,7 @@ function UpstreamEditor({
   function incompleteRow(): string | undefined {
     const broken = capabilities.find((row) => !row.model_id);
     return broken
-      ? `「${broken.upstream_model_id}」还没有选系统模型，请先在模型映射里补上。`
+      ? `「${broken.upstream_model_id}」还没有选系统模型，请先在上面的绑定里补上。`
       : undefined;
   }
   /** System models typed into the form that the preset list does not hold yet. */

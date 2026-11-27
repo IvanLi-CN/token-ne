@@ -1,7 +1,6 @@
 package modelglob
 
 import (
-	"hash/fnv"
 	"strings"
 	"testing"
 )
@@ -143,36 +142,5 @@ func TestUnicodeLiterals(t *testing.T) {
 		if got := Match(tc.pattern, tc.name); got != tc.want {
 			t.Errorf("Match(%q, %q) = %v, want %v", tc.pattern, tc.name, got, tc.want)
 		}
-	}
-}
-
-func TestAdvisoryKey(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want int64
-	}{
-		{"gpt-4o", 1107710032109220332},
-		{"model-*", 7834068510815985677},
-		{"chat-fast", -2109763714842010856},
-		{"", -3750763034362895579},
-	} {
-		if got := AdvisoryKey(tc.name); got != tc.want {
-			t.Errorf("AdvisoryKey(%q) = %d, want %d", tc.name, got, tc.want)
-		}
-		if again := AdvisoryKey(tc.name); again != tc.want {
-			t.Errorf("AdvisoryKey(%q) changed between calls: %d then %d", tc.name, tc.want, again)
-		}
-	}
-	// Same name must always produce the same key, so the implementation is
-	// pinned to standard FNV-1a 64 rather than an ad hoc hash.
-	for _, name := range []string{"gpt-4o", "gpt-4o-mini", "模型", "*-x", "a b"} {
-		h := fnv.New64a()
-		_, _ = h.Write([]byte(name))
-		if got, want := AdvisoryKey(name), int64(h.Sum64()); got != want {
-			t.Errorf("AdvisoryKey(%q) = %d, want FNV-1a 64 %d", name, got, want)
-		}
-	}
-	if AdvisoryKey("gpt-4o") == AdvisoryKey("gpt-4o-mini") {
-		t.Fatal("distinct names produced the same advisory key")
 	}
 }

@@ -727,7 +727,7 @@ paths:
       tags: [models]
       summary: 预览模型名称解析
       operationId: previewModelRoute
-      description: "`resolved_model` 取全局作用域按 `position` 顺序第一条命中的目标模型，`matched_rule`、`rule_kind` 对应那条规则；系统模型 ID 不再短路路由。`candidates` 逐个启用上游计算：先查该上游作用域、未命中再查全局作用域，取第一条命中的规则，目标模型须启用、绑定须启用且承接策略须允许。"
+      description: "解析顺序与数据面一致：先按 `upstream_id` 升序逐个上游作用域，再全局作用域，都未命中最后按系统模型 ID 兜底。`resolved_model` 是命中的目标系统模型，`matched_rule`、`rule_kind` 只在由规则命中时返回；系统模型 ID 兜底时两者为 `null`。系统模型 ID 不短路路由。`candidates` 逐个启用上游计算：先查该上游作用域、未命中再查全局作用域、再未命中按系统模型 ID，目标模型须启用、绑定须启用且承接策略须允许。"
       security:
         - cookieAuth: []
       requestBody:
