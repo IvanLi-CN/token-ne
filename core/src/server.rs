@@ -511,11 +511,8 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
     ) {
         return api_error(StatusCode::FORBIDDEN, "model_not_allowed");
     }
-    let candidates = routing::candidates(
-        config,
-        &resolution.model.model_id,
-        resolution.upstream_id,
-    );
+    let candidates =
+        routing::candidates(config, &resolution.model.model_id, resolution.upstream_id);
     retry::forward(ForwardRequest {
         parts,
         body,

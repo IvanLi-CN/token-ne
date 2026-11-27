@@ -281,7 +281,7 @@ impl CoreState {
     }
     pub fn status(&self) -> Value {
         let snapshot = self.snapshot();
-        let config=snapshot.as_ref().map(|s|json!({"revision":s.config.revision,"hash":s.hash,"schema_version":1,"source":s.source,"signature_state":s.signature_state,"override_active":self.override_active()}));
+        let config=snapshot.as_ref().map(|s|json!({"revision":s.config.revision,"hash":s.hash,"schema_version":s.config.config_schema_version,"source":s.source,"signature_state":s.signature_state,"override_active":self.override_active()}));
         let policy=snapshot.as_ref().map(|s|json!({"source":s.config.status_rewrite.policy_source,"schema_version":s.config.status_rewrite.schema_version,"hash":s.config.status_rewrite.policy_hash}));
         let spool = self.spool_stats();
         let oldest = self.spool.lock().ok().and_then(|s| {

@@ -131,8 +131,14 @@ pub fn candidates<'a>(
         .collect();
     // 绑定不带优先级和权重：候选按上游 ID 与上游模型 ID 的稳定升序逐个尝试。
     pool.sort_by(|a, b| {
-        (a.upstream.id.as_str(), a.capability.upstream_model_id.as_str())
-            .cmp(&(b.upstream.id.as_str(), b.capability.upstream_model_id.as_str()))
+        (
+            a.upstream.id.as_str(),
+            a.capability.upstream_model_id.as_str(),
+        )
+            .cmp(&(
+                b.upstream.id.as_str(),
+                b.capability.upstream_model_id.as_str(),
+            ))
     });
     pool
 }

@@ -83,7 +83,13 @@ fn in_scope_order_decides_and_breadth_does_not_win() {
     let c = config(
         vec![model("broad"), model("narrow")],
         vec![
-            route("0193f0c2-7b1a-7c3e-9f00-0000000000a1", "*", "glob", "broad", 0),
+            route(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000a1",
+                "*",
+                "glob",
+                "broad",
+                0,
+            ),
             route(
                 "0193f0c2-7b1a-7c3e-9f00-0000000000a2",
                 "gpt-5",
@@ -104,12 +110,30 @@ fn duplicate_patterns_follow_order() {
     let c = config(
         vec![model("first"), model("second")],
         vec![
-            route("0193f0c2-7b1a-7c3e-9f00-0000000000b1", "dup", "exact", "second", 1),
-            route("0193f0c2-7b1a-7c3e-9f00-0000000000b2", "dup", "exact", "first", 0),
+            route(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000b1",
+                "dup",
+                "exact",
+                "second",
+                1,
+            ),
+            route(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000b2",
+                "dup",
+                "exact",
+                "first",
+                0,
+            ),
         ],
         vec![],
     );
-    assert_eq!(routing::resolve(&c, "dup").expect("resolves").model.model_id, "first");
+    assert_eq!(
+        routing::resolve(&c, "dup")
+            .expect("resolves")
+            .model
+            .model_id,
+        "first"
+    );
 }
 
 #[test]
@@ -117,7 +141,13 @@ fn upstream_scope_beats_global_scope() {
     let c = config(
         vec![model("global-target"), model("scoped-target")],
         vec![
-            route("0193f0c2-7b1a-7c3e-9f00-0000000000c1", "chat", "exact", "global-target", 0),
+            route(
+                "0193f0c2-7b1a-7c3e-9f00-0000000000c1",
+                "chat",
+                "exact",
+                "global-target",
+                0,
+            ),
             route_in(
                 "0193f0c2-7b1a-7c3e-9f00-0000000000c2",
                 "chat",
@@ -172,7 +202,10 @@ fn a_pattern_equal_to_a_model_id_is_not_a_conflict() {
     );
     assert!(c.validate(INSTANCE, &options()).is_ok());
     assert_eq!(
-        routing::resolve(&c, "chat-fast").expect("rule").model.model_id,
+        routing::resolve(&c, "chat-fast")
+            .expect("rule")
+            .model
+            .model_id,
         "gpt-5"
     );
 }

@@ -78,7 +78,8 @@ curl -sS -D "$TMP/nonstream.headers" -o "$TMP/nonstream.body" \
   -H 'Authorization: Bearer test-key' -H 'Content-Type: application/json' \
   -d '{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}'
 grep -qi '^x-token-ne-attempts: 1' "$TMP/nonstream.headers" || fail "expected one attempt"
-jq -e '.model == "gpt-5-2026-xx" and .usage.total_tokens == 19' "$TMP/nonstream.body" >/dev/null || fail "unexpected non-stream body"
+# 上游收到的名字就是绑定的 upstream_model_id；系统模型上不再有第二层映射。
+jq -e '.model == "gpt-5" and .usage.total_tokens == 19' "$TMP/nonstream.body" >/dev/null || fail "unexpected non-stream body"
 
 echo "core smoke: SSE passthrough"
 curl -sS -N -o "$TMP/stream.body" \

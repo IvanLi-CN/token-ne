@@ -246,7 +246,10 @@ fn resolve_follows_scope_then_position_then_model_id() {
 
     // 更宽但更靠前的 Glob 先命中，后面的精确规则不再参与。
     assert_eq!(
-        routing::resolve(&config, "chat-fast").unwrap().model.model_id,
+        routing::resolve(&config, "chat-fast")
+            .unwrap()
+            .model
+            .model_id,
         "gpt-5"
     );
     assert_eq!(
@@ -358,10 +361,7 @@ fn policy_deny_wins_and_filters_only_existing_capabilities() {
         routing::candidates(&config, "gpt-5", Some(UPSTREAM)).is_empty(),
         "policy must remove denied upstreams even when explicitly restricted"
     );
-    assert_eq!(
-        routing::candidates(&config, "gpt-5", Some(SECOND)).len(),
-        1
-    );
+    assert_eq!(routing::candidates(&config, "gpt-5", Some(SECOND)).len(), 1);
     // 策略只过滤既有能力，不创建能力关系。
     assert!(
         routing::candidates(&config, "gpt-4o-mini", None).is_empty(),

@@ -935,7 +935,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/AdminError"
         "500":
           $ref: "#/components/responses/AdminInternal"
         "503":

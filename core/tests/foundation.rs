@@ -38,6 +38,20 @@ fn configured() -> Arc<CoreState> {
         .unwrap();
     s
 }
+
+// The heartbeat's config block reports the schema the core actually applies. It
+// used to be a literal 1, so raising the accepted schema left the control plane
+// rejecting every heartbeat as incompatible without naming the field.
+#[test]
+fn heartbeat_reports_the_applied_schema_version() {
+    let status = configured().status();
+    assert_eq!(status["config"]["schema_version"], 2);
+    // The engine's own contract must accept what it publishes.
+    assert_eq!(
+        status["config"]["schema_version"],
+        fixture()["config_schema_version"]
+    );
+}
 #[test]
 fn valid_fixture_and_unknown_fields() {
     assert!(parse(&fixture()).is_ok());
