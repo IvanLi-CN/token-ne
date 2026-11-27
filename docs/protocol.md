@@ -15,7 +15,13 @@
 | `protocol_version` | 线协议、端点、信封、错误格式 | `1` |
 | `config_schema_version` | 配置快照字段和语义 | `2` |
 
-`config_schema_version` 为 `2` 的原因是第一阶段到第二阶段的字段替换不是增量的：`model_routes[]` 用 `position` 取代了 `priority`，`upstream_models[]` 从 `upstream_model_name`/`priority`/`weight` 改成必需的 `upstream_model_id`。schema 为 `1` 的核心不接受这些字段（`model_routes[]` 拒绝未知字段），因此控制面必须拒绝登记、部署或推送 `config_schema_max < 2` 的核心，而不是先放行再让其被 `422` 逐次拒绝。schema `1` 的快照不再被本控制面生产。
+`config_schema_version` 为 `2` 的原因是第一阶段到第二阶段的字段替换不是增量的：`model_routes[]` 用 `position` 取代了 `priority`，`upstream_models[]` 从 `upstream_model_name`/`priority`/`weight` 改成必需的 `upstream_model_id`。
+
+控制面同时支持 `[1, 2]`：它按每个实例声明的 `config_schema_min/max` 渲染，取双方都懂的最新一版（`docs/adr/0006` 的「schema 有交集」）。因此滚动升级期间两代核心可以同时接流量，不需要停机整体切换。
+
+对声明范围为 `1` 的核心，控制面渲染旧字段形状，并**不发送路由规则与承接策略**。两代核心对同一组规则的解析方式不同（`1` 用「精确优先于 Glob + `priority` + 上游只缩小候选」，`2` 用「作用域优先 + 顺序首命中 + 锁定上游」），翻译过去会让同一请求在混编期内落到不同模型上。改为不发送后，未命中的请求名在旧核心上返回 `404`——这是可见且可回滚的失败，而不是静默的错误路由。该实例升级到 `2` 后路由立即生效。
+
+没有支持的形状可用（`config_schema_max < 1` 或 `config_schema_min > 2`）的核心仍被登记、部署与推送三处拒绝。
 
 核心还声明：
 

@@ -146,7 +146,7 @@ func (h *HTTP) push(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "malformed_request", "configuration revision mismatch")
 		return
 	}
-	if protocol != Protocol || schema != Schema {
+	if protocol != Protocol || schema < SchemaFloor || schema > SchemaCurrent {
 		writeError(w, 409, "incompatible_version", "configuration protocol or schema is incompatible")
 		return
 	}
@@ -199,7 +199,7 @@ func (h *HTTP) push(w http.ResponseWriter, r *http.Request) {
 		mapInternal(w, e)
 		return
 	}
-	ack := map[string]any{"protocol_version": Protocol, "instance_id": id, "applied_revision": revision, "config_schema_version": Schema, "signature_state": "off"}
+	ack := map[string]any{"protocol_version": Protocol, "instance_id": id, "applied_revision": revision, "config_schema_version": schema, "signature_state": "off"}
 	if h.Runtime.SigningKey != "" {
 		switch {
 		case signature == "":

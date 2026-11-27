@@ -115,3 +115,35 @@ func TestValidateSnapshotMirrorsExactPatternAndDescriptionLimits(t *testing.T) {
 		t.Fatalf("valid exact route rejected: %v", err)
 	}
 }
+
+// A schema 1 body is rendered for a core that predates position and
+// upstream_model_id. The publisher must validate it against that reader's
+// contract, not against the newest one, or a correct body is rejected before it
+// is ever sent.
+func TestValidateSnapshotAcceptsTheOlderShape(t *testing.T) {
+	v1 := []byte(`{
+		"config_schema_version": 1,
+		"features": {"chat_completions":true,"responses":true,"embeddings":true,"stream_usage_injection":true,"status_rewrite":true},
+		"models": [{"model_id":"gpt-5","default_upstream_model":null}],
+		"upstreams": [{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000c1","name":"u"}],
+		"upstream_models": [{"upstream_id":"0193f0c2-7b1a-7c3e-9f00-0000000000c1","model_id":"gpt-5","upstream_model_name":"gpt-5","priority":100,"weight":100}]
+	}`)
+	if err := ValidateSnapshot(v1); err != nil {
+		t.Fatalf("schema 1 body rejected: %v", err)
+	}
+
+	// The two fields that must never cross the boundary.
+	withRoutes := []byte(`{
+		"config_schema_version": 1,
+		"features": {},
+		"models": [], "upstreams": [],
+		"model_routes": [{"id":"0193f0c2-7b1a-7c3e-9f00-0000000000a1","pattern":"x","match_type":"exact","target_model_id":"gpt-5","priority":1,"enabled":true}]
+	}`)
+	if err := ValidateSnapshot(withRoutes); err == nil {
+		t.Fatal("schema 1 body carrying routes accepted")
+	}
+	withFlag := []byte(`{"config_schema_version":1,"features":{"model_name_routing":true},"models":[],"upstreams":[]}`)
+	if err := ValidateSnapshot(withFlag); err == nil {
+		t.Fatal("schema 1 body declaring routing support accepted")
+	}
+}

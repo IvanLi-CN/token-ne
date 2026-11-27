@@ -80,6 +80,7 @@ type snapshotPolicy struct {
 }
 
 type snapshotEnvelope struct {
+	Schema   int                        `json:"config_schema_version"`
 	Features map[string]json.RawMessage `json:"features"`
 	Models   []struct {
 		ModelID string `json:"model_id"`
@@ -104,6 +105,12 @@ func ValidateSnapshot(body []byte) error {
 	var envelope snapshotEnvelope
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return ErrInvalid
+	}
+	// The rules below are the schema 2 contract. A schema 1 body is rendered for a
+	// core that predates position and upstream_model_id, so validating it against
+	// these field sets would reject a body that is correct for its reader.
+	if envelope.Schema == 1 {
+		return validateSchemaOneEnvelope(envelope)
 	}
 	// Unknown fields are rejected first: a misspelled routing field must not
 	// become a silent no-op in a newer core.
@@ -452,6 +459,47 @@ func requireFeatureTrue(features map[string]json.RawMessage, name, path string) 
 	var enabled bool
 	if err := json.Unmarshal(raw, &enabled); err != nil || !enabled {
 		return snapshotReject(path, "feature must be true when the array is non-empty")
+	}
+	return nil
+}
+
+// validateSchemaOneEnvelope enforces only what both generations agree on: the
+// body carries no routing or policy (the surface was dropped for this reader) and
+// every capability points at objects that exist. The schema 2 rules about
+// position, pattern uniqueness and upstream_model_id do not apply here.
+func validateSchemaOneEnvelope(envelope snapshotEnvelope) error {
+	if len(envelope.ModelRoutes) > 0 {
+		return snapshotReject("model_routes", "a schema 1 snapshot must not carry routing")
+	}
+	if len(envelope.UpstreamPolicies) > 0 {
+		return snapshotReject("upstream_policies", "a schema 1 snapshot must not carry policies")
+	}
+	for _, name := range []string{FeatureModelNameRouting, FeatureUpstreamModelPolicy} {
+		raw, present := envelope.Features[name]
+		if !present {
+			continue
+		}
+		var enabled bool
+		if json.Unmarshal(raw, &enabled) == nil && enabled {
+			return snapshotReject("features."+name, "a schema 1 snapshot must not declare routing or policy support")
+		}
+	}
+	models := map[string]bool{}
+	for _, m := range envelope.Models {
+		models[m.ModelID] = true
+	}
+	upstreams := map[string]bool{}
+	for i, item := range envelope.Upstreams {
+		if field, ok := firstUnknownField(item, upstreamFieldSet); ok {
+			return snapshotReject(fmt.Sprintf("upstreams[%d].%s", i, field), "unknown upstream field")
+		}
+		var u struct {
+			ID string `json:"id"`
+		}
+		if err := unmarshalObject(item, &u); err != nil {
+			return snapshotReject(fmt.Sprintf("upstreams[%d]", i), "invalid upstream field type")
+		}
+		upstreams[u.ID] = true
 	}
 	return nil
 }

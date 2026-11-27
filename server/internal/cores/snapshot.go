@@ -424,15 +424,21 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if e != nil {
 		return Snapshot{}, e
 	}
-	if protocol != Protocol || min > Schema || max < Schema {
+	if protocol != Protocol {
 		return Snapshot{}, ErrCompatibility
+	}
+	// The instance's declared range decides the shape, so a mixed deployment keeps
+	// running: older cores get the older body while the rest get the newest.
+	schema, e := SchemaFor(min, max)
+	if e != nil {
+		return Snapshot{}, e
 	}
 	p := s.readPolicy(last.Policy)
 	injection, e := s.streamUsageInjection(ctx, tx)
 	if e != nil {
 		return Snapshot{}, e
 	}
-	c := configBody{Protocol: Protocol, Schema: Schema, Features: map[string]bool{}, Upstreams: []boundUpstream{}, Policy: p,
+	c := configBody{Protocol: Protocol, Schema: schema, Features: map[string]bool{}, Upstreams: []boundUpstream{}, Policy: p,
 		Retry:  json.RawMessage(`{"max_attempts":3,"retry_statuses":[408,429,500,502,503,504],"backoff_ms":[100,300],"respect_retry_after":true,"retry_after_max_ms":2000}`),
 		Limits: json.RawMessage(`{"max_request_body_bytes":33554432,"max_inflight":512,"per_key_max_inflight":64,"request_max_duration_ms":1800000,"shutdown_grace_ms":1800000,"precommit_buffer_bytes":262144,"nonstream_inspect_bytes":1048576}`),
 		Usage: map[string]any{"endpoint": strings.TrimRight(s.BaseURL, "/") + "/internal/v1/usage/batch", "token": s.Token, "batch_max_events": 500, "queue_max_events": 10000,
@@ -525,6 +531,22 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		last = previous
 	}
 	c.Instance, c.Revision, c.IssuedAt, c.AllowUnsigned = instance, previous.Revision, previous.IssuedAt, override
+	if schema == 1 {
+		// A schema 1 core cannot decode position, upstream_model_id or the absence of
+		// the old naming fields. Rendering the older shape keeps that core serving
+		// models and upstreams during a rolling upgrade.
+		//
+		// Routing and policy are deliberately dropped rather than translated. The two
+		// generations resolve the same rules differently — v1 puts every exact rule
+		// ahead of every Glob and reads upstream_id as a candidate filter, v2 tries
+		// scopes in order — so a translated rule set would route some requests to a
+		// different model on the old core than on the new one. A name that no longer
+		// resolves fails with 404, which is visible and reversible; a silently
+		// different model is not.
+		if e = renderSchemaOne(&c); e != nil {
+			return Snapshot{}, e
+		}
+	}
 	raw, e = json.Marshal(c)
 	if e != nil {
 		return Snapshot{}, e
@@ -538,7 +560,7 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 	if len(raw) > MaxSnapshot {
 		return Snapshot{}, fmt.Errorf("%w: snapshot exceeds 8 MiB", ErrInvalid)
 	}
-	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw, ProxyBound: proxyBound}
+	result := Snapshot{Revision: c.Revision, Hash: Hash(raw), Body: raw, Schema: schema, ProxyBound: proxyBound}
 	if override {
 		return result, nil
 	}
@@ -561,6 +583,77 @@ func (s *Snapshots) Build(ctx context.Context, instance string, override bool) (
 		return Snapshot{}, ErrUnknown
 	}
 	return result, tx.Commit(ctx)
+}
+
+// renderSchemaOne rewrites the assembled body into the shape a schema 1 core
+// decodes. Only the fields that changed shape are touched; everything else is
+// already identical between the two generations.
+//
+// Routing and policy are removed rather than translated: the generations resolve
+// the same rules differently, so translating would let the two halves of a
+// rolling deployment answer the same request with different models. The feature
+// flags go with them because a v1 core rejects a body that carries rules or
+// policies without the matching declaration.
+func renderSchemaOne(c *configBody) error {
+	models, err := renameJSONFields(c.Models, nil, func(m map[string]json.RawMessage) {
+		// v1 requires the key to be present even when it is null.
+		if _, ok := m["default_upstream_model"]; !ok {
+			m["default_upstream_model"] = json.RawMessage("null")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	c.Models = models
+
+	caps, err := renameJSONFields(c.Capabilities, map[string]string{
+		"upstream_model_id": "upstream_model_name",
+	}, func(m map[string]json.RawMessage) {
+		// The binding's upstream ID becomes the v1 name override; the system model
+		// keeps its own field. v1 wants a priority and a weight for every relation.
+		if raw, ok := m["upstream_model_id"]; ok {
+			m["upstream_model_name"] = raw
+		}
+		delete(m, "upstream_model_id")
+		if _, ok := m["priority"]; !ok {
+			m["priority"] = json.RawMessage("100")
+		}
+		if _, ok := m["weight"]; !ok {
+			m["weight"] = json.RawMessage("100")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	c.Capabilities = caps
+
+	c.ModelRoutes = nil
+	c.UpstreamPolicies = nil
+	delete(c.Features, FeatureModelNameRouting)
+	delete(c.Features, FeatureUpstreamModelPolicy)
+	return nil
+}
+
+// renameJSONFields applies rename to every object in a raw array. The callback
+// runs after the renames so it can fill in fields v1 requires.
+func renameJSONFields(raw json.RawMessage, rename map[string]string, fill func(map[string]json.RawMessage)) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return raw, nil
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		for from, to := range rename {
+			if value, ok := item[from]; ok {
+				item[to] = value
+				delete(item, from)
+			}
+		}
+		fill(item)
+	}
+	return json.Marshal(items)
 }
 
 func filterConfig(modelsRaw, keysRaw, capsRaw []byte) (json.RawMessage, json.RawMessage, json.RawMessage, error) {

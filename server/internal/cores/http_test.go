@@ -63,7 +63,9 @@ func TestCoreClientStrictAcknowledgement(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClient("secret")
-	if e := c.Push(context.Background(), strings.TrimPrefix(srv.URL, "http://"), id, Snapshot{Revision: 1, Body: []byte(`{}`)}); e != ErrInvalid {
+	// The pushed schema matches the ack, so the rejection under test is the
+	// revision mismatch below it, not a schema disagreement.
+	if e := c.Push(context.Background(), strings.TrimPrefix(srv.URL, "http://"), id, Snapshot{Revision: 1, Schema: SchemaCurrent, Body: []byte(`{}`)}); e != ErrInvalid {
 		t.Fatalf("mismatched ack: %v", e)
 	}
 }

@@ -214,7 +214,7 @@ func instanceValues(i instanceRow) []any {
 
 func TestSnapshotAdmissionGates(t *testing.T) {
 	s := validStatus()
-	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash}
+	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash, Schema: s.Config.Schema}
 	if !snapshot.Matches(s) {
 		t.Fatal("healthy controlled snapshot rejected")
 	}
@@ -735,7 +735,7 @@ type fixedSnapshot struct{ snapshot Snapshot }
 func (f fixedSnapshot) Build(context.Context, string, bool) (Snapshot, error) { return f.snapshot, nil }
 func TestAdmitHealthyZeroAndRejectHash(t *testing.T) {
 	s := validStatus()
-	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash}
+	snapshot := Snapshot{Revision: 1, Hash: s.Config.Hash, Schema: s.Config.Schema}
 	now := time.Now()
 	i := instanceRow{ID: s.Instance, Version: s.Version, ContainerID: ptr("container"), State: "running", Weight: 0, Heartbeat: &now, Address: "core:8080"}
 	peer := &fakePeer{status: s}
@@ -992,7 +992,7 @@ func TestRollbackRestoresOldAndZerosNew(t *testing.T) {
 	peer := &fakePeer{status: oldStatus}
 	traffic := &fakeTraffic{}
 	docker := &fakeDocker{}
-	r := Runtime{Pool: db, Docker: docker, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	r := Runtime{Pool: db, Docker: docker, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash, Schema: oldStatus.Config.Schema}}}
 	if e := r.Rollback(context.Background(), uuid.NewString(), "operator"); e != nil {
 		t.Fatal(e)
 	}
@@ -1117,7 +1117,7 @@ func TestAutoAdvanceReadyToShifting(t *testing.T) {
 				meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version},
 				statuses: map[string]Status{"old": oldStatus, "new": newStatus},
 			}
-			r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: base.Config.Hash}}}
+			r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: base.Config.Hash, Schema: base.Config.Schema}}}
 			if e := r.advance(context.Background()); e != nil {
 				t.Fatal(e)
 			}
@@ -1183,7 +1183,7 @@ func TestShiftScopesWeightsToDeploymentInstances(t *testing.T) {
 		meta:     map[string]string{"old:8080": oldStatus.Version, "new:8080": newStatus.Version, "other:8080": newStatus.Version},
 		statuses: map[string]Status{"old": oldStatus, "new": newStatus, "other": newStatus},
 	}
-	r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash}}}
+	r := Runtime{Pool: db, Docker: &fakeDocker{}, Peer: peer, Caddy: traffic, Config: fixedSnapshot{Snapshot{Revision: 1, Hash: oldStatus.Config.Hash, Schema: oldStatus.Config.Schema}}}
 	if e := r.Shift(context.Background(), uuid.NewString(), map[string]int{"0.1.0": 90, "1.0.0": 10}); e != nil {
 		t.Fatal(e)
 	}

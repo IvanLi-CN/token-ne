@@ -394,7 +394,7 @@ func TestAdmitDeniesWeightForNonDeclaringCore(t *testing.T) {
 		State: "running", Weight: 100, Heartbeat: &now, Address: "core:8080"}
 	db := &fakeDB{}
 	r := Runtime{Pool: db, Peer: &fakePeer{status: status},
-		Config: fixedSnapshot{Snapshot{Revision: 1, Hash: status.Config.Hash, ProxyBound: true}}}
+		Config: fixedSnapshot{Snapshot{Revision: 1, Hash: status.Config.Hash, Schema: status.Config.Schema, ProxyBound: true}}}
 	pool, err := r.Admit(context.Background(), []instanceRow{instance})
 	if len(pool) != 0 {
 		t.Fatalf("non-declaring core admitted: %+v", pool)
@@ -413,7 +413,7 @@ func TestAdmitDeniesWeightForNonDeclaringCore(t *testing.T) {
 		t.Fatalf("declaring core denied: %v %v", pool, err)
 	}
 	// Without a bound upstream the same core keeps its weight.
-	r.Config = fixedSnapshot{Snapshot{Revision: 1, Hash: status.Config.Hash}}
+	r.Config = fixedSnapshot{Snapshot{Revision: 1, Hash: status.Config.Hash, Schema: status.Config.Schema}}
 	status.Features = append([]string{}, coreFeaturesOnly...)
 	r.Peer = &fakePeer{status: status}
 	if pool, err = r.Admit(context.Background(), []instanceRow{instance}); err != nil || len(pool) != 1 {
@@ -879,4 +879,96 @@ func buildFor(t *testing.T, h *revisionHarness, instance string) int64 {
 		t.Fatal(err)
 	}
 	return snapshot.Revision
+}
+
+// A rolling upgrade keeps an older core serving while the rest move on. The
+// publisher must render each instance the shape it declared; if it demanded one
+// constant, the older half of the fleet would be dropped from Caddy and the
+// service would lose capacity for the whole window.
+func TestMixedFleetGetsTheShapeEachCoreDeclares(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := store.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+
+	suffix := uuid.NewString()[:8]
+	v1Instance, v2Instance := uuid.NewString(), uuid.NewString()
+	v1Version, v2Version := uuid.NewString(), uuid.NewString()
+	modelID := "mix-" + suffix
+	if _, err = s.Pool.Exec(ctx, "insert into core_versions(id,version,image_ref,protocol_version,config_schema_min,config_schema_max) values($1,$2,'image',1,1,1),($3,$4,'image',1,2,2)",
+		v1Version, "v1-"+suffix, v2Version, "v2-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+	declared := `{"features":["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite"]}`
+	if _, err = s.Pool.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,state,control_status) values
+ ($1,$2,$3,$4,$5,'running',$7::jsonb),($6,$8,$9,$10,$11,'running',$7::jsonb)`,
+		v1Instance, v1Version, "c1-"+suffix, "core1-"+suffix, "core1-"+suffix+":8080",
+		v2Instance, declared, v2Version, "c2-"+suffix, "core2-"+suffix, "core2-"+suffix+":8080"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,scope,source,locked) values(gen_random_uuid(),$1,'global','manual',false) returning id)
+insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, modelID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		for _, step := range []string{
+			"delete from upstream_models where model_id='" + modelID + "'",
+			"delete from core_instances where id in ('" + v1Instance + "','" + v2Instance + "')",
+			"delete from core_versions where id in ('" + v1Version + "','" + v2Version + "')",
+			"delete from models where model_id='" + modelID + "'",
+		} {
+			if _, execErr := s.Pool.Exec(cleanupCtx, step); execErr != nil {
+				t.Logf("cleanup %q: %v", step, execErr)
+			}
+		}
+	})
+
+	snapshots := &Snapshots{}
+	older, err := snapshots.Build(ctx, v1Instance, true)
+	if err != nil {
+		t.Fatalf("build for the schema 1 core: %v", err)
+	}
+	newer, err := snapshots.Build(ctx, v2Instance, true)
+	if err != nil {
+		t.Fatalf("build for the schema 2 core: %v", err)
+	}
+	if older.Schema != 1 || newer.Schema != SchemaCurrent {
+		t.Fatalf("shapes = %d and %d", older.Schema, newer.Schema)
+	}
+
+	var v1Body, v2Body struct {
+		Schema int              `json:"config_schema_version"`
+		Models []map[string]any `json:"models"`
+		Caps   []map[string]any `json:"upstream_models"`
+	}
+	if err = json.Unmarshal(older.Body, &v1Body); err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(newer.Body, &v2Body); err != nil {
+		t.Fatal(err)
+	}
+	if v1Body.Schema != 1 || v2Body.Schema != SchemaCurrent {
+		t.Fatalf("declared schemas = %d and %d", v1Body.Schema, v2Body.Schema)
+	}
+	// The older body must speak the older field names and omit the newer ones.
+	for _, cap := range v1Body.Caps {
+		if _, present := cap["upstream_model_id"]; present {
+			t.Fatalf("schema 1 body leaked upstream_model_id: %+v", cap)
+		}
+	}
+	if err = ValidateSnapshot(older.Body); err != nil {
+		t.Fatalf("schema 1 body rejected by its own validator: %v", err)
+	}
+	if err = ValidateSnapshot(newer.Body); err != nil {
+		t.Fatalf("schema 2 body rejected: %v", err)
+	}
 }
