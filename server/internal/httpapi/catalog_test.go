@@ -376,7 +376,9 @@ func TestUpstreamCatalogImportHTTP(t *testing.T) {
 	// creates the model and the rule keeps its own target.
 	routePattern := "p4-http-route-" + suffix
 	env.models = append(env.models, routePattern)
-	if _, err := env.store.Pool.Exec(env.ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,0)", uuid.NewString(), routePattern, occupier); err != nil {
+	// The global scope already holds rules from earlier in this test; take the next
+	// free slot instead of assuming position 0.
+	if _, err := env.store.Pool.Exec(env.ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,(select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null))", uuid.NewString(), routePattern, occupier); err != nil {
 		t.Fatal(err)
 	}
 	w = request(env.router, env.cfg, env.cookie, "POST", "/api/upstreams/"+upstreamID+"/models/import",
