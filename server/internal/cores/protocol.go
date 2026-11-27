@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	Protocol        = 1
+	Protocol = 1
 	// SchemaCurrent is the newest snapshot shape this control plane produces;
 	// SchemaFloor is the oldest it can still render. Between them lies the range a
 	// deployment may hold at once, which is what makes a rolling upgrade possible:

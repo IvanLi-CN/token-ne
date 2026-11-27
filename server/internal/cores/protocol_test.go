@@ -15,14 +15,14 @@ func statusWith(schema int) Status {
 	off := false
 	zero := int64(0)
 	return Status{
-		Instance:    "0193f0c2-7b1a-7c3e-9f00-0000000000b1",
-		Version:     "0.1.0",
-		Draining:    &off,
-		StartedAt:   now.Add(-time.Hour),
-		Features:    append([]string{}, features...),
+		Instance:     "0193f0c2-7b1a-7c3e-9f00-0000000000b1",
+		Version:      "0.1.0",
+		Draining:     &off,
+		StartedAt:    now.Add(-time.Hour),
+		Features:     append([]string{}, features...),
 		ControlledAt: &now,
-		Inflight:    &zero,
-		Spool:       Spool{Bytes: &zero, Unacked: &zero, AckSeq: &zero, Dropped: &zero},
+		Inflight:     &zero,
+		Spool:        Spool{Bytes: &zero, Unacked: &zero, AckSeq: &zero, Dropped: &zero},
 		Config: &ConfigStatus{
 			Revision: 1, Hash: "sha256:" + longHash, Schema: schema,
 			Source: "control_plane", Signature: "off", Override: &off,

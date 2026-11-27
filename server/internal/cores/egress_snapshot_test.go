@@ -921,10 +921,11 @@ insert into models(model_id,enabled,billing_revision_id) select $1,true,id from 
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
 		for _, step := range []string{
-			"delete from upstream_models where model_id='" + modelID + "'",
 			"delete from core_instances where id in ('" + v1Instance + "','" + v2Instance + "')",
 			"delete from core_versions where id in ('" + v1Version + "','" + v2Version + "')",
 			"delete from models where model_id='" + modelID + "'",
+			// The model points at this revision; it can only go once the model is gone.
+			"delete from price_revisions where model_id='" + modelID + "'",
 		} {
 			if _, execErr := s.Pool.Exec(cleanupCtx, step); execErr != nil {
 				t.Logf("cleanup %q: %v", step, execErr)
@@ -932,12 +933,14 @@ insert into models(model_id,enabled,billing_revision_id) select $1,true,id from 
 		}
 	})
 
-	snapshots := &Snapshots{}
-	older, err := snapshots.Build(ctx, v1Instance, true)
+	snapshots := &Snapshots{DB: s.Pool, Master: make([]byte, 32), Token: "token", BaseURL: "http://api:8080"}
+	// override=false keeps admission in the loop: the older body must be accepted
+	// by the same gate the deployment uses, not bypass it.
+	older, err := snapshots.Build(ctx, v1Instance, false)
 	if err != nil {
 		t.Fatalf("build for the schema 1 core: %v", err)
 	}
-	newer, err := snapshots.Build(ctx, v2Instance, true)
+	newer, err := snapshots.Build(ctx, v2Instance, false)
 	if err != nil {
 		t.Fatalf("build for the schema 2 core: %v", err)
 	}
