@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -25,11 +25,19 @@ const entrySwap = (entry: string, title: string, robots: string) => ({
   name: "token-ne-entry-swap",
   transformIndexHtml: {
     order: "pre" as const,
-    handler(html: string) {
-      return html
+    handler(html: string, ctx: { path: string }) {
+      const swapped = html
         .replace(entryMarker, entry)
         .replace("<title>token-ne</title>", `<title>${title}</title>`)
         .replace("__robots__", robots);
+      // `index.html` is the only document whose swap the build depends on; the
+      // visual-test fixtures go through here too and own their own entry.
+      if (ctx.path !== "/index.html") return swapped;
+      if (!swapped.includes(`src="${entry}"`))
+        throw new Error(`web/index.html loads no entry to swap for ${entry}.`);
+      if (!swapped.includes(`content="${robots}"`))
+        throw new Error("web/index.html has no __robots__ placeholder to rewrite.");
+      return swapped;
     },
   },
 });
@@ -58,7 +66,9 @@ export default defineConfig(({ mode }) => {
           versionOutDir = resolve(config.root, config.build.outDir);
         },
         closeBundle() {
-          if (!versionOutDir) return;
+          // A failed build never creates the output directory; writing the
+          // artifact then would mask the real error with an ENOENT.
+          if (!versionOutDir || !existsSync(versionOutDir)) return;
           writeFileSync(
             resolve(versionOutDir, "version.json"),
             `${JSON.stringify({ version: appVersion, commit: gitCommit, built_at: builtAt }, null, 2)}\n`,
@@ -97,15 +107,10 @@ export default defineConfig(({ mode }) => {
         "/v1": process.env.TOKEN_NE_API ?? "http://127.0.0.1:8080",
       },
     },
-    build: demo
-      ? {
-          outDir: "dist-demo",
-          sourcemap: true,
-        }
-      : {
-          outDir: "dist",
-          sourcemap: true,
-        },
+    build: {
+      outDir: demo ? "dist-demo" : "dist",
+      sourcemap: true,
+    },
     test: {
       setupFiles: ["./vitest.setup.ts"],
       testTimeout: 20_000,

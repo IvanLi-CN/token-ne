@@ -24,7 +24,7 @@
 | `REQ-DEMO-002` | `web/src/demo/mock/transport.ts` | `web/src/demo/mock/transport.test.ts`（未映射路径 fail-closed） |
 | `REQ-DEMO-003` | `web/src/demo/mock/auth.ts`、`web/src/demo/scenes/` | `web/src/demo/session.test.tsx`（401 → 登录 → 回到管理面） |
 | `REQ-DEMO-004` | `web/src/demo/mock/state.ts`、`web/src/demo/inspector/` | Inspector 的 `simulated` 标记与变更列表 |
-| `REQ-DEMO-005` | `web/package.json`（`build:demo`）、`web/vite.config.ts`（`token-ne-entry-swap`）、`web/index.html`、`web/src/demo/base-path.ts` | `bun run build:demo` → `dist-demo/index.html` 只挂 demo 入口；`session.test.tsx` 覆盖 basename 派生 |
+| `REQ-DEMO-005` | `web/package.json`（`build:demo`）、`web/vite.config.ts`（`token-ne-entry-swap`）、`web/index.html`、`web/src/demo/base-path.ts` | `bun run build:demo` → `dist-demo/index.html` 只挂 demo 入口；`session.test.tsx` 只覆盖默认构建的 basename（`BASE_URL` 恒为 `/`） |
 | `REQ-DEMO-006` | `web/src/demo/share-state.ts`、`web/src/demo/runtime.ts`、`web/src/demo/base-path.ts` | 刷新与客户端导航后保留 `demo`/`d_*` |
 | `REQ-DEMO-007` | `web/src/demo/inspector/` | 面板形态持久化在 `localStorage` |
 | `REQ-DEMO-008` | 托管配置（仓库外） | 未实现，见缺口 |
@@ -34,7 +34,7 @@
 ## 与生产交付的边界
 
 - `web/dist-demo` 不进入 `server/Dockerfile`；`COPY web/dist ./internal/web/dist` 保持不变。
-- `web/src/main.tsx` 不引用 `demo/`；demo 通过独立 HTML 入口引入。
+- `web/src/main.tsx` 不引用 `demo/`；demo 与生产共用 `web/index.html`，由 `--mode` 换掉它唯一的入口脚本，不存在第二个 HTML 入口。
 - 生产 bundle 不包含 scene 标识。
 
 ## 剩余缺口
@@ -48,7 +48,7 @@
 - 生产入口：`cd web && bun run dev`，打开 `http://127.0.0.1:60080/`，`/api`、`/v1` 代理到 `TOKEN_NE_API`（缺省 `http://127.0.0.1:8080`）。
 - demo 入口：`bun run dev:demo`，打开 `http://127.0.0.1:60081/`，带热更新；mock 在渲染前接管 `/api`，不需要控制面。dev server 下 `BASE_URL` 为 `/`，走不到前缀分支。
 - 产物核对：`bun run build:demo` 产出 `web/dist-demo`，需用静态服务器起根部 404 回退（裸 `python3 -m http.server` 不回退）才能走深链；带前缀则 `bun run build:demo -- --base=/token-ne/` 并挂在对应前缀下。
-- 部署到 GitHub Pages 时 `base` 由工作流传入，见下文与 `docs/runbooks/release.md`。
+- 前缀由部署者自行传入；仓库尚无 Pages workflow，托管本身仍属「剩余缺口」里的 `REQ-DEMO-008`。
 
 ## 不做什么
 

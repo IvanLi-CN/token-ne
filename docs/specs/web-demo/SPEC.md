@@ -123,9 +123,9 @@
 
 ### VER-DEMO-005
 
-- Method: `bun run build:demo` with and without `-- --base=<prefix>`, plus `web/src/demo/session.test.tsx` basename assertions.
+- Method: `bun run build:demo` with and without `-- --base=<prefix>` for the emitted document and asset URLs, plus `web/src/demo/session.test.tsx` basename assertions for the default build.
 - covers: `REQ-DEMO-005`
-- Pass condition: `web/dist-demo` and `web/dist` each contain `index.html` carrying only their own entry module; both builds fail instead of emitting a document with an unresolved `__entry__` placeholder; the router basename equals the stripped `BASE_URL` for both builds and emitted asset URLs are absolute from that same `BASE_URL`; the two builds share no entry module, and `bun run build` still emits only `web/dist` with no `demo-scene-` identifier.
+- Pass condition: `web/dist-demo` and `web/dist` each contain `index.html` carrying only their own entry module; a build fails instead of emitting a document with an unresolved `__entry__` or `__robots__` placeholder; emitted asset URLs are absolute from that build's `BASE_URL`; the two builds share no entry module, and `bun run build` still emits only `web/dist` with no `demo-scene-` identifier. The router basename follows the stripped `BASE_URL`, but `session.test.tsx` only observes it for the default build, because Vitest fixes `BASE_URL` at `/`; a prefixed basename stays hand-verified.
 
 ### VER-DEMO-006
 
