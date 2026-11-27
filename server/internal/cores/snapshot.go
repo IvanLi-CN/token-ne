@@ -627,10 +627,16 @@ func renderSchemaOne(c *configBody) error {
 	}
 	c.Capabilities = caps
 
+	// Routes are dropped: v1 and v2 read the same rule list differently (v1 tries
+	// exact before glob and breaks ties by `priority`; v2 walks the list in order and
+	// locks the upstream), so sending them would let one request resolve to two
+	// different models across the fleet. Policies stay: the field set and
+	// `policy_allows` are unchanged between the two generations (ADR 0006 allows
+	// unchanged semantics to keep flowing), and dropping them would silently widen
+	// which upstream models a request may see — a security regression, not a
+	// degraded feature.
 	c.ModelRoutes = nil
-	c.UpstreamPolicies = nil
 	delete(c.Features, FeatureModelNameRouting)
-	delete(c.Features, FeatureUpstreamModelPolicy)
 	return nil
 }
 

@@ -29,5 +29,5 @@ Status: accepted
 - `model_route_rules.priority` 改为 `position`，唯一约束从"启用 exact `pattern` 唯一"改为"作用域内 `position` 唯一"；允许重复与重叠 `pattern`。
 - 路由命名空间不再与系统模型 ID 互斥，目录安装的 `conflict` 分支随之消失，只剩 `created` / `exists`。
 - 核心解析与预览共用同一份顺序实现；`GLOSSARY.md` 新增 **Route scope**、**Route order**，删除 **Model mapping**。
-- 迁移需要一次核心配置 schema 变更：`models[]` 去掉 `default_upstream_model`，`model_routes[]` 用 `position` 取代 `priority` 并取消唯一性校验。由于这些字段替换不是增量的，`config_schema_version` 从 `1` 升到 `2`。控制面按实例声明的 `config_schema_min/max` 渲染形状（支持 `[1, 2]`），所以滚动升级可以两代共存；对 schema `1` 的核只渲染旧字段并剔除路由与策略，因为两代解析同一组规则的结果不同，发送过去等于让混编期的请求随机落到不同模型。升级完成后旧形状自然消失。
+- 迁移需要一次核心配置 schema 变更：`models[]` 去掉 `default_upstream_model`，`model_routes[]` 用 `position` 取代 `priority` 并取消唯一性校验。由于这些字段替换不是增量的，`config_schema_version` 从 `1` 升到 `2`。控制面按实例声明的 `config_schema_min/max` 渲染形状（支持 `[1, 2]`），所以滚动升级可以两代共存；对 schema `1` 的核渲染旧字段并剔除 `model_routes[]`：两代解析同一组规则的结果不同（`1` 是精确优先于 Glob 加 `priority`，`2` 是作用域顺序），发送过去等于让混编期的请求随机落到不同模型。`upstream_policies[]` 保留——它的字段集与 `policy_allows` 两代一致，删掉它只会静默放宽请求可见的上游模型，是安全回退而不是兼容策略。升级完成后旧形状自然消失。
 - 拖拽排序成为跨作用域操作的唯一入口，需保证任一失败整段回滚，否则顺序本身会损坏。

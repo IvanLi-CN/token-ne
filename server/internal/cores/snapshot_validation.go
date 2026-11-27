@@ -463,25 +463,28 @@ func requireFeatureTrue(features map[string]json.RawMessage, name, path string) 
 	return nil
 }
 
-// validateSchemaOneEnvelope enforces only what both generations agree on: the
-// body carries no routing or policy (the surface was dropped for this reader) and
-// every capability points at objects that exist. The schema 2 rules about
+// validateSchemaOneEnvelope enforces only what both generations agree on. Routing
+// is absent because the two generations resolve the same rules differently, so
+// the publisher drops it; policies are present because their field set and
+// `policy_allows` are unchanged, and a policy that silently stopped applying
+// would widen which upstream models a request can see. The schema 2 rules about
 // position, pattern uniqueness and upstream_model_id do not apply here.
 func validateSchemaOneEnvelope(envelope snapshotEnvelope) error {
 	if len(envelope.ModelRoutes) > 0 {
 		return snapshotReject("model_routes", "a schema 1 snapshot must not carry routing")
 	}
-	if len(envelope.UpstreamPolicies) > 0 {
-		return snapshotReject("upstream_policies", "a schema 1 snapshot must not carry policies")
-	}
-	for _, name := range []string{FeatureModelNameRouting, FeatureUpstreamModelPolicy} {
-		raw, present := envelope.Features[name]
-		if !present {
-			continue
-		}
+	raw, present := envelope.Features[FeatureModelNameRouting]
+	if present {
 		var enabled bool
 		if json.Unmarshal(raw, &enabled) == nil && enabled {
-			return snapshotReject("features."+name, "a schema 1 snapshot must not declare routing or policy support")
+			return snapshotReject("features."+FeatureModelNameRouting, "a schema 1 snapshot must not declare routing support")
+		}
+	}
+	// Policies travel on both shapes, so the flag is allowed but must accompany
+	// the array it guards.
+	if len(envelope.UpstreamPolicies) > 0 {
+		if err := requireFeatureTrue(envelope.Features, FeatureUpstreamModelPolicy, "features."+FeatureUpstreamModelPolicy); err != nil {
+			return err
 		}
 	}
 	models := map[string]bool{}

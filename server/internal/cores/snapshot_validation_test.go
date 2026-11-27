@@ -1,6 +1,7 @@
 package cores
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -119,7 +120,8 @@ func TestValidateSnapshotMirrorsExactPatternAndDescriptionLimits(t *testing.T) {
 // A schema 1 body is rendered for a core that predates position and
 // upstream_model_id. The publisher must validate it against that reader's
 // contract, not against the newest one, or a correct body is rejected before it
-// is ever sent.
+// is ever sent. Policies are part of that contract: their field set and
+// policy_allows are unchanged between the generations.
 func TestValidateSnapshotAcceptsTheOlderShape(t *testing.T) {
 	v1 := []byte(`{
 		"config_schema_version": 1,
@@ -142,8 +144,79 @@ func TestValidateSnapshotAcceptsTheOlderShape(t *testing.T) {
 	if err := ValidateSnapshot(withRoutes); err == nil {
 		t.Fatal("schema 1 body carrying routes accepted")
 	}
+	// A policy that stops travelling would silently widen which upstream models
+	// a request may see, so the older shape must carry it unchanged.
+	withPolicy := []byte(`{
+		"config_schema_version": 1,
+		"features": {"upstream_model_policy": true},
+		"models": [], "upstreams": [],
+		"upstream_policies": [{"upstream_id":"0193f0c2-7b1a-7c3e-9f00-0000000000c1","default_action":"deny","allow_patterns":["gpt-*"],"deny_patterns":[]}]
+	}`)
+	if err := ValidateSnapshot(withPolicy); err != nil {
+		t.Fatalf("schema 1 body carrying policies rejected: %v", err)
+	}
+	// The flag is what makes the array legal for the older reader.
+	policyWithoutFlag := []byte(`{
+		"config_schema_version": 1,
+		"features": {},
+		"models": [], "upstreams": [],
+		"upstream_policies": [{"upstream_id":"0193f0c2-7b1a-7c3e-9f00-0000000000c1","default_action":"deny","allow_patterns":["gpt-*"],"deny_patterns":[]}]
+	}`)
+	if err := ValidateSnapshot(policyWithoutFlag); err == nil {
+		t.Fatal("schema 1 body carrying policies without the flag accepted")
+	}
 	withFlag := []byte(`{"config_schema_version":1,"features":{"model_name_routing":true},"models":[],"upstreams":[]}`)
 	if err := ValidateSnapshot(withFlag); err == nil {
 		t.Fatal("schema 1 body declaring routing support accepted")
+	}
+}
+
+// The schema 1 rendering is the only place that decides what an older core sees.
+// Routes must go (the two generations read the list differently) but policies
+// must stay: they mean the same thing on both sides, and dropping them would
+// silently widen the upstream models a request can reach.
+func TestSchemaOneRenderingKeepsPoliciesAndDropsRoutes(t *testing.T) {
+	body := configBody{
+		Protocol:     1,
+		Schema:       SchemaFloor,
+		Features:     map[string]bool{FeatureModelNameRouting: true, FeatureUpstreamModelPolicy: true, "chat_completions": true},
+		Models:       json.RawMessage(`[{"model_id":"gpt-5","enabled":true}]`),
+		Capabilities: json.RawMessage(`[{"upstream_id":"0193f0c2-7b1a-7c3e-9f00-0000000000c1","upstream_model_id":"gpt-5","model_id":"gpt-5","enabled":true}]`),
+		ModelRoutes: []routeRule{{
+			ID: "0193f0c2-7b1a-7c3e-9f00-0000000000a1", Pattern: "x", MatchType: "exact",
+			TargetModelID: "gpt-5", Position: 0, Enabled: true,
+		}},
+		UpstreamPolicies: []upstreamPolicy{{
+			UpstreamID:    "0193f0c2-7b1a-7c3e-9f00-0000000000c1",
+			DefaultAction: "deny",
+			AllowPatterns: []string{"gpt-*"},
+		}},
+	}
+	if err := renderSchemaOne(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.ModelRoutes) != 0 {
+		t.Fatalf("routes survived the schema 1 rendering: %+v", body.ModelRoutes)
+	}
+	if len(body.UpstreamPolicies) != 1 {
+		t.Fatalf("policies were dropped: %+v", body.UpstreamPolicies)
+	}
+	if body.Features[FeatureModelNameRouting] {
+		t.Fatal("routing capability survived the schema 1 rendering")
+	}
+	if !body.Features[FeatureUpstreamModelPolicy] {
+		t.Fatal("policy capability was dropped, so the array would be rejected by the older reader")
+	}
+	// The binding must speak the older field names, or the core rejects it as an
+	// unknown field.
+	var caps []map[string]json.RawMessage
+	if err := json.Unmarshal(body.Capabilities, &caps); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := caps[0]["upstream_model_id"]; ok {
+		t.Fatal("upstream_model_id survived the schema 1 rendering")
+	}
+	if _, ok := caps[0]["upstream_model_name"]; !ok {
+		t.Fatal("upstream_model_name missing from the schema 1 rendering")
 	}
 }
