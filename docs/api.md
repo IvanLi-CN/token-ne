@@ -27,7 +27,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `/api/version`：公开的 API 运行时版本、commit、构建时间和 `features.second_phase_model_management`；Web 页脚消费版本值，二期界面用它判定部署阶段。
 - `/api/models`：系统模型；`model_id` 是公开名，实体包含启用、计费和 `shutdown_date`，不含任何上游命名或映射字段。
 - `/api/model-routes`：模型名称路由规则；每条规则归属一个作用域（全局，或某个上游）并带作用域内顺序，规则解析到系统模型，支持精确和 Glob。另提供 `/api/model-routes/reorder` 一次性提交某作用域的新顺序。
-- `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 绑定集合。另有 `POST /api/upstreams/models/fetch`：按请求里的 `base_url`、`auth_style` 和可选 `api_key` 读取上游 `GET /v1/models`，返回 `{"data": ["模型名"]}`，不写库、不写审计、不回显密钥；未保存的新上游也能先取到候选。校验与保存上游相同（含私网限制），上游不可达或应答不合法返回 `502`，可重试。
+- `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 绑定集合。另有 `POST /api/upstreams/models/fetch`：按请求里的 `base_url`、`auth_style`、可选 `api_key` 与可选 `upstream_id` 读取上游 `GET /v1/models`，返回 `{"data": ["模型名"]}`，不写库、不写审计、不回显密钥；未保存的新上游也能先取到候选。密钥只写不读，编辑态表单因此拿不到已保存的密钥：`api_key` 为空时传 `upstream_id` 即复用该上游已保存的密钥、超时和出站代理绑定；传了 `api_key` 则以它为准。密钥只在保存时的 scheme/host/port 上复用，`base_url` 指向其他源且未重输密钥时返回 `422`，不把一家上游的密钥发给另一家。校验与保存上游相同（含私网限制），未知 `upstream_id` 返回 `404`，上游不可达或应答不合法返回 `502`，可重试。
 - `/api/upstreams/{id}/models/*` 提供目录查询、同步和绑定。
 - `/api/upstreams/{id}/model-policy`：该上游针对系统模型的默认动作、白名单和黑名单。
 - `/api/prices`、`/api/price-sources` 和 `/api/price-sync-runs` 提供上游价格覆盖查询、受控价格源和报价批次管理。

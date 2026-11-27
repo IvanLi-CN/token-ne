@@ -44,6 +44,23 @@ func normalizeUpstreamBaseURL(raw string) string {
 func validName(s string, max int) bool {
 	return strings.TrimSpace(s) != "" && utf8.RuneCountInString(s) <= max && !strings.ContainsFunc(s, unicode.IsControl)
 }
+
+// sameUpstreamOrigin reports whether two upstream base URLs point at the same
+// scheme, host and port. A saved API key is bound to that origin, so reusing it
+// for any other address would hand one provider's secret to another host.
+// Unparsable input is never "the same": the caller then asks for the key.
+func sameUpstreamOrigin(a, b string) bool {
+	ua, err := url.Parse(normalizeUpstreamBaseURL(a))
+	if err != nil || ua.Hostname() == "" {
+		return false
+	}
+	ub, err := url.Parse(normalizeUpstreamBaseURL(b))
+	if err != nil || ub.Hostname() == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+}
+
 func ValidateModel(m store.Model) []Detail {
 	if !validName(m.ID, 256) {
 		return detail("model_id", "must contain 1 to 256 characters")

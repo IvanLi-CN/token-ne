@@ -13,6 +13,7 @@ import (
 
 	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/google/uuid"
 )
 
 // catalogRepository is the narrow phase-two storage surface for directory
@@ -306,27 +307,24 @@ type providerModel struct {
 
 const maxCatalogBody = 8 << 20
 
-// fetchModelsFromInput reads an upstream's /v1/models from a form that has not
-// been saved yet, so the binding editor can offer real names before the first
-// save. It writes nothing: the credentials are used for this one request and
-// never stored. Validation reuses the upstream rules, so the SSRF and URL
-// constraints are identical to a persisted upstream.
+// fetchModelsFromInput reads an upstream's /v1/models from the editor's current
+// form. It writes nothing: whatever credential is used belongs to this one
+// request. Validation reuses the upstream rules, so the SSRF and URL constraints
+// are identical to a persisted upstream.
+//
+// The editor never pre-fills the credential field of an existing upstream (the
+// key is write-only), so a blank api_key plus an upstream_id borrows the saved
+// key, timeouts and egress binding. Without that reuse the button always sent an
+// empty credential and the provider answered 401. A typed key still wins: it is
+// the credential the admin is trying out.
 func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		BaseURL   string  `json:"base_url"`
-		AuthStyle string  `json:"auth_style"`
-		APIKey    *string `json:"api_key"`
+		BaseURL    string  `json:"base_url"`
+		AuthStyle  string  `json:"auth_style"`
+		APIKey     *string `json:"api_key"`
+		UpstreamID *string `json:"upstream_id"`
 	}
 	if !decode(w, r, &body, "base_url", "auth_style") {
-		return
-	}
-	key := ""
-	if body.APIKey != nil {
-		key = strings.TrimSpace(*body.APIKey)
-	}
-	ciphertext, nonce, err := auth.Encrypt(a.cfg.MasterKey, key)
-	if err != nil {
-		fail(w, r, 500, "internal_error", "could not prepare the upstream request", nil)
 		return
 	}
 	// Timeouts are not part of this form; the same defaults a new upstream starts
@@ -334,7 +332,43 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 	u := store.Upstream{
 		Name: "fetch", Kind: "api_key", BaseURL: body.BaseURL, AuthStyle: body.AuthStyle,
 		Connect: 10000, FirstByte: 90000, Idle: 300000,
-		Ciphertext: ciphertext, Nonce: nonce,
+	}
+	stored := body.UpstreamID != nil && strings.TrimSpace(*body.UpstreamID) != ""
+	key := ""
+	if body.APIKey != nil {
+		key = strings.TrimSpace(*body.APIKey)
+	}
+	if stored {
+		id := strings.TrimSpace(*body.UpstreamID)
+		if _, e := uuid.Parse(id); e != nil {
+			fail(w, r, 422, "validation_failed", "invalid upstream reference", detail("upstream_id", "must be a UUID"))
+			return
+		}
+		old, e := a.repo.Upstream(r.Context(), id)
+		if e != nil {
+			storageError(w, r, e, "")
+			return
+		}
+		// A saved key belongs to the provider it was saved for. A draft may hold a
+		// different address that is not saved yet, and mailing one provider's secret
+		// to another origin is a leak the admin never agreed to.
+		if key == "" && !sameUpstreamOrigin(u.BaseURL, old.BaseURL) {
+			fail(w, r, 422, "validation_failed", "the saved API key belongs to another address", detail("api_key", "re-enter the key to read the model list of a different address"))
+			return
+		}
+		// The address stays the form's: it is the one the admin is asking about.
+		// Timeouts, egress binding and credential are the saved row's.
+		u.Connect, u.FirstByte, u.Idle = old.Connect, old.FirstByte, old.Idle
+		u.EgressProxyID = old.EgressProxyID
+		u.Ciphertext, u.Nonce = old.Ciphertext, old.Nonce
+	}
+	if key != "" || !stored {
+		ciphertext, nonce, e := auth.Encrypt(a.cfg.MasterKey, key)
+		if e != nil {
+			fail(w, r, 500, "internal_error", "could not prepare the upstream request", nil)
+			return
+		}
+		u.Ciphertext, u.Nonce = ciphertext, nonce
 	}
 	if d := ValidateUpstream(u, a.cfg.AllowPrivateUpstreams); len(d) > 0 {
 		fail(w, r, 422, "validation_failed", "invalid upstream request", d)
@@ -342,6 +376,12 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 	}
 	models, err := a.fetchUpstreamModels(r.Context(), u)
 	if err != nil {
+		// A bound profile that cannot be reached is not the address's fault, and
+		// the sibling connection test already calls it 503.
+		if errors.Is(err, errEgressUnavailable) {
+			fail(w, r, 503, "no_upstream_available", "bound egress proxy is unavailable", nil)
+			return
+		}
 		detail := []Detail{{Path: "base_url", Reason: err.Error()}}
 		fail(w, r, 502, "upstream_unavailable", "could not read the upstream model list", detail)
 		return

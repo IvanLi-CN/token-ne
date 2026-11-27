@@ -49,9 +49,13 @@ export const upstreamsApi = {
     apiRequest<Upstream>(`/upstreams/${encodeURIComponent(id)}`, { method: "PUT", body }),
   remove: (id: string) =>
     apiRequest<void>(`/upstreams/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  /** 读取上游 `GET /v1/models`；不写库。 */
-  fetchModels: (body: { base_url: string; auth_style: string; api_key?: string | null }) =>
-    apiRequest<UpstreamModelFetch>("/upstreams/models/fetch", { method: "POST", body }),
+  /** 读取上游 `GET /v1/models`；不写库。编辑态传 `upstream_id` 复用已保存的密钥。 */
+  fetchModels: (body: {
+    base_url: string;
+    auth_style: string;
+    api_key?: string | null;
+    upstream_id?: string;
+  }) => apiRequest<UpstreamModelFetch>("/upstreams/models/fetch", { method: "POST", body }),
   test: (id: string) =>
     apiRequest<TestResult>(`/upstreams/${encodeURIComponent(id)}/test`, { method: "POST" }),
 };
