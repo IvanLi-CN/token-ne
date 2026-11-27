@@ -928,6 +928,8 @@ paths:
           $ref: "#/components/responses/AdminUnauthorized"
         "403":
           $ref: "#/components/responses/AdminForbidden"
+        "404":
+          $ref: "#/components/responses/AdminNotFound"
         "422":
           $ref: "#/components/responses/AdminValidationFailed"
         "502":
@@ -3405,11 +3407,11 @@ components:
           enum: [bearer, api_key]
         api_key:
           type: [string, "null"]
-          description: 只用于本次请求；即使上游返回失败也不会被存储或回显。非空时覆盖已保存的密钥；空或省略时若给出 `upstream_id` 则复用已保存的密钥，否则表示上游无需凭据。
+          description: 只用于本次请求；即使上游返回失败也不会被存储或回显。非空时覆盖已保存的密钥；空或省略时若给出 `upstream_id` 则复用已保存的密钥（仅限同一 scheme/host/port），否则表示上游无需凭据。
         upstream_id:
           type: [string, "null"]
           format: uuid
-          description: 正在编辑的上游；仅用于复用已保存的密钥、超时与出站代理绑定。未知 ID 返回 404，格式错误返回 422。
+          description: 正在编辑的上游；仅用于复用已保存的密钥、超时与出站代理绑定。密钥只在其保存时的 scheme/host/port 上复用：`base_url` 指向其他源且 `api_key` 为空时返回 422，要求重新输入密钥。未知 ID 返回 404，格式错误返回 422。
     UpstreamModelImportInput:
       type: object
       required: [upstream_model_id, mode, model_id]

@@ -429,6 +429,8 @@ describe("upstreams management", () => {
       api_key: "write-only-secret",
       models: [{ upstream_model_id: "fresh-model", model_id: "typed-model", enabled: true }],
     });
+    // Creating an upstream has no saved row to borrow a key from.
+    expect(body).not.toHaveProperty("upstream_id");
     finish(response(upstream, 201));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

@@ -334,6 +334,10 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 		Connect: 10000, FirstByte: 90000, Idle: 300000,
 	}
 	stored := body.UpstreamID != nil && strings.TrimSpace(*body.UpstreamID) != ""
+	key := ""
+	if body.APIKey != nil {
+		key = strings.TrimSpace(*body.APIKey)
+	}
 	if stored {
 		id := strings.TrimSpace(*body.UpstreamID)
 		if _, e := uuid.Parse(id); e != nil {
@@ -345,15 +349,18 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 			storageError(w, r, e, "")
 			return
 		}
-		// The editor may have changed the address but not yet saved it, so the
-		// address stays the form's; everything else is the saved row's.
+		// A saved key belongs to the provider it was saved for. A draft may hold a
+		// different address that is not saved yet, and mailing one provider's secret
+		// to another origin is a leak the admin never agreed to.
+		if key == "" && !sameUpstreamOrigin(u.BaseURL, old.BaseURL) {
+			fail(w, r, 422, "validation_failed", "the saved API key belongs to another address", detail("api_key", "re-enter the key to read the model list of a different address"))
+			return
+		}
+		// The address stays the form's: it is the one the admin is asking about.
+		// Timeouts, egress binding and credential are the saved row's.
 		u.Connect, u.FirstByte, u.Idle = old.Connect, old.FirstByte, old.Idle
 		u.EgressProxyID = old.EgressProxyID
 		u.Ciphertext, u.Nonce = old.Ciphertext, old.Nonce
-	}
-	key := ""
-	if body.APIKey != nil {
-		key = strings.TrimSpace(*body.APIKey)
 	}
 	if key != "" || !stored {
 		ciphertext, nonce, e := auth.Encrypt(a.cfg.MasterKey, key)
@@ -369,6 +376,12 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 	}
 	models, err := a.fetchUpstreamModels(r.Context(), u)
 	if err != nil {
+		// A bound profile that cannot be reached is not the address's fault, and
+		// the sibling connection test already calls it 503.
+		if errors.Is(err, errEgressUnavailable) {
+			fail(w, r, 503, "no_upstream_available", "bound egress proxy is unavailable", nil)
+			return
+		}
 		detail := []Detail{{Path: "base_url", Reason: err.Error()}}
 		fail(w, r, 502, "upstream_unavailable", "could not read the upstream model list", detail)
 		return
