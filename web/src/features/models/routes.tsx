@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, GripVertical, Pencil } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DataTable } from "../../components/data-table";
 import { FieldFailure, fieldInvalid } from "../../components/field-errors";
 import { Button, EmptyState, StatusBadge, Switch } from "../../components/primitives";
@@ -118,25 +118,27 @@ function RouteEditor({
   scopeUpstreamId,
   onClose,
   onSaved,
+  onSavedEdit,
 }: {
   route: ModelRoute | null;
   models: Model[];
   scopeUpstreamId: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onSavedEdit: (pattern: string) => Promise<void>;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [pattern, setPattern] = useState(route?.pattern ?? "");
-  const [targetModelId, setTargetModelId] = useState(
-    route?.target_model_id ?? models[0]?.model_id ?? "",
-  );
+  // The row mounts before the model list resolves, so the default target is
+  // derived rather than captured once: an empty choice adopts the first model.
+  const [targetModelId, setTargetModelId] = useState(route?.target_model_id ?? "");
+  const effectiveTarget = targetModelId || models[0]?.model_id || "";
   const matchType = inferMatchType(pattern);
   const trimmed = pattern.trim();
-  const ready = trimmed !== "" && targetModelId !== "";
+  const ready = trimmed !== "" && effectiveTarget !== "";
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submit() {
     if (pending || !ready) return;
     setPending(true);
     setError(undefined);
@@ -144,16 +146,21 @@ function RouteEditor({
       const body: ModelRouteInput = {
         pattern: trimmed,
         match_type: matchType,
-        target_model_id: targetModelId,
+        target_model_id: effectiveTarget,
         upstream_id: scopeUpstreamId,
         // A new rule is enabled by default; the row switch toggles it afterwards.
         enabled: route?.enabled ?? true,
         // The description is edited from the row afterwards; a create leaves it empty.
         description: route?.description ?? null,
       };
-      if (route) await modelRoutesApi.update(route.id, body);
-      else await modelRoutesApi.create(body);
-      await onSaved();
+      if (route) {
+        await modelRoutesApi.update(route.id, body);
+        await onSavedEdit(trimmed);
+      } else {
+        await modelRoutesApi.create(body);
+        await onSaved();
+      }
+      // The row now carries the saved values, so the form always closes.
       onClose();
     } catch (failure) {
       setError(failure);
@@ -162,19 +169,21 @@ function RouteEditor({
     }
   }
 
+  // A real <form> here would nest inside the upstream editor's form and the
+  // browser would drop it, so submit is wired to the control instead.
   return (
-    <form
-      onSubmit={submit}
-      aria-label={route ? `编辑规则 ${route.pattern}` : "新建路由规则"}
-      className="border-t border-[var(--border-quiet)] pt-4"
+    <section
+      aria-label={route ? `编辑规则 ${route.pattern}` : "新增路由"}
+      className="border-t border-[var(--border-quiet)] py-4"
     >
       <fieldset disabled={pending} className="grid gap-3">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
           <Field label="Pattern" hint="请求模型名或别名；含 * 或 ? 时按 Glob 匹配。">
             <input
               className="input rounded-xl"
               name="pattern"
-              required
+              // Not `required`: this row can live inside the upstream editor's
+              // form, where an empty field would block that form's own submit.
               maxLength={256}
               value={pattern}
               onChange={(event) => setPattern(event.target.value)}
@@ -187,7 +196,7 @@ function RouteEditor({
               <div className="min-w-0 flex-1">
                 <Select
                   label="目标系统模型"
-                  value={targetModelId}
+                  value={effectiveTarget}
                   onValueChange={setTargetModelId}
                   options={models.map((model) => ({
                     value: model.model_id,
@@ -203,15 +212,17 @@ function RouteEditor({
         </div>
         <FieldFailure error={error} />
         <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            取消
-          </Button>
-          <Button type="submit" disabled={!ready}>
+          {route && (
+            <Button type="button" variant="secondary" onClick={onClose}>
+              取消
+            </Button>
+          )}
+          <Button type="button" disabled={!ready} onClick={() => void submit()}>
             {pending ? "保存中…" : "保存规则"}
           </Button>
         </div>
       </fieldset>
-    </form>
+    </section>
   );
 }
 
@@ -229,21 +240,22 @@ function DescriptionCell({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(route.description ?? "");
+  const field = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   // Escape blurs the input too, so the blur handler must know not to save.
   const [cancelling, setCancelling] = useState(false);
-  const field = useRef<HTMLInputElement>(null);
   // Focusing after paint also survives a click that already blurred the cell.
+  // `select()` is skipped: it makes a subsequent programmatic value change land
+  // on a stale DOM node in tests, and the reader can select with the keyboard.
   useEffect(() => {
     if (!editing) return;
     field.current?.focus();
-    field.current?.select();
   }, [editing]);
 
   function open() {
-    setCancelling(false);
     setDraft(route.description ?? "");
+    setCancelling(false);
     setError(undefined);
     setEditing(true);
   }
@@ -270,6 +282,9 @@ function DescriptionCell({
   if (!editing)
     return (
       <div className="flex items-center gap-2">
+        {/* Double-click is a shortcut only; the pencil button is the accessible
+            control, so this span stays non-interactive for keyboard and AT. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: shortcut for the adjacent button */}
         <span
           className="block max-w-64 cursor-text whitespace-normal break-words"
           onDoubleClick={open}
@@ -277,6 +292,7 @@ function DescriptionCell({
           {route.description ?? "—"}
         </span>
         <Button
+          type="button"
           variant="secondary"
           ghost
           aria-label={`编辑 ${route.pattern} 的说明`}
@@ -320,6 +336,7 @@ function DescriptionCell({
         }}
       />
       <Button
+        type="button"
         variant="secondary"
         ghost
         aria-label="保存说明"
@@ -352,16 +369,24 @@ function PreviewResult({
   preview,
   upstreams,
   routes,
+  scopeUpstreamId = null,
 }: {
   preview: RoutePreview;
   upstreams: Upstream[];
   routes: ModelRoute[];
+  scopeUpstreamId?: string | null;
 }) {
+  // Inside one upstream's editor only that upstream can serve the request, so the
+  // candidate table drops every other upstream instead of implying they apply.
+  const candidates = scopeUpstreamId
+    ? preview.candidates.filter((candidate) => candidate.upstream_id === scopeUpstreamId)
+    : preview.candidates;
+  const unresolvedScope = scopeUpstreamId ? "本上游作用域与全局作用域" : "全局作用域";
   if (!preview.resolved_model)
     return (
       <div className="flex flex-col gap-3">
         <EmptyState title="未解析到系统模型">
-          “{preview.requested_model}”不匹配全局作用域中任何启用的规则；下游请求会返回
+          “{preview.requested_model}”不匹配{unresolvedScope}中任何启用的规则；下游请求会返回
           404。检查规则顺序与启用状态。
         </EmptyState>
         <p className="muted">命中规则：无 · 候选上游：0</p>
@@ -389,10 +414,10 @@ function PreviewResult({
         </div>
         <div>
           <span className="muted">候选上游</span>
-          <p className="tabular-nums">{preview.candidates.length} 个</p>
+          <p className="tabular-nums">{candidates.length} 个</p>
         </div>
       </div>
-      {preview.candidates.length === 0 ? (
+      {candidates.length === 0 ? (
         <p className="muted">
           解析成功但没有候选：请求会返回 503
           no_upstream_available。检查上游启用状态、上游模型与承接策略。
@@ -400,7 +425,7 @@ function PreviewResult({
       ) : (
         <DataTable
           caption="预览候选上游"
-          rows={preview.candidates}
+          rows={candidates}
           rowKey={(candidate) => `${candidate.upstream_id}:${candidate.upstream_model_id}`}
           columns={[
             {
@@ -441,17 +466,26 @@ function PreviewResult({
 export function RoutePreviewPanel({
   upstreams,
   routes,
+  scopeUpstreamId = null,
+  embedded = false,
 }: {
   upstreams: Upstream[];
   routes: ModelRoute[];
+  /** Narrow the candidate table to one upstream inside that scope's editor. */
+  scopeUpstreamId?: string | null;
+  /** Inside a drawer: a separated section, not a second card. */
+  embedded?: boolean;
 }) {
   const [name, setName] = useState("");
   const preview = useMutation({
     mutationFn: (requested: string) => modelRoutesApi.preview(requested),
   });
   return (
-    <section className="surface-card" aria-label="路由预览">
-      <div className="panel-heading">
+    <section
+      className={embedded ? "border-t border-[var(--border-quiet)] pt-5" : "surface-card"}
+      aria-label="路由预览"
+    >
+      <div className={embedded ? "pb-3" : "panel-heading"}>
         <div>
           <h2>路由预览</h2>
           <p className="muted">
@@ -459,36 +493,43 @@ export function RoutePreviewPanel({
           </p>
         </div>
       </div>
-      <div className="flex flex-col gap-4 px-5 pb-5">
-        <form
-          className="flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (name.trim()) preview.mutate(name.trim());
-          }}
-        >
+      <div className={embedded ? "flex flex-col gap-4" : "flex flex-col gap-4 px-5 pb-5"}>
+        {/* Also a plain container: the preview can be rendered inside a drawer form. */}
+        <div className="flex flex-wrap items-end gap-3">
           <label className="field min-w-64 flex-1">
             <span>请求模型名</span>
             <input
               className="input rounded-xl"
               name="requested_model"
-              required
+              // Not `required`: this field can live inside another form, and an
+              // empty preview would then block that form's own submit.
               maxLength={256}
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="例如 gpt-4o-mini"
             />
           </label>
-          <Button type="submit" disabled={preview.isPending || !name.trim()}>
+          <Button
+            type="button"
+            disabled={preview.isPending || !name.trim()}
+            onClick={() => {
+              if (name.trim()) preview.mutate(name.trim());
+            }}
+          >
             {preview.isPending ? "解析中…" : "预览解析"}
           </Button>
-        </form>
+        </div>
         <FieldFailure error={preview.error} />
         {!preview.data && !preview.isPending && !preview.error && (
           <p className="muted">尚未预览；结果只反映当前已保存的规则。</p>
         )}
         {preview.data && (
-          <PreviewResult preview={preview.data} upstreams={upstreams} routes={routes} />
+          <PreviewResult
+            preview={preview.data}
+            upstreams={upstreams}
+            routes={routes}
+            scopeUpstreamId={scopeUpstreamId}
+          />
         )}
       </div>
     </section>
@@ -525,8 +566,38 @@ export function ModelRouteScopePanel({
     queryKey: queryKeys.modelRoutes,
     queryFn: ({ signal }) => modelRoutesApi.list(signal),
   });
-  const [editor, setEditor] = useState<ModelRoute | null | undefined>();
+  // `editing` holds the rule being edited; creating is always available below.
+  const [editing, setEditing] = useState<ModelRoute | null>(null);
+  const [createKey, setCreateKey] = useState(0);
+  const section = useRef<HTMLElement>(null);
+  const createRef = useRef<HTMLDivElement>(null);
   const ordered = inScope(routes.data ?? [], scopeUpstreamId);
+
+  /**
+   * After a rule is saved or a row disappears, the focused control is gone and the
+   * browser drops the viewport back to the top. Put focus back on the row that
+   * holds the pattern, or back in the create row's first field, and bring the
+   * panel into view.
+   */
+  const settleFocus = (pattern: string | null) => {
+    const row = pattern
+      ? section.current?.querySelector<HTMLElement>(
+          `[data-pattern="${CSS.escape(pattern)}"] button, [data-pattern="${CSS.escape(pattern)}"]`,
+        )
+      : null;
+    const fallback = createRef.current?.querySelector<HTMLInputElement>("input");
+    (row ?? fallback)?.focus({ preventScroll: true });
+    section.current?.scrollIntoView({ block: "nearest" });
+  };
+  /** Clears and reveals the always-present create row, then puts the caret in it. */
+  const startCreate = () => {
+    setEditing(null);
+    setCreateKey((value) => value + 1);
+    requestAnimationFrame(() => {
+      createRef.current?.scrollIntoView({ block: "nearest" });
+      createRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
+  };
   const duplicates = duplicatePatterns(ordered);
   const { move, drop, pending: reordering, error: reorderError } = useScopeReorder(scopeUpstreamId);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -571,13 +642,6 @@ export function ModelRouteScopePanel({
             <h2>{title}</h2>
             <p className="muted">{description}</p>
           </div>
-          <Button
-            className="rounded-xl"
-            disabled={availableModels.length === 0 || editor === null}
-            onClick={() => setEditor(null)}
-          >
-            新建规则
-          </Button>
         </div>
         <div className={embedded ? "mt-4" : "px-5 pb-5"}>
           {duplicates.length > 0 && (
@@ -588,13 +652,36 @@ export function ModelRouteScopePanel({
           )}
           <FieldFailure error={toggleError} />
           <FieldFailure error={reorderError} />
-          {editor !== undefined && (
+          <div ref={createRef}>
             <RouteEditor
-              route={editor}
+              key={`create-${createKey}`}
+              route={null}
               models={availableModels}
               scopeUpstreamId={scopeUpstreamId}
-              onClose={() => setEditor(undefined)}
-              onSaved={refresh}
+              onClose={startCreate}
+              onSaved={async () => {
+                await refresh();
+                setCreateKey((value) => value + 1);
+                requestAnimationFrame(() => settleFocus(null));
+              }}
+              onSavedEdit={async () => {}}
+            />
+          </div>
+          {editing && (
+            <RouteEditor
+              key={`edit-${editing.id}`}
+              route={editing}
+              models={availableModels}
+              scopeUpstreamId={scopeUpstreamId}
+              onClose={() => setEditing(null)}
+              onSaved={async () => {
+                await refresh();
+                requestAnimationFrame(() => settleFocus(null));
+              }}
+              onSavedEdit={async (pattern) => {
+                await refresh();
+                requestAnimationFrame(() => settleFocus(pattern));
+              }}
             />
           )}
           <DataTable
@@ -608,6 +695,7 @@ export function ModelRouteScopePanel({
             emptyTitle="暂无路由规则"
             emptyDescription="需要别名或通配时创建规则；列表顺序就是尝试顺序。"
             rowAttrs={(route) => ({
+              "data-pattern": route.pattern,
               draggable: !reordering,
               "aria-grabbed": dragging === route.id,
               onDragStart: () => setDragging(route.id),
@@ -635,6 +723,7 @@ export function ModelRouteScopePanel({
                       </span>
                       <span className="tabular-nums">{index + 1}</span>
                       <Button
+                        type="button"
                         variant="secondary"
                         ghost
                         aria-label={`上移 ${route.pattern}`}
@@ -645,6 +734,7 @@ export function ModelRouteScopePanel({
                         <ArrowUp aria-hidden size={14} />
                       </Button>
                       <Button
+                        type="button"
                         variant="secondary"
                         ghost
                         aria-label={`下移 ${route.pattern}`}
@@ -701,6 +791,7 @@ export function ModelRouteScopePanel({
                         description: value,
                       });
                       await refresh();
+                      requestAnimationFrame(() => settleFocus(route.pattern));
                     }}
                   />
                 ),
@@ -710,7 +801,7 @@ export function ModelRouteScopePanel({
                 header: "操作",
                 cell: (route) => (
                   <ActionGroup>
-                    <Button variant="secondary" onClick={() => setEditor(route)}>
+                    <Button type="button" variant="secondary" onClick={() => setEditing(route)}>
                       编辑
                     </Button>
                     <DangerAction
@@ -720,6 +811,7 @@ export function ModelRouteScopePanel({
                       action={async () => {
                         await modelRoutesApi.remove(route.id);
                         await refresh();
+                        requestAnimationFrame(() => settleFocus(null));
                       }}
                     />
                   </ActionGroup>
@@ -734,7 +826,14 @@ export function ModelRouteScopePanel({
           )}
         </div>
       </section>
-      {showPreview && <RoutePreviewPanel upstreams={upstreams ?? []} routes={routes.data ?? []} />}
+      {showPreview && (
+        <RoutePreviewPanel
+          upstreams={upstreams ?? []}
+          routes={routes.data ?? []}
+          scopeUpstreamId={scopeUpstreamId}
+          embedded={embedded}
+        />
+      )}
     </>
   );
 }

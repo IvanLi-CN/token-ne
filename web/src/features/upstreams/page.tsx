@@ -342,6 +342,7 @@ function UpstreamEditor({
             models={models.data}
             upstreams={[upstream]}
             embedded
+            showPreview
           />
         )}
         <div className="dialog-actions">

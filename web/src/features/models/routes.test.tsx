@@ -227,12 +227,11 @@ describe("models route rules", () => {
     });
     mount();
     await screen.findByRole("heading", { name: "模型路由（全局）" });
-    fireEvent.click(screen.getByRole("button", { name: "新建规则" }));
-    // The editor is inline: no dialog, and the match type follows the pattern.
+    // The create row is always present: no button, no dialog, no extra step.
+    expect(await screen.findByRole("region", { name: "新增路由" })).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "新建路由规则" })).toBeNull();
     fireEvent.change(await screen.findByLabelText("Pattern"), { target: { value: "gpt-*" } });
     fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
-    await waitFor(() => expect(screen.queryByRole("form", { name: "新建路由规则" })).toBeNull());
     expect(createBody).toMatchObject({
       pattern: "gpt-*",
       match_type: "glob",
@@ -242,6 +241,19 @@ describe("models route rules", () => {
     });
     expect(createBody).not.toHaveProperty("position");
     expect(createBody).not.toHaveProperty("priority");
+  });
+
+  it("keeps the create row and returns focus to it after a save", async () => {
+    mock((url, init) => {
+      if (url === "/api/model-routes" && init.method === "POST") return response(route, 201);
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.change(await screen.findByLabelText("Pattern"), { target: { value: "focus-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
+    // The row survives the save, cleared, with the caret back in it.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Pattern")));
   });
 
   it("toggles a rule from the row switch without moving it", async () => {
@@ -263,7 +275,7 @@ describe("models route rules", () => {
     expect(putBody).not.toHaveProperty("position");
   });
 
-  it("edits a description in place from the pencil or a double click and clears it", async () => {
+  it("saves a description from the cell with Enter and sends no position", async () => {
     const puts: unknown[] = [];
     mock((url, init) => {
       if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
@@ -280,13 +292,27 @@ describe("models route rules", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]).toMatchObject({ description: "新的说明", pattern: "gpt-*" });
+    expect(puts[0]).not.toHaveProperty("position");
+    await waitFor(() => expect(screen.queryByLabelText("gpt-* 的说明")).toBeNull());
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑 gpt-* 的说明" }));
-    const again = await screen.findByLabelText("gpt-* 的说明");
-    fireEvent.change(again, { target: { value: "" } });
-    fireEvent.keyDown(again, { key: "Enter" });
-    await waitFor(() => expect(puts).toHaveLength(2));
-    expect(puts[1]).toMatchObject({ description: null });
+  it("clears a description by emptying the cell", async () => {
+    const puts: unknown[] = [];
+    mock((url, init) => {
+      if (url === `/api/model-routes/${route.id}` && init.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return response(route);
+      }
+      return base()(url, init);
+    });
+    mount();
+    await screen.findByRole("heading", { name: "模型路由（全局）" });
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 gpt-* 的说明" }));
+    const input = await screen.findByLabelText("gpt-* 的说明");
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect((puts[0] as { description: string | null }).description).toBeNull();
   });
 
   it("opens the description editor on a double click of the cell", async () => {
@@ -405,6 +431,34 @@ describe("models route rules", () => {
       .map((row) => row.textContent ?? "");
     expect(patterns[0]).toContain("gpt-*");
     expect(patterns[1]).toContain("gpt-4*");
+  });
+
+  it("saves a scoped rule from the upstream drawer without submitting the upstream form", async () => {
+    const writes: string[] = [];
+    mock((url, init) => {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") writes.push(`${method} ${String(url)}`);
+      if (url === "/api/model-routes" && method === "POST")
+        return response({ ...scopedRoute, id: "route-new", pattern: "drawer-new" }, 201);
+      return base()(url, init);
+    });
+    mount(UpstreamsPage);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    const panel = await screen.findByRole("region", { name: "模型路由（Primary）" });
+    // The create row is present from the start; the select needs the model list.
+    await waitFor(() => expect(within(panel).getByLabelText("Pattern")).toBeTruthy());
+    fireEvent.change(within(panel).getByLabelText("Pattern"), { target: { value: "drawer-new" } });
+    // Save is disabled until the system-model list arrives and a target is picked.
+    await waitFor(() =>
+      expect(
+        (within(panel).getByRole("button", { name: "保存规则" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(within(panel).getByRole("button", { name: "保存规则" }));
+    await waitFor(() => expect(writes).toContain("POST /api/model-routes"));
+    // The rule form must never bubble into the surrounding upstream form.
+    expect(writes.some((entry) => entry.startsWith("PUT /api/upstreams/"))).toBe(false);
+    expect(screen.getByRole("dialog", { name: "编辑上游" })).toBeTruthy();
   });
 
   it("lists only this upstream's rules inside the upstream editor", async () => {

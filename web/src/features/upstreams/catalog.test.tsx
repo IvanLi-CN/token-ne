@@ -402,6 +402,28 @@ describe("upstream model catalog", () => {
     expect(within(section).getByLabelText("Glob 白名单").getAttribute("aria-invalid")).toBe("true");
   });
 
+  it("keeps 保存上游 submittable with an untouched preview field in the drawer", async () => {
+    let putBody: unknown;
+    mock((url, init) => {
+      if (url === `/api/upstreams/${upstream.id}` && init.method === "PUT") {
+        putBody = JSON.parse(String(init.body));
+        return response(upstream);
+      }
+      return base()(url, init);
+    });
+    mount();
+    const edit = await screen.findAllByRole("button", { name: "编辑" });
+    fireEvent.click(edit[0]);
+    await screen.findByRole("region", { name: "路由预览" });
+    // The preview's input must not carry `required`: inside the upstream form it
+    // would silently block every save while empty.
+    expect(
+      document.querySelector<HTMLInputElement>('input[name="requested_model"]')?.required,
+    ).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: "保存上游" }));
+    await waitFor(() => expect(putBody).toBeTruthy());
+  });
+
   it("reloads the server capability collection after a revision conflict", async () => {
     const latest = {
       ...upstream,

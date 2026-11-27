@@ -408,8 +408,19 @@ kbd {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 16px 24px;
   padding: 20px 24px;
+}
+/* The action stays beside the title; only the copy wraps, so a long description
+   never pushes the button onto its own row. Scoped to a two-child heading: a
+   heading with a single child owns the whole row and must not be pushed right. */
+.panel-heading > :first-child:not(:only-child) {
+  min-width: 0;
+  flex: 1 1 20rem;
+}
+.panel-heading > :last-child:not(:only-child) {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .panel-heading p {
   margin-top: 5px;
