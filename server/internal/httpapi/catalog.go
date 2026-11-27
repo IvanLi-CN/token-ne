@@ -299,6 +299,53 @@ type providerModel struct {
 
 const maxCatalogBody = 8 << 20
 
+// fetchModelsFromInput reads an upstream's /v1/models from a form that has not
+// been saved yet, so the binding editor can offer real names before the first
+// save. It writes nothing: the credentials are used for this one request and
+// never stored. Validation reuses the upstream rules, so the SSRF and URL
+// constraints are identical to a persisted upstream.
+func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		BaseURL   string  `json:"base_url"`
+		AuthStyle string  `json:"auth_style"`
+		APIKey    *string `json:"api_key"`
+	}
+	if !decode(w, r, &body, "base_url", "auth_style") {
+		return
+	}
+	key := ""
+	if body.APIKey != nil {
+		key = strings.TrimSpace(*body.APIKey)
+	}
+	ciphertext, nonce, err := auth.Encrypt(a.cfg.MasterKey, key)
+	if err != nil {
+		fail(w, r, 500, "internal_error", "could not prepare the upstream request", nil)
+		return
+	}
+	// Timeouts are not part of this form; the same defaults a new upstream starts
+	// with keep the fetch bounded.
+	u := store.Upstream{
+		Name: "fetch", Kind: "api_key", BaseURL: body.BaseURL, AuthStyle: body.AuthStyle,
+		Connect: 10000, FirstByte: 90000, Idle: 300000,
+		Ciphertext: ciphertext, Nonce: nonce,
+	}
+	if d := ValidateUpstream(u, a.cfg.AllowPrivateUpstreams); len(d) > 0 {
+		fail(w, r, 422, "validation_failed", "invalid upstream request", d)
+		return
+	}
+	models, err := a.fetchUpstreamModels(r.Context(), u)
+	if err != nil {
+		detail := []Detail{{Path: "base_url", Reason: err.Error()}}
+		fail(w, r, 502, "upstream_unavailable", "could not read the upstream model list", detail)
+		return
+	}
+	names := make([]string, 0, len(models))
+	for _, m := range models {
+		names = append(names, m.ID)
+	}
+	writeJSON(w, 200, map[string]any{"data": names})
+}
+
 // fetchUpstreamModels reads <base_url>/v1/models from the upstream. It never
 // returns a partial list: any transport error, non-2xx status, malformed JSON,
 // invalid model ID or duplicate ID fails the sync, so a broken provider cannot

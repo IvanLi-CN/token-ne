@@ -893,6 +893,53 @@ paths:
           $ref: "#/components/responses/AdminInternal"
         "503":
           $ref: "#/components/responses/AdminStorageUnavailable"
+  /api/upstreams/models/fetch:
+    post:
+      tags: [upstreams]
+      summary: 按未保存的表单读取上游模型列表
+      operationId: fetchUpstreamModelsFromInput
+      description: 供尚未保存的上游在保存前拿到候选。不写库：`api_key` 只用于本次请求，不存储、不回显。校验规则与保存上游时相同（含私网地址限制）。
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpstreamModelFetchInput"
+      responses:
+        "200":
+          description: 上游返回的模型 ID 列表，保持上游顺序
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/AdminBadRequest"
+        "413":
+          $ref: "#/components/responses/AdminPayloadTooLarge"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorized"
+        "403":
+          $ref: "#/components/responses/AdminForbidden"
+        "422":
+          $ref: "#/components/responses/AdminValidationFailed"
+        "502":
+          description: 上游不可达、返回非 2xx 或应答格式不合法
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/AdminInternal"
+        "503":
+          $ref: "#/components/responses/AdminStorageUnavailable"
   /api/upstreams/{upstream_id}/models/catalog:
     parameters:
       - $ref: "#/components/parameters/UpstreamId"
@@ -3345,6 +3392,20 @@ components:
         reason:
           type: [string, "null"]
           description: state 为 skipped 时固定为 catalog_sync_running。
+    UpstreamModelFetchInput:
+      type: object
+      required: [base_url, auth_style]
+      properties:
+        base_url:
+          type: string
+          maxLength: 2048
+          description: 与保存上游时相同的限制：不带凭据、查询串或片段；非开发模式下必须是 HTTPS 且不能指向私网或 loopback。
+        auth_style:
+          type: string
+          enum: [bearer, api_key]
+        api_key:
+          type: [string, "null"]
+          description: 只用于本次请求；即使上游返回失败也不会被存储或回显。缺省表示上游无需凭据。
     UpstreamModelImportInput:
       type: object
       required: [upstream_model_id, mode, model_id]
@@ -3649,8 +3710,8 @@ components:
           type: string
         outcome:
           type: string
-          enum: [created, exists]
-          description: 只创建缺失的系统模型；已存在的模型原样保留，不因路由规则占用名称而失败。
+          enum: [created, exists, conflict]
+          description: 只创建缺失的系统模型，已存在的模型原样保留；路由规则占用名称不再导致失败。`conflict` 只表示该 `source_model_id` 不在当前内嵌数据集里，该行被跳过且不影响其他行。
         reason:
           type: string
     Upstream:

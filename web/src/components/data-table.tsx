@@ -37,8 +37,13 @@ export function DataTable<T>({
   nextCursor?: string | null;
   onNext?: (cursor: string) => void;
   onPrevious?: () => void;
-  /** Row-level attributes, e.g. native HTML5 drag handlers for an ordered list. */
-  rowAttrs?: (row: T) => ComponentPropsWithoutRef<"tr"> | undefined;
+  /**
+   * Row-level attributes, e.g. native HTML5 drag handlers for an ordered list.
+   * `key` and `children` are excluded: React reads `key` from a spread props
+   * object after the explicit one, so allowing it would silently rekey rows and
+   * carry stale cell state across reloads.
+   */
+  rowAttrs?: (row: T) => Omit<ComponentPropsWithoutRef<"tr">, "key" | "children"> | undefined;
 }) {
   if (loading) return <Spinner label={`正在加载${caption}`} />;
   if (error) return <ErrorState message={error} onRetry={onRetry} />;
@@ -46,7 +51,7 @@ export function DataTable<T>({
   return (
     <>
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users must scroll wide tables. */}
-      <section className="table-scroll" aria-label={caption} tabIndex={0}>
+      <section className="table-scroll table-scroll-card" aria-label={caption} tabIndex={0}>
         <table>
           <caption className={captionHidden ? "visually-hidden" : undefined}>{caption}</caption>
           <thead>

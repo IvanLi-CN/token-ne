@@ -185,7 +185,7 @@ export default function OverviewPage() {
               {cores.data.instances.map((instance) => (
                 <article
                   key={instance.id}
-                  className="min-w-0 border-t border-[var(--border-quiet)] pt-4 first:border-t-0 first:pt-0"
+                  className="min-w-0 border-t border-[var(--border-quiet)] pt-4 sm:[&:nth-child(-n+2)]:border-t-0 sm:[&:nth-child(-n+2)]:pt-0 xl:[&:nth-child(-n+3)]:border-t-0 xl:[&:nth-child(-n+3)]:pt-0"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="font-semibold break-all">{instance.version}</h3>

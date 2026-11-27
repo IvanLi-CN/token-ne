@@ -479,7 +479,7 @@ export interface PriceSourceCatalog {
 export interface SourceModelInstall {
   source_model_id: string;
   model_id: string;
-  outcome: "created" | "exists";
+  outcome: "created" | "exists" | "conflict";
   reason?: string;
 }
 

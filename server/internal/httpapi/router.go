@@ -98,6 +98,7 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("DELETE /api/upstreams/{upstream_id}", a.protect(a.deleteUpstream))
 	m.HandleFunc("POST /api/upstreams/{upstream_id}/test", a.protect(a.testUpstream))
 	m.HandleFunc("POST /api/upstreams/models/sync", a.protect(a.syncAllUpstreamCatalogs))
+	m.HandleFunc("POST /api/upstreams/models/fetch", a.protect(a.fetchModelsFromInput))
 	m.HandleFunc("GET /api/upstreams/{upstream_id}/models/catalog", a.protect(a.upstreamCatalog))
 	m.HandleFunc("POST /api/upstreams/{upstream_id}/models/sync", a.protect(a.syncUpstreamCatalog))
 	m.HandleFunc("GET /api/upstreams/{upstream_id}/model-sync-runs/{run_id}", a.protect(a.upstreamCatalogRun))

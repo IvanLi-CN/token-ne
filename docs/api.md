@@ -27,7 +27,7 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 - `/api/version`：公开的 API 运行时版本、commit、构建时间和 `features.second_phase_model_management`；Web 页脚消费版本值，二期界面用它判定部署阶段。
 - `/api/models`：系统模型；`model_id` 是公开名，实体包含启用、计费和 `shutdown_date`，不含任何上游命名或映射字段。
 - `/api/model-routes`：模型名称路由规则；每条规则归属一个作用域（全局，或某个上游）并带作用域内顺序，规则解析到系统模型，支持精确和 Glob。另提供 `/api/model-routes/reorder` 一次性提交某作用域的新顺序。
-- `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 绑定集合。新增 `POST /api/upstreams/models/fetch`：按请求里的 `base_url`、`auth_style` 和可选 `api_key` 读取上游 `GET /v1/models`，返回 `{"data": ["模型名"]}`，不写库。
+- `/api/upstreams`：上游；`PUT` 原子替换该上游的 `models` 绑定集合。另有 `POST /api/upstreams/models/fetch`：按请求里的 `base_url`、`auth_style` 和可选 `api_key` 读取上游 `GET /v1/models`，返回 `{"data": ["模型名"]}`，不写库、不写审计、不回显密钥；未保存的新上游也能先取到候选。校验与保存上游相同（含私网限制），上游不可达或应答不合法返回 `502`，可重试。
 - `/api/upstreams/{id}/models/*` 提供目录查询、同步和绑定。
 - `/api/upstreams/{id}/model-policy`：该上游针对系统模型的默认动作、白名单和黑名单。
 - `/api/prices`、`/api/price-sources` 和 `/api/price-sync-runs` 提供上游价格覆盖查询、受控价格源和报价批次管理。
@@ -64,7 +64,8 @@ Chat、Responses 和 Embeddings 只解释 `model`、`stream`、`stream_options`�
 
 ## 模型路由 API
 
-- `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则；`POST /api/model-routes/reorder` 用 `{upstream_id, route_ids}` 一次提交某作用域的新顺序，任一条失败整段回滚。创建与更新的请求体不含 `position`：创建时服务端追加到该作用域末尾，更新时位置不变。
+- `GET/POST /api/model-routes` 列出或创建规则；`PUT/DELETE /api/model-routes/{route_id}` 更新或删除规则。创建与更新的请求体不能包含 `position` 或 `priority`，否则返回 `400 malformed_request` 并在 `details[].path` 指出该字段：顺序只由重排接口写入。创建时服务端追加到该作用域末尾，更新时位置不变；更新时改变 `upstream_id` 返回 `422`，因为作用域是规则身份的一部分。
+- `POST /api/model-routes/reorder` 用 `{upstream_id, route_ids}` 一次提交某作用域的新顺序，返回 `200 {"data": [...]}`，即该作用域重排后的完整列表。`route_ids` 必须恰好覆盖该作用域的全部规则各一次；空列表、重复 ID、非 UUID 或混入其他作用域的规则都返回 `422` 且 `details[].path` 指向 `route_ids`，整段回滚。
 - 规则字段为 `pattern`、`match_type`、`target_model_id`、作用域 `upstream_id`（空表示全局）、`position`、`enabled` 和描述。`glob` 与承接策略使用同一受限 Glob：只允许 `*` 与 `?`，区分大小写，方括号、花括号、反斜线和控制字符非法。`pattern` 不设机器唯一性约束：同作用域内允许重复或重叠，由 `position` 决定生效顺序；`pattern` 等于既有系统模型 ID 也不再视为冲突。
 - `POST /api/model-routes/preview` 接收一个请求模型名，返回解析后的系统模型、命中规则、候选上游和发往上游的模型 ID；解析顺序为上游作用域优先（按 `upstream_id` 升序逐个尝试）、再全局作用域、最后系统模型 ID 兜底；预览不产生配置变更。名称无法解析时仍返回 `200`，`resolved_model`、`matched_rule` 和 `rule_kind` 为 `null`，`candidates` 为空，不返回 `404`。
 - 创建时服务端在事务内取该作用域的行锁，把新规则追加到 `max(position)+1`（空作用域为 `0`），因此并发创建不会抢到同一个槽位。

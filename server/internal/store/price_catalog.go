@@ -42,8 +42,10 @@ type SourceModelInstall struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-// PriceSourceInstall is the batch result. Outcomes are created, exists and
-// conflict; a conflict leaves every other row untouched.
+// PriceSourceInstall is the batch result. Every requested row reports one
+// outcome, so the sum covers the whole batch: created, or exists when the global
+// model is already there. A row whose source ID is absent from the embedded
+// dataset reports conflict without touching any other row.
 type PriceSourceInstall struct {
 	SourceID string               `json:"source_id"`
 	Data     []SourceModelInstall `json:"data"`

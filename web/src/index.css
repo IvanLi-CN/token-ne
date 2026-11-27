@@ -411,12 +411,14 @@ kbd {
   gap: 16px 24px;
   padding: 20px 24px;
 }
-/* The action stays beside the title; only the copy wraps, so a long description
-   never pushes the button onto its own row. Scoped to a two-child heading: a
-   heading with a single child owns the whole row and must not be pushed right. */
+/* The action stays beside the title and only the copy shrinks, so a long
+   description never pushes the button onto its own row. The basis stays `auto`:
+   a fixed 20rem basis reserves 320px for the copy and makes the heading wrap
+   earlier than before, which is the opposite of the intent. Scoped to a
+   two-child heading: a heading with a single child owns the whole row. */
 .panel-heading > :first-child:not(:only-child) {
   min-width: 0;
-  flex: 1 1 20rem;
+  flex: 1 1 auto;
 }
 .panel-heading > :last-child:not(:only-child) {
   flex: 0 0 auto;
@@ -1222,15 +1224,18 @@ th {
   border-top: 1px solid var(--border-quiet);
   padding-top: 16px;
 }
-.surface-card .table-scroll,
-.morph-panel .table-scroll,
-.dialog-content .table-scroll {
+/* Only the DataTable wrapper carries this marker. A bare `.table-scroll`
+   descendant rule would also restyle standalone tables such as the overview
+   trend data, which is not a card and keeps its own frame. */
+.surface-card .table-scroll-card,
+.morph-panel .table-scroll-card,
+.dialog-content .table-scroll-card {
   border: 0;
   border-radius: 0;
   border-top: 1px solid var(--border-quiet);
 }
-.surface-card .table-scroll th,
-.dialog-content .table-scroll th {
+.surface-card .table-scroll-card th,
+.dialog-content .table-scroll-card th {
   background: transparent;
 }
 
