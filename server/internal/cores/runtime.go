@@ -17,6 +17,7 @@ import (
 	"github.com/IvanLi-CN/token-ne/server/internal/caddy"
 	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -41,11 +42,20 @@ type Runtime struct {
 	AllowPrivateUpstreams string
 	CurrentVersion        string
 	CurrentCommit         string
-	mu                    sync.Mutex
-	lifecycle             sync.Mutex
-	deployMu              sync.Mutex
-	currentMu             sync.Mutex
-	currentRetryAfter     time.Time
+	// Egress reconciles the stored egress proxy profiles against the Xray
+	// singleton. Nil disables the step: a deployment without the egress overlay
+	// must start normally with no Xray, so the wiring leaves this nil until a
+	// client is actually available.
+	Egress EgressReconciler
+	// EgressInterval is the reconcile period; zero uses the contract default.
+	EgressInterval time.Duration
+	// Master decrypts proxy credentials for the reconciler. Never logged.
+	Master            []byte
+	mu                sync.Mutex
+	lifecycle         sync.Mutex
+	deployMu          sync.Mutex
+	currentMu         sync.Mutex
+	currentRetryAfter time.Time
 }
 
 // Target is the client-supplied part of a core version registration. The image
@@ -90,6 +100,9 @@ type DrainRequest struct {
 }
 type PruneRequest struct {
 	Instances []string `json:"instance_ids"`
+	// Force deletes only the container and keeps the state directory until a
+	// zero observation confirms the spool is empty.
+	Force bool `json:"force"`
 }
 
 func (r *Runtime) Audit(ctx context.Context, actor, action, kind, id string, payload any) error {
@@ -310,6 +323,17 @@ func (r *Runtime) Admit(ctx context.Context, instances []instanceRow) ([]caddy.B
 			errorsSeen = append(errorsSeen, e)
 			continue
 		}
+		// The contract keeps a core that cannot enforce egress bindings out of the
+		// pool while the deployment holds a bound upstream, and records the
+		// reason: such a core would silently route direct.
+		proxyBound := snapshot.ProxyBound && !declaresFeature(status.Features, FeatureEgressProxy)
+		if proxyBound && i.Weight > 0 {
+			if err := r.recordEgressDenial(ctx, i.ID); err != nil {
+				errorsSeen = append(errorsSeen, err)
+			}
+			errorsSeen = append(errorsSeen, fmt.Errorf("%w: %s binds egress proxies but the core does not declare %s", ErrFeature, i.ID, FeatureEgressProxy))
+			continue
+		}
 		if e = r.applySnapshot(ctx, i, snapshot, status); e != nil {
 			errorsSeen = append(errorsSeen, e)
 			continue
@@ -334,6 +358,24 @@ func (r *Runtime) Admit(ctx context.Context, instances []instanceRow) ([]caddy.B
 		return ready, errors.Join(errorsSeen...)
 	}
 	return ready, nil
+}
+
+// declaresFeature reports whether a core's heartbeat/meta feature set contains
+// one capability.
+func declaresFeature(declared []string, name string) bool {
+	for _, f := range declared {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
+// recordEgressDenial persists why a core keeps no positive weight. It never
+// carries a proxy endpoint or credential.
+func (r *Runtime) recordEgressDenial(ctx context.Context, instance string) error {
+	_, e := r.database().Exec(ctx, `update core_instances set lifecycle_error='egress proxy bindings require the egress_proxy capability',updated_at=now() where id=$1`, instance)
+	return e
 }
 
 func (r *Runtime) applySnapshot(ctx context.Context, i instanceRow, s Snapshot, status Status) error {
@@ -412,7 +454,10 @@ func (r *Runtime) Heartbeat(ctx context.Context, id string, h Heartbeat) error {
 	}
 	var desired *int64
 	var expected *string
-	if e = tx.QueryRow(ctx, `select config_revision_desired,config_hash_desired from core_instances where id=$1`, id).Scan(&desired, &expected); e != nil {
+	var drainStarted *time.Time
+	var zeroAt, blockedAt *time.Time
+	if e = tx.QueryRow(ctx, `select config_revision_desired,config_hash_desired,draining_started_at,spool_zero_at,cleanup_blocked_at from core_instances where id=$1`, id).
+		Scan(&desired, &expected, &drainStarted, &zeroAt, &blockedAt); e != nil {
 		return e
 	}
 	var applied any
@@ -428,10 +473,26 @@ func (r *Runtime) Heartbeat(ctx context.Context, id string, h Heartbeat) error {
 	if draining {
 		state = "draining"
 	}
+	// A zero only proves the spool empty when the core reports it while draining
+	// with nothing in flight; a numeric zero from a serving instance says nothing
+	// about unflushed history. The first draining heartbeat establishes the drain
+	// anchor, and this observation necessarily post-dates it. Any later nonzero
+	// report invalidates an earlier proof, and a fresh proof lifts a cleanup
+	// block because that block is not terminal.
+	observedAt := time.Now().UTC()
+	if drainStarted == nil && draining {
+		drainStarted = &observedAt
+	}
+	if proof := spoolProof(drainStarted, h.Status, observedAt); proof != nil {
+		zeroAt, blockedAt = proof, nil
+	} else if h.Status.Spool.Unacked != nil && *h.Status.Spool.Unacked > 0 {
+		zeroAt = nil
+	}
 	_, e = tx.Exec(ctx, `update core_instances set state=case when state in ('draining','stopping','stopped','pruning','pruned','failed') then state else $2 end,inflight=$3,config_revision_applied=coalesce($4,config_revision_applied),last_controlled_at=coalesce($5,last_controlled_at),
  control_status=$6,observed_at=now(),heartbeat_sent_at=$7,last_heartbeat_at=now(),spool_bytes=$8,spool_unacked=$9,
- zero_samples=case when $3=0 then zero_samples+1 else 0 end,draining_started_at=case when state='draining' or $2='draining' then coalesce(draining_started_at,now()) else null end,
- lifecycle_error=case when lifecycle_error='reload Caddy DNS' then lifecycle_error else null end where id=$1`, id, state, inflight, applied, controlled, raw, h.SentAt, *h.Status.Spool.Bytes, *h.Status.Spool.Unacked)
+ zero_samples=case when $3=0 then zero_samples+1 else 0 end,draining_started_at=case when state='draining' or $2='draining' then coalesce(draining_started_at,now()) else draining_started_at end,
+ spool_zero_at=$10,cleanup_blocked_at=$11,
+ lifecycle_error=case when lifecycle_error in ('reload Caddy DNS',$12) then lifecycle_error else null end where id=$1`, id, state, inflight, applied, controlled, raw, h.SentAt, *h.Status.Spool.Bytes, *h.Status.Spool.Unacked, zeroAt, blockedAt, pruneLabelsError)
 	if e != nil {
 		return e
 	}
@@ -531,6 +592,7 @@ func (r *Runtime) Run(ctx context.Context) {
 	}
 	cancel()
 	go r.runCurrent(ctx)
+	go r.runEgress(ctx)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -548,8 +610,14 @@ func (r *Runtime) Run(ctx context.Context) {
 					slog.Warn("core control reconciliation failed", "operation", op.name, "error", e)
 				}
 			}
-
 			cancel()
+			// Destruction deletes a state directory through a Docker helper, so it
+			// gets a budget independent of the read-only reconciliation above.
+			pruneCtx, cancelPrune := context.WithTimeout(ctx, 2*time.Minute)
+			if e := r.autoPrune(pruneCtx); e != nil {
+				slog.Warn("core control reconciliation failed", "operation", "prune", "error", e)
+			}
+			cancelPrune()
 		}
 	}
 }
@@ -569,6 +637,151 @@ func (r *Runtime) runCurrent(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+// runEgress reconciles the egress proxy profiles against Xray on its own timer.
+// Xray is a Compose service the control plane never restarts, so a failed pass
+// is a logged result to retry, never a reason to touch the container.
+func (r *Runtime) runEgress(ctx context.Context) {
+	if r.Egress == nil {
+		return
+	}
+	interval := r.EgressInterval
+	if interval <= 0 {
+		interval = xray.DefaultReconcileInterval
+	}
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		// The first pass runs immediately: control-plane start and Xray restart
+		// both need the runtime rebuilt before the first interval elapses.
+		passCtx, cancel := context.WithTimeout(ctx, egressReconcileTimeout)
+		if err := r.ReconcileEgress(passCtx); err != nil {
+			slog.Warn("egress proxy reconciliation failed", "error", err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// egressReconcileTimeout bounds one pass. Xray applies a swap step per profile
+// with a 10-second call timeout, so the pass needs room for the whole set while
+// still ending before the next tick.
+const egressReconcileTimeout = 25 * time.Second
+
+// ReconcileEgress loads every profile with its decrypted credentials, asks the
+// Xray engine to apply the complete desired state, and persists the projection.
+// No credential, endpoint or server address reaches a log line or an audit row.
+func (r *Runtime) ReconcileEgress(ctx context.Context) error {
+	if r.Egress == nil {
+		return nil
+	}
+	profiles, e := r.DB.EgressProxies(ctx)
+	if e != nil {
+		return e
+	}
+	targets := make([]xray.Target, 0, len(profiles))
+	var failures []error
+	for _, p := range profiles {
+		credentials := xray.Credentials{}
+		raw, credErr := r.DB.EgressProxyCredential(ctx, p.ID, r.Master)
+		if credErr != nil && !errors.Is(credErr, store.ErrNotFound) {
+			failures = append(failures, fmt.Errorf("egress proxy %s credentials: %w", p.ID, credErr))
+			continue
+		}
+		if len(raw) > 0 {
+			if credErr = json.Unmarshal(raw, &credentials); credErr != nil {
+				failures = append(failures, fmt.Errorf("egress proxy %s credentials are not an object", p.ID))
+				continue
+			}
+		}
+		swapPhase := ""
+		if p.SwapPhase != nil {
+			swapPhase = *p.SwapPhase
+		}
+		targets = append(targets, xray.Target{
+			Desired: xray.Desired{
+				Profile: xray.Profile{ID: p.ID, Protocol: xray.Protocol(p.Protocol), Server: p.Server, Port: p.Port,
+					Transport: p.Transport, TLS: p.TLS, InboundPort: p.InboundPort, Enabled: p.Enabled,
+					RuntimeState: p.RuntimeState, SwapPhase: swapPhase},
+				Credentials: credentials,
+			},
+			PreviouslyEffectiveEnabled: p.Effective,
+		})
+	}
+
+	summary := r.Egress.StartupReconcile(ctx, targets)
+	if summary.Unreachable {
+		// One alerting line, not one per profile: Xray being down says nothing
+		// about any individual profile, and nothing here may restart it.
+		slog.Warn("xray api unreachable; egress profiles keep their previous state", "error", summary.Error)
+		if r.Metrics != nil {
+			r.Metrics.ObserveXrayReconcile("unreachable")
+		}
+		return errors.Join(failures...)
+	}
+	if r.Metrics != nil {
+		r.Metrics.ObserveXrayReconcile(xrayReconcileOutcome(summary))
+	}
+	for _, result := range summary.Results {
+		state := store.EgressProxyState{RuntimeState: result.RuntimeState(), LastError: optionalString(result.Error)}
+		if result.Phase != "" {
+			phase := result.Phase
+			state.SwapPhase = &phase
+		}
+		if e = r.DB.SetEgressProxyState(ctx, result.ProfileID, state, store.Audit{Actor: "system", Action: "egress_proxy.reconcile",
+			TargetType: "egress_proxy", TargetID: &result.ProfileID, Payload: egressAuditPayload(result)}); e != nil {
+			failures = append(failures, e)
+		}
+	}
+	// The gauge mirrors the persisted projection, not the desired state: Xray
+	// exposes no trustworthy per-profile counters, so reconcile is the source.
+	if r.Metrics != nil {
+		states := make(map[string]int, len(summary.Results))
+		for _, result := range summary.Results {
+			states[result.RuntimeState()]++
+		}
+		r.Metrics.ObserveEgressProxyStates(states)
+	}
+	if summary.Degraded() {
+		slog.Warn("egress proxy reconciliation degraded at least one profile", "profiles", len(summary.Results))
+	}
+	return errors.Join(failures...)
+}
+
+// egressAuditPayload records the audit-visible outcome. It carries tags, phase
+// and state only: an error string is bounded by the xray package to reason
+// text that never contains a credential.
+func egressAuditPayload(result xray.Result) json.RawMessage {
+	payload, _ := json.Marshal(struct {
+		Status  string `json:"status"`
+		Phase   string `json:"phase,omitempty"`
+		Written bool   `json:"written"`
+		Enabled bool   `json:"effective_enabled"`
+		Changed bool   `json:"effective_enabled_changed"`
+		Error   string `json:"error,omitempty"`
+	}{string(result.Status), result.Phase, result.Written, result.EffectiveEnabled, result.EffectiveEnabledChanged, result.Error})
+	return payload
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+// xrayReconcileOutcome folds one pass into the bounded result labels the metric
+// declares: a degraded profile is a rejection, everything else succeeded.
+func xrayReconcileOutcome(summary xray.Summary) string {
+	if summary.Degraded() {
+		return "rejected"
+	}
+	return "success"
 }
 
 func currentCoreAttemptContext(parent context.Context) (context.Context, context.CancelFunc) {
@@ -624,7 +837,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		}
 		byInstance[id] = c
 	}
-	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state,i.weight,i.deployment_id::text from core_instances i join core_versions v on v.id=i.version_id for update of i`)
+	rows, e := tx.Query(ctx, `select i.id::text,i.version_id::text,v.version,i.container_id,i.container_name,i.state,i.weight,i.deployment_id::text,i.cleanup_blocked_at is not null from core_instances i join core_versions v on v.id=i.version_id for update of i`)
 	if e != nil {
 		return e
 	}
@@ -633,11 +846,12 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		containerID                         *string
 		weight                              int
 		deploymentID                        *string
+		blocked                             bool
 	}
 	existingRows := []existing{}
 	for rows.Next() {
 		var v existing
-		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state, &v.weight, &v.deploymentID); e != nil {
+		if e = rows.Scan(&v.id, &v.versionID, &v.version, &v.containerID, &v.name, &v.state, &v.weight, &v.deploymentID, &v.blocked); e != nil {
 			rows.Close()
 			return e
 		}
@@ -758,7 +972,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		if c.Labels[VersionLabel] != version {
 			return ErrConflict
 		}
-		if shouldRestart(state, c.State) {
+		if shouldRestart(state, c.State, row.blocked) {
 			if _, e = tx.Exec(ctx, `update core_instances set state='pending',config_revision_applied=null,last_controlled_at=null,lifecycle_error='reload Caddy DNS' where id=$1`, id); e != nil {
 				return e
 			}
@@ -771,7 +985,11 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		if c.State == "running" {
 			desired = "running"
 		}
-		if _, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state=case when state in ('draining','stopping','pruning','pruned','failed') then state else $4 end,updated_at=now(),lifecycle_error=case when lifecycle_error='reload Caddy DNS' then lifecycle_error else nullif($5,'') end where id=$1`, id, containerID, name, desired, c.Status); e != nil {
+		// Reconciliation owns lifecycle_error for container state, but must not
+		// erase two markers it did not produce: the pending Caddy DNS reload and
+		// the alertable labels-incomplete retention.
+		if _, e = tx.Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080',state=case when state in ('draining','stopping','pruning','pruned','failed') then state else $4 end,updated_at=now(),
+ lifecycle_error=case when lifecycle_error in ('reload Caddy DNS',$5) then lifecycle_error else nullif($6,'') end where id=$1`, id, containerID, name, desired, pruneLabelsError, c.Status); e != nil {
 			rows.Close()
 			return e
 		}

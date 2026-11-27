@@ -35,12 +35,9 @@ func TestMigrationsCompile(t *testing.T) {
 		text := string(b)
 		allSQL.WriteString(text)
 		up := strings.Split(strings.Split(text, "-- +goose Up")[1], "-- +goose Down")[0]
-		up = regexp.MustCompile(`(?m)^\s*--.*$`).ReplaceAllString(up, "")
 		mock.ExpectBegin()
-		for _, stmt := range strings.Split(up, ";") {
-			if strings.TrimSpace(stmt) != "" {
-				mock.ExpectExec("(?s)" + regexp.QuoteMeta(strings.TrimSpace(stmt))).WillReturnResult(driver.RowsAffected(0))
-			}
+		for _, stmt := range splitMigrationStatements(up) {
+			mock.ExpectExec("(?s)" + regexp.QuoteMeta(stmt)).WillReturnResult(driver.RowsAffected(0))
 		}
 		mock.ExpectCommit()
 	}
@@ -58,5 +55,38 @@ func TestMigrationsCompile(t *testing.T) {
 	}
 	if !strings.Contains(ddl, "on delete restrict") || !strings.Contains(ddl, "on delete cascade") {
 		t.Fatal("foreign key delete behavior missing")
+	}
+}
+
+// splitMigrationStatements mirrors goose's handling of StatementBegin/End:
+// a dollar-quoted function body contains semicolons and must stay one statement.
+func splitMigrationStatements(up string) []string {
+	var out []string
+	add := func(block string) {
+		block = regexp.MustCompile(`(?m)^\s*--.*$`).ReplaceAllString(block, "")
+		for _, stmt := range strings.Split(block, ";") {
+			if stmt = strings.TrimSpace(stmt); stmt != "" {
+				out = append(out, stmt)
+			}
+		}
+	}
+	for {
+		start := strings.Index(up, "-- +goose StatementBegin")
+		if start < 0 {
+			add(up)
+			return out
+		}
+		add(up[:start])
+		rest := up[start+len("-- +goose StatementBegin"):]
+		end := strings.Index(rest, "-- +goose StatementEnd")
+		if end < 0 {
+			add(rest)
+			return out
+		}
+		stmt := regexp.MustCompile(`(?m)^\s*--.*$`).ReplaceAllString(rest[:end], "")
+		if stmt = strings.TrimSpace(stmt); stmt != "" {
+			out = append(out, stmt)
+		}
+		up = rest[end+len("-- +goose StatementEnd"):]
 	}
 }

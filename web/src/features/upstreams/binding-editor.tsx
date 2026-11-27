@@ -29,8 +29,11 @@ function Combo({
   const listId = `${id}-list`;
   const [open, setOpen] = useState(false);
   const shown = value.trim().toLowerCase();
+  // A binding row can carry an empty upstream ID while the owner is still typing
+  // it, so filtering must tolerate a blank value instead of throwing on the whole
+  // drawer.
   const matches = shown
-    ? options.filter((option) => option.value.toLowerCase().includes(shown))
+    ? options.filter((option) => (option.value ?? "").toLowerCase().includes(shown))
     : options;
   return (
     <div className="field relative min-w-0 flex-1">

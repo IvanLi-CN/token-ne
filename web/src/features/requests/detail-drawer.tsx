@@ -5,7 +5,7 @@ import { Button, ErrorState, Spinner } from "../../components/primitives";
 import { queryKeys } from "../../lib/query-client";
 import { displayMoney, displayMs, displayNumber, displayTime } from "../overview/usage";
 import { requestsApi } from "./api";
-import { RequestStatus } from "./presentation";
+import { egressLabel, RequestStatus } from "./presentation";
 
 // Only map structured error classes to local text. Upstream messages can contain private data.
 const errorSummaries: Record<string, string> = {
@@ -24,7 +24,6 @@ const errorSummaries: Record<string, string> = {
 function errorSummary(code?: string | null) {
   return code && Object.hasOwn(errorSummaries, code) ? errorSummaries[code] : "—";
 }
-
 function Details({ title, rows }: { title: string; rows: [string, ReactNode][] }) {
   return (
     <section className="border-t border-[var(--border-quiet)] pt-4 first:border-t-0 first:pt-0">
@@ -100,6 +99,7 @@ export function RequestDrawer({
                       ["请求模型", row.requested_model],
                       ["上游模型", row.upstream_model],
                       ["上游标识", row.upstream_id],
+                      ["出站方式", egressLabel(row)],
                       ["请求模式", row.stream == null ? "—" : row.stream ? "流式" : "非流式"],
                     ]}
                   />
@@ -116,6 +116,9 @@ export function RequestDrawer({
                     title="用量"
                     rows={[
                       ["输入 Token", displayNumber(row.input_tokens)],
+                      ["缓存写入 Token", displayNumber(row.cache_write_tokens)],
+                      ["音频输入 Token", displayNumber(row.audio_input_tokens)],
+                      ["音频输出 Token", displayNumber(row.audio_output_tokens)],
                       ["缓存输入 Token", displayNumber(row.cached_input_tokens)],
                       ["输出 Token", displayNumber(row.output_tokens)],
                       ["推理 Token", displayNumber(row.reasoning_tokens)],

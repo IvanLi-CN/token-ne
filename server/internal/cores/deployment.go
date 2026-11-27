@@ -537,7 +537,9 @@ func (r *Runtime) stopInstance(ctx context.Context, i instanceRow) error {
 			return errors.Join(e, persistErr)
 		}
 	}
-	_, e := r.database().Exec(ctx, `update core_instances set state='stopped',updated_at=now() where id=$1`, i.ID)
+	// stopped_at anchors the automatic-destruction grace window. A later
+	// observation or a re-stop never rewrites the first stop.
+	_, e := r.database().Exec(ctx, `update core_instances set state='stopped',stopped_at=coalesce(stopped_at,now()),updated_at=now() where id=$1`, i.ID)
 	return e
 }
 
@@ -585,54 +587,66 @@ func (r *Runtime) Drain(ctx context.Context, id, actor string, force bool, reaso
 	return r.Audit(ctx, actor, "core.instance.drain", "core_instance", id, map[string]any{"force": force, "reason": reason, "spool_unacked": row.Spool})
 }
 
-func (r *Runtime) Prune(ctx context.Context, actor string, ids []string) error {
+func (r *Runtime) Prune(ctx context.Context, actor string, ids []string, force bool) error {
 	if len(ids) == 0 {
 		return ErrInvalid
 	}
+	r.deployMu.Lock()
+	defer r.deployMu.Unlock()
 	for _, id := range ids {
 		if !UUID(id, false) {
 			return ErrInvalid
 		}
-		var row instanceRow
-		row, e := scanInstance(r.database().QueryRow(ctx, instanceSelect+` where i.id=$1`, id))
+		c, e := scanPruneCandidate(r.database().QueryRow(ctx, pruneCandidateSelect+` where i.id=$1`, id))
 		if errors.Is(e, pgx.ErrNoRows) {
 			return ErrUnknown
 		}
 		if e != nil {
 			return e
 		}
-		if !canPrune(row) {
+		if c.State == "pruned" {
+			continue
+		}
+		if c.State != "stopped" || c.Weight != 0 {
 			return ErrConflict
 		}
-		tx, e := r.database().Begin(ctx)
-		if e != nil {
-			return e
-		}
-		tag, claimErr := tx.Exec(ctx, `update core_instances set state='pruning' where id=$1 and state='stopped' and weight=0 and spool_unacked=0`, id)
-		if claimErr != nil || tag.RowsAffected() != 1 {
-			tx.Rollback(ctx)
-			return errors.Join(ErrConflict, claimErr)
-		}
-		if e = tx.Commit(ctx); e != nil {
-			return e
-		}
-		if row.ContainerID != nil {
-			if e = r.Docker.Remove(ctx, *row.ContainerID, false); e != nil {
-				_, persistErr := r.database().Exec(ctx, `update core_instances set state='failed',lifecycle_error=$2 where id=$1`, id, e.Error())
-				return errors.Join(e, persistErr)
+		proof := manualZeroProof(c)
+		if force {
+			if e = r.forcePrune(ctx, actor, c, proof); e != nil {
+				return e
 			}
+			continue
 		}
-		// The API container intentionally has no host state-directory mount.
-		// Prune removes the stopped container and retains the host directory.
-
-		if _, e = r.database().Exec(ctx, `update core_instances set state='pruned',updated_at=now() where id=$1`, id); e != nil {
-			return e
+		if !proof {
+			return ErrSpoolNotDrained
 		}
-		if e = r.Audit(ctx, actor, "core.instance.prune", "core_instance", id, map[string]any{"spool_unacked": *row.Spool, "last_ack_seq": row.Ack}); e != nil {
+		if e = r.destroyInstance(ctx, actor, c, time.Now().UTC(), false); e != nil {
 			return e
 		}
 	}
 	return nil
+}
+
+// forcePrune deletes only the container and keeps the state directory until a
+// zero observation confirms the spool is empty. It is the single exception to
+// the zero-proof rule, and the audit records that the directory was retained.
+// When the proof is already present the instance is destroyed normally, so the
+// explicit flag never wastes the retained directory.
+func (r *Runtime) forcePrune(ctx context.Context, actor string, c pruneCandidate, proof bool) error {
+	if proof {
+		return r.destroyInstance(ctx, actor, c, time.Now().UTC(), false)
+	}
+	if c.ContainerID != nil {
+		if e := r.Docker.Remove(ctx, *c.ContainerID, false); e != nil {
+			return e
+		}
+	}
+	if _, e := r.database().Exec(ctx, `update core_instances set container_id=null,
+ lifecycle_error='force prune removed container; state directory retained until spool zero',updated_at=now() where id=$1`, c.ID); e != nil {
+		return e
+	}
+	return r.Audit(ctx, actor, "core.instance.prune", "core_instance", c.ID, map[string]any{
+		"force": true, "automatic": false, "spool_unacked": c.Spool, "last_ack_seq": c.Ack, "state_dir_removed": false})
 }
 
 func deploymentList(ctx context.Context, r *Runtime) ([]Deployment, error) {
@@ -701,13 +715,35 @@ func (r *Runtime) restoreBaseline(ctx context.Context, p progress, instances []i
 				}
 			}
 			if i.State == "stopped" || i.State == "failed" {
-				if i.ContainerID == nil {
-					return ErrConflict
+				// The instance returns to service, so its drain anchor, spool proof
+				// and cleanup block describe a previous life and must not survive
+				// the revival.
+				if _, e := r.database().Exec(ctx, `update core_instances set draining_started_at=null,spool_zero_at=null,cleanup_blocked_at=null where id=$1`, id); e != nil {
+					return e
+				}
+				// Rollback branches on state-directory existence, not container
+				// existence: a retained directory is reused and replayed even when
+				// a forced prune removed the container, while a fresh directory is
+				// created only after the original was confirmed destroyed (which
+				// implies a confirmed spool zero).
+				exists, e := r.Docker.StateDirExists(ctx, r.StateHostDir, id)
+				if e != nil {
+					return e
+				}
+				if !exists {
+					if e = r.Docker.EnsureStateDir(ctx, r.StateHostDir, id); e != nil {
+						return e
+					}
 				}
 				if _, e := r.database().Exec(ctx, `update core_instances set state='pending',weight=0,config_revision_applied=null,last_controlled_at=null where id=$1`, id); e != nil {
 					return e
 				}
-				if e := r.Docker.Start(ctx, *i.ContainerID); e != nil {
+				if i.ContainerID != nil {
+					e = r.Docker.Start(ctx, *i.ContainerID)
+				} else {
+					e = r.restoreContainer(ctx, i)
+				}
+				if e != nil {
 					return e
 				}
 				return ErrConflict // reconciliation and heartbeats must warm it before restoring traffic
@@ -718,4 +754,40 @@ func (r *Runtime) restoreBaseline(ctx context.Context, p progress, instances []i
 		}
 	}
 	return nil
+}
+
+// restoreContainer recreates a retained instance's container from its recorded
+// image identity so a compatible core can replay the preserved state directory.
+func (r *Runtime) restoreContainer(ctx context.Context, i instanceRow) error {
+	var image string
+	var digest *string
+	if e := r.database().QueryRow(ctx, `select image_ref,image_digest from core_versions where id=$1`, i.VersionID).Scan(&image, &digest); e != nil {
+		return e
+	}
+	ref, e := ParseImageReference(image)
+	if e != nil {
+		if image, e = VersionImageRef(r.CoreImage, i.Version, digest); e != nil {
+			return e
+		}
+	} else if digest != nil && ref.Digest == "" {
+		image = ref.WithDigest(*digest).String()
+	}
+	var deployment string
+	if i.Deployment != nil {
+		deployment = *i.Deployment
+	}
+	spec := ContainerSpec{Instance: i.ID, Version: i.Version, Deployment: deployment, Name: i.Name, Image: image,
+		Project: r.Project, Networks: r.Networks, StateHostDir: r.StateHostDir, ControlURL: r.CoreURL, Token: r.Token,
+		SigningKey: r.SigningKey, SignatureMode: r.SignatureMode, CacheKey: r.CacheKey, AllowPrivateUpstreams: r.AllowPrivateUpstreams}
+	if i.Name == "" {
+		spec.Name = "token-ne-core-" + slug(i.Version) + "-" + i.ID[:8]
+	}
+	container, e := r.Docker.Create(ctx, spec)
+	if e != nil {
+		return e
+	}
+	if _, e = r.database().Exec(ctx, `update core_instances set container_id=$2,container_name=$3,address=$3||':8080' where id=$1`, i.ID, container.ID, spec.Name); e != nil {
+		return e
+	}
+	return r.Docker.Start(ctx, container.ID)
 }

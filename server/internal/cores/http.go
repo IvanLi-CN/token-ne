@@ -475,7 +475,11 @@ func (h *HTTP) prune(w http.ResponseWriter, r *http.Request) {
 	actor, _ := httpapi.AdminActor(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	if e := h.Runtime.Prune(ctx, actor, input.Instances); e != nil {
+	if e := h.Runtime.Prune(ctx, actor, input.Instances, input.Force); e != nil {
+		if errors.Is(e, ErrSpoolNotDrained) {
+			writeAdminError(w, 409, "spool_not_drained", e.Error())
+			return
+		}
 		mapAdmin(w, e)
 		return
 	}

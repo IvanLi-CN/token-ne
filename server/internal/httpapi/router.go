@@ -29,6 +29,10 @@ type API struct {
 	loginMu    sync.Mutex
 	attempts   map[string]loginWindow
 	loginSlots chan struct{}
+	// egress holds the injectable edges of the egress proxy surface. The zero
+	// value is the production wiring: Docker network check and a probe through
+	// the profile's internal SOCKS5 inbound port.
+	egress EgressOptions
 }
 type loginWindow struct {
 	count int
@@ -51,6 +55,14 @@ type adminError struct {
 // NewRouter accepts a repository interface so handlers can be verified without PostgreSQL.
 func NewRouter(cfg config.Config, repo store.Repository) http.Handler {
 	a := newAPI(cfg, repo)
+	return newRouter(cfg, repo, a, nil)
+}
+
+// NewRouterWithEgress builds the management router with explicit egress proxy
+// wiring, so tests can replace the Docker network check and the probe transport.
+func NewRouterWithEgress(cfg config.Config, repo store.Repository, egress EgressOptions) http.Handler {
+	a := newAPI(cfg, repo)
+	a.egress = egress
 	return newRouter(cfg, repo, a, nil)
 }
 
@@ -117,6 +129,12 @@ func newRouter(cfg config.Config, repo store.Repository, a *API, registry *metri
 	m.HandleFunc("DELETE /api/downstream-keys/{key_id}", a.protect(a.deleteKey))
 	m.HandleFunc("POST /api/downstream-keys/{key_id}/rotate", a.protect(a.rotateKey))
 	m.HandleFunc("GET /api/audit", a.protect(a.listAudit))
+	m.HandleFunc("GET /api/egress-proxies", a.protect(a.egressProxies))
+	m.HandleFunc("POST /api/egress-proxies", a.protect(a.saveEgressProxy))
+	m.HandleFunc("GET /api/egress-proxies/{proxy_id}", a.protect(a.egressProxy))
+	m.HandleFunc("PUT /api/egress-proxies/{proxy_id}", a.protect(a.saveEgressProxy))
+	m.HandleFunc("DELETE /api/egress-proxies/{proxy_id}", a.protect(a.deleteEgressProxy))
+	m.HandleFunc("POST /api/egress-proxies/{proxy_id}/test", a.protect(a.testEgressProxy))
 	m.HandleFunc("GET /api/data-plane-settings", a.protect(a.dataPlaneSettings))
 	m.HandleFunc("PUT /api/data-plane-settings", a.protect(a.saveDataPlaneSettings))
 	for _, register := range registrars {

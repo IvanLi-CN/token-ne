@@ -312,24 +312,17 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 	})
 
 	t.Run("billing revision completion", func(t *testing.T) {
-		// 00007 enforces the pointer; a model without a revision must be rejected.
-		_, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok) values($1,0.75)", modelD)
-		requirePgErrorCode(t, e, "23502")
-		revisionD := uuid.NewString()
-		if _, e = s.Pool.Exec(ctx, `
-insert into price_revisions (id, model_id, upstream_id, input_usd_per_mtok, cached_input_usd_per_mtok, output_usd_per_mtok, source, locked, scope)
-values ($1, $2, null, 0.75, null, null, 'manual', false, 'global')`, revisionD, modelD); e != nil {
-			t.Fatalf("insert billing revision: %v", e)
-		}
-		if _, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok,billing_revision_id) values($1,0.75,$2)", modelD, revisionD); e != nil {
-			t.Fatalf("insert model with billing revision: %v", e)
+		// 00007's trigger supplies the pointer for a phase-one insert, so the
+		// NOT NULL invariant holds without breaking rolling writers.
+		if _, e = s.Pool.Exec(ctx, "insert into models(model_id,input_usd_per_mtok) values($1,0.75)", modelD); e != nil {
+			t.Fatalf("insert model without revision: %v", e)
 		}
 		var revisionID, price string
 		if e = s.Pool.QueryRow(ctx, `select m.billing_revision_id::text, r.input_usd_per_mtok::text from models m join price_revisions r on r.id = m.billing_revision_id where m.model_id = $1`, modelD).Scan(&revisionID, &price); e != nil {
 			t.Fatalf("model %s billing revision after completion: %v", modelD, e)
 		}
-		if revisionID != revisionD || price != "0.750000" {
-			t.Fatalf("model %s billing revision %q price %q, want %q with price 0.750000", modelD, revisionID, price, revisionD)
+		if revisionID == "" || price != "0.750000" {
+			t.Fatalf("model %s billing revision %q price %q, want non-empty revision with price 0.750000", modelD, revisionID, price)
 		}
 	})
 

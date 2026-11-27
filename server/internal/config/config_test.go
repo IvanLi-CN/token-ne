@@ -17,6 +17,26 @@ func TestLoad(t *testing.T) {
 	if c, _ := Load(); !c.StreamUsageInjection {
 		t.Fatal("stream usage injection must default to enabled")
 	}
+	if c, _ := Load(); c.XrayProxyPortMin != 15000 || c.XrayProxyPortMax != 15999 {
+		t.Fatalf("xray proxy port defaults: %d-%d", c.XrayProxyPortMin, c.XrayProxyPortMax)
+	}
+	t.Setenv("XRAY_PROXY_PORT_MIN", "20000")
+	t.Setenv("XRAY_PROXY_PORT_MAX", "20009")
+	if c, e := Load(); e != nil || c.XrayProxyPortMin != 20000 || c.XrayProxyPortMax != 20009 {
+		t.Fatalf("xray proxy port env: %+v %v", c, e)
+	}
+	if c, _ := Load(); c.XrayAPIURL != "10.42.0.10:10085" || c.XrayReconcileIntervalSeconds != 30 {
+		t.Fatalf("xray api defaults: %q %d", c.XrayAPIURL, c.XrayReconcileIntervalSeconds)
+	}
+	t.Setenv("XRAY_API_URL", "xray-control:10085")
+	t.Setenv("XRAY_RECONCILE_INTERVAL_SECONDS", "5")
+	if c, e := Load(); e != nil || c.XrayAPIURL != "xray-control:10085" || c.XrayReconcileIntervalSeconds != 5 {
+		t.Fatalf("xray api env: %+v %v", c, e)
+	}
+	t.Setenv("XRAY_API_URL", "")
+	t.Setenv("XRAY_RECONCILE_INTERVAL_SECONDS", "")
+	t.Setenv("XRAY_PROXY_PORT_MIN", "")
+	t.Setenv("XRAY_PROXY_PORT_MAX", "")
 	t.Setenv("STREAM_USAGE_INJECTION", "false")
 	if c, _ := Load(); c.StreamUsageInjection {
 		t.Fatal("STREAM_USAGE_INJECTION=false was ignored")
@@ -33,7 +53,7 @@ func TestLoad(t *testing.T) {
 	if c, _ := Load(); c.SecondPhaseModelManagement {
 		t.Fatal("SECOND_PHASE_MODEL_MANAGEMENT=false was ignored")
 	}
-	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}, {"STREAM_USAGE_INJECTION", "maybe"}, {"SECOND_PHASE_MODEL_MANAGEMENT", "maybe"}} {
+	for _, tc := range []struct{ k, v string }{{"MASTER_KEY", "bad"}, {"PUBLIC_ORIGIN", "https://example.com/path"}, {"DATABASE_URL", "file:///tmp/db"}, {"SESSION_SECRET", "short"}, {"METRICS_TOKEN", ""}, {"CORE_CONTROL_TOKEN", "short"}, {"ALLOW_PRIVATE_UPSTREAMS", "maybe"}, {"HTTP_LISTEN", "bad"}, {"STREAM_USAGE_INJECTION", "maybe"}, {"SECOND_PHASE_MODEL_MANAGEMENT", "maybe"}, {"XRAY_PROXY_PORT_MIN", "1023"}, {"XRAY_PROXY_PORT_MAX", "70000"}, {"XRAY_PROXY_PORT_MIN", "none"}, {"XRAY_API_URL", "no-port"}, {"XRAY_API_URL", "xray:70000"}, {"XRAY_RECONCILE_INTERVAL_SECONDS", "1"}, {"XRAY_RECONCILE_INTERVAL_SECONDS", "3601"}, {"XRAY_RECONCILE_INTERVAL_SECONDS", "none"}} {
 		t.Run(tc.k, func(t *testing.T) {
 			t.Setenv(tc.k, tc.v)
 			if _, e := Load(); e == nil {

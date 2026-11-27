@@ -403,7 +403,7 @@ Idempotency-Key: <batch_id>
 - `resolved_model` 可空但非空时至少包含一个字符；存在时表示名称路由后的全局 Model ID，由生产该事件的核心按自己应用的快照写入。第一期和本地模型错误事件可以省略；第二期成功解析且选中上游的事件必须记录 `requested_model`、`resolved_model`、`upstream_model` 和 `upstream_id`。控制面不得因 `resolved_model` 不是当前配置中的 Model ID 而拒绝或丢弃事件：它按当前配置解析，无法匹配时只记录告警，费用模型归属回退到 `requested_model`。价格修订 ID 由控制面在摄入时关联，不能假设核心产生该 ID。
 - `egress_mode` 只允许 `direct` 或 `proxy`。第二期成功路由并选中上游的事件必须记录 `egress_mode`（`proxy` 时同时记录 `egress_proxy_id`）；schema 与摄入只对第一期事件和未发起任何尝试的本地错误事件容忍省略。`egress_mode=proxy` 时 `egress_proxy_id` 必须为非空 UUID；`direct` 时必须缺失或为 `null`；`egress_proxy_id` 非空时 `egress_mode` 必须为 `proxy`。该对字段记录产生终态的那次尝试的出口：同一请求跨直连与代理候选重试时只记录终态尝试的出口，控制面不得据此推断所有尝试都未经直连。`attempt_count=0` 且未发起任何上游尝试的本地错误事件必须同时省略这两个字段；schema 与摄入校验都拒绝这类事件携带出站归因。代理档案 ID 是历史归因，不要求仍存在于当前配置；删除代理档案或改绑不重写历史事件。控制面不得因未知 `egress_proxy_id` 拒绝或丢弃事件，只记录告警。
 - `input_tokens + output_tokens` 与 `total_tokens` 不一致时，以明细为准并记录告警。
-- `cached_input_tokens`、`cache_write_tokens`、`audio_input_tokens` 是输入明细：包含在 `input_tokens` 内时按子集计费；三者之和大于 `input_tokens` 时视为独立计数（部分 OpenAI 兼容网关按上游原语义上报），控制面按总和计费并记录告警，不因此拒绝事件。`audio_output_tokens`、`reasoning_tokens` 与 `output_tokens` 同理。
+- `cached_input_tokens`、`cache_write_tokens`、`audio_input_tokens` 是输入明细：包含在 `input_tokens` 内时按子集计费；三者之和大于 `input_tokens` 时视为独立计数（部分 OpenAI 兼容网关按上游原语义上报），控制面按总和计费并记录告警，不因此拒绝事件。核心必须先把 Anthropic 形状的 `input_tokens`（不含 `cache_read_input_tokens`/`cache_creation_input_tokens`）归一化为包含这些明细的总量，再上报。`audio_output_tokens`、`reasoning_tokens` 与 `output_tokens` 同理。
 - `ttft_ms` 由核心保证：`stream=false` 时必须为空；`stream=true` 时可为空（未观测到语义增量）。控制面只校验此可观察约束。
 - `status_rewritten_from` 只在确实发生状态码改写且存在真实上游 HTTP 状态时非空；非空时 `http_status` 必须与它不同且在 100 到 599 之间。连接/DNS/TLS/超时等无上游响应的情况必须为 `null`；控制面不重新执行改写策略。
 

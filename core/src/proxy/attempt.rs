@@ -1,5 +1,5 @@
 use super::{commit::UpstreamBody, upstream};
-use crate::config::{ErrorClass, Upstream, ValidationOptions};
+use crate::config::{EgressProxy, ErrorClass, Upstream, ValidationOptions};
 use axum::{
     body::Bytes,
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -50,6 +50,13 @@ impl Failure {
     }
 }
 
+/// 一次尝试的目标上游与它绑定的可用出站代理。
+#[derive(Clone, Copy)]
+pub(super) struct Route<'a> {
+    pub upstream: &'a Upstream,
+    pub proxy: Option<&'a EgressProxy>,
+}
+
 pub(super) struct UpstreamResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
@@ -57,7 +64,7 @@ pub(super) struct UpstreamResponse {
 }
 
 pub(super) async fn send(
-    target: &Upstream,
+    route: Route<'_>,
     options: &ValidationOptions,
     uri: &axum::http::Uri,
     incoming: &HeaderMap,
@@ -65,6 +72,10 @@ pub(super) async fn send(
     bytes: Bytes,
     deadline: Instant,
 ) -> Result<UpstreamResponse, Failure> {
+    let Route {
+        upstream: target,
+        proxy,
+    } = route;
     timeout_at(deadline, async {
         let url = upstream::target_url(target, uri.path(), uri.query(), options)
             .map_err(|_| Failure::fixed(StatusCode::BAD_GATEWAY, PROTOCOL_ERROR))?;
@@ -75,12 +86,18 @@ pub(super) async fn send(
             HeaderValue::from(bytes.len()),
         );
         let connect = Duration::from_millis(target.connect_timeout_ms.unwrap_or(10_000));
-        let client = timeout(connect, upstream::client_for(target, options))
+        // 直连在构造客户端时解析并固定地址；代理只解析 Xray 端点，上游域名留给隧道。
+        let client = timeout(connect, upstream::client_for(target, proxy, options))
             .await
             .map_err(|_| Failure::transport(ErrorClass::DnsError))?
-            .map_err(|error| match error.0.as_str() {
-                "upstreams.dns" => Failure::transport(ErrorClass::DnsError),
-                _ => Failure::fixed(StatusCode::BAD_GATEWAY, PROTOCOL_ERROR),
+            .map_err(|error| {
+                if proxy.is_some() {
+                    Failure::transport(ErrorClass::ConnectError)
+                } else if error.0 == "upstreams.dns" {
+                    Failure::transport(ErrorClass::DnsError)
+                } else {
+                    Failure::fixed(StatusCode::BAD_GATEWAY, PROTOCOL_ERROR)
+                }
             })?;
 
         // A non-clonable body prevents the HTTP client replaying the POST on protocol NACKs.

@@ -270,6 +270,7 @@ func validateDataset(d Dataset) error {
 		return errors.New("price source note is required")
 	}
 	seen := map[string]bool{}
+	targets := map[string]string{}
 	for _, m := range d.Models {
 		if !validText(m.SourceModelID, 256) {
 			return errors.New("price source model id must be 1 to 256 characters")
@@ -278,6 +279,10 @@ func validateDataset(d Dataset) error {
 			return errors.New("price source contains a duplicate source_model_id: " + m.SourceModelID)
 		}
 		seen[m.SourceModelID] = true
+		if previous, ok := targets[m.TargetModelID()]; ok {
+			return errors.New("price source maps two rows to the same target model: " + m.TargetModelID() + " (" + previous + ", " + m.SourceModelID + ")")
+		}
+		targets[m.TargetModelID()] = m.SourceModelID
 		if m.ExplicitModelID != nil && !validText(*m.ExplicitModelID, 256) {
 			return errors.New("price source explicit_model_id must be 1 to 256 characters")
 		}
@@ -330,13 +335,14 @@ func generateQuotes(d Dataset, targets []Target) []Quote {
 			q.SourceModelID = new(chosen[0].SourceModelID)
 			q.MatchMethod = method
 			same := samePrices(chosen)
+			proposed := mergeBilling(t.Current, chosen[0].billing())
 			if same {
-				q.Proposed = new(chosen[0].billing())
+				q.Proposed = &proposed
 			}
 			switch {
 			case !same:
 				q.Status = StatusConflict
-			case sameBilling(t.Current, chosen[0].billing()):
+			case sameBilling(t.Current, proposed):
 				q.Status = StatusIgnored
 			case t.Locked:
 				q.Status = StatusConflict
@@ -353,13 +359,14 @@ func generateQuotes(d Dataset, targets []Target) []Quote {
 			q.SourceModelID = new(normalized[0].SourceModelID)
 			q.MatchMethod = MatchNormalized
 			same := samePrices(normalized)
+			proposed := mergeBilling(t.Current, normalized[0].billing())
 			if same {
-				q.Proposed = new(normalized[0].billing())
+				q.Proposed = &proposed
 			}
 			switch {
 			case !same:
 				q.Status = StatusConflict
-			case sameBilling(t.Current, normalized[0].billing()):
+			case sameBilling(t.Current, proposed):
 				q.Status = StatusIgnored
 			case t.Locked:
 				q.Status = StatusConflict
@@ -485,6 +492,36 @@ func samePrice(a, b *float64) bool {
 		return a == nil && b == nil
 	}
 	return math.Round(*a*1e6) == math.Round(*b*1e6)
+}
+
+// mergeBilling fills dimensions the source leaves unknown with the current
+// profile. A quote must never turn a configured rate into "unknown" merely
+// because one dataset row omitted that dimension; an explicit source value
+// (including zero) still wins, and a non-empty tier ladder replaces the base.
+func mergeBilling(current *Billing, proposed Billing) Billing {
+	if current == nil {
+		return proposed
+	}
+	pick := func(next, cur *float64) *float64 {
+		if next != nil {
+			return next
+		}
+		return cur
+	}
+	out := Billing{
+		Input:      pick(proposed.Input, current.Input),
+		Cached:     pick(proposed.Cached, current.Cached),
+		CacheWrite: pick(proposed.CacheWrite, current.CacheWrite),
+		AudioIn:    pick(proposed.AudioIn, current.AudioIn),
+		AudioOut:   pick(proposed.AudioOut, current.AudioOut),
+		Reasoning:  pick(proposed.Reasoning, current.Reasoning),
+		Output:     pick(proposed.Output, current.Output),
+		Tiers:      proposed.Tiers,
+	}
+	if len(out.Tiers) == 0 && len(current.Tiers) > 0 {
+		out.Tiers = current.Tiers
+	}
+	return out
 }
 
 func cloneBilling(b *Billing) *Billing {

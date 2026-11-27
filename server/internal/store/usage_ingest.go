@@ -66,7 +66,7 @@ insert into usage_events (
  error_class, error_code, error_message, attempt_count, input_tokens, cached_input_tokens,
  cache_write_tokens, audio_input_tokens, audio_output_tokens, output_tokens,
  reasoning_tokens, total_tokens, cost_usd, price_revision_id, ttft_ms, upstream_ttfb_ms, duration_ms, upstream_duration_ms,
- request_bytes, response_bytes
+ request_bytes, response_bytes, egress_mode, egress_proxy_id
 )
 select e.* from jsonb_to_recordset($1::jsonb) as e (
  event_id uuid, request_id text, occurred_at timestamptz, core_version text, core_instance text,
@@ -76,7 +76,7 @@ select e.* from jsonb_to_recordset($1::jsonb) as e (
  cache_write_tokens bigint, audio_input_tokens bigint, audio_output_tokens bigint,
  output_tokens bigint, reasoning_tokens bigint, total_tokens bigint, cost_usd numeric(14,6), price_revision_id uuid,
  ttft_ms int, upstream_ttfb_ms int, duration_ms int, upstream_duration_ms int, request_bytes bigint,
- response_bytes bigint
+ response_bytes bigint, egress_mode text, egress_proxy_id uuid
 )
 order by e.event_id
 on conflict (event_id) do nothing

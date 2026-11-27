@@ -180,3 +180,28 @@ func TestBuiltinDatasetLoads(t *testing.T) {
 		t.Fatalf("arbitrary source fetch = %v, want ErrSourceNotFound", err)
 	}
 }
+
+func TestPartialSourceRowKeepsConfiguredDimensions(t *testing.T) {
+	currentWrite, currentAudio := 1.25, 3.5
+	price := 0.5
+	dataset := Dataset{Models: []Entry{{SourceModelID: "gpt-4o", Input: &price, Output: &price}}}
+	targets := []Target{{
+		ModelID: "gpt-4o",
+		Current: &Billing{CacheWrite: &currentWrite, AudioIn: &currentAudio, Input: &price},
+		Names:   []string{"gpt-4o"},
+	}}
+	quotes := generateQuotes(dataset, targets)
+	if len(quotes) != 1 || quotes[0].Proposed == nil {
+		t.Fatalf("quote = %+v", quotes)
+	}
+	got := quotes[0].Proposed
+	if got.CacheWrite == nil || *got.CacheWrite != currentWrite {
+		t.Fatalf("cache_write dropped: %+v", got)
+	}
+	if got.AudioIn == nil || *got.AudioIn != currentAudio {
+		t.Fatalf("audio_in dropped: %+v", got)
+	}
+	if quotes[0].Status != StatusSafe {
+		t.Fatalf("status = %s, want safe", quotes[0].Status)
+	}
+}

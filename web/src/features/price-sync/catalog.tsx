@@ -100,11 +100,18 @@ export function PriceSourceCatalogSection() {
   }
 
   function finishDrag() {
+    window.removeEventListener("pointercancel", cancelDrag);
     const pending = drag.current;
     drag.current = null;
     if (!pending) return;
     setPreview({});
     request(pending.next, pending.ids);
+  }
+
+  function cancelDrag() {
+    window.removeEventListener("pointerup", finishDrag);
+    drag.current = null;
+    setPreview({});
   }
 
   function startDrag(row: SourceModel) {
@@ -113,6 +120,7 @@ export function PriceSourceCatalogSection() {
     drag.current = { next, ids: [row.source_model_id] };
     setPreview((value) => ({ ...value, [row.source_model_id]: next }));
     window.addEventListener("pointerup", finishDrag, { once: true });
+    window.addEventListener("pointercancel", cancelDrag, { once: true });
   }
 
   function extendDrag(row: SourceModel) {
@@ -262,7 +270,16 @@ export function PriceSourceCatalogSection() {
           <span className="price-legend-mark">—</span>
           {`”表示来源未提供该维度。阶梯价在 prompt 达到阈值时整份替换基础价。`}
         </p>
-        {catalog.isPending ? (
+        {sources.isError ? (
+          <ErrorState
+            message={errorMessage(sources.error) ?? "加载价格源失败"}
+            onRetry={() => void sources.refetch()}
+          />
+        ) : sources.isSuccess && sources.data.length === 0 ? (
+          <EmptyState title="没有可用的价格源">
+            部署未提供受控价格源；上游价格仍可手工维护。
+          </EmptyState>
+        ) : catalog.isPending ? (
           <Spinner label="正在加载价格源模型" />
         ) : catalog.isError ? (
           <ErrorState

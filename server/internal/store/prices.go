@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math"
 	"time"
 
@@ -55,13 +56,30 @@ func marshalTiers(tiers []PriceTier) ([]byte, error) {
 	if len(tiers) == 0 {
 		return []byte("[]"), nil
 	}
-	return json.Marshal(tiers)
+	// Store the same numeric(14,6) scale the base rates use; the comparison
+	// path already rounds, so persisting raw float64 values would make the
+	// stored ladder differ from the one that was compared.
+	rounded := make([]PriceTier, len(tiers))
+	for i, tier := range tiers {
+		rounded[i] = tier
+		rounded[i].Input = roundedPrice(tier.Input)
+		rounded[i].Cached = roundedPrice(tier.Cached)
+		rounded[i].CacheWrite = roundedPrice(tier.CacheWrite)
+		rounded[i].AudioIn = roundedPrice(tier.AudioIn)
+		rounded[i].AudioOut = roundedPrice(tier.AudioOut)
+		rounded[i].Reasoning = roundedPrice(tier.Reasoning)
+		rounded[i].Output = roundedPrice(tier.Output)
+	}
+	return json.Marshal(rounded)
 }
 
 func unmarshalTiers(raw []byte) []PriceTier {
 	tiers := []PriceTier{}
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &tiers)
+		if err := json.Unmarshal(raw, &tiers); err != nil {
+			slog.Error("price tiers JSON is not a valid tier array", "error", err)
+			return []PriceTier{}
+		}
 	}
 	return tiers
 }
@@ -118,6 +136,28 @@ func samePrice(a, b *float64) bool {
 	return *a == *b
 }
 
+// mergeOptionalBilling preserves the phase-two-only dimensions when a caller
+// sends the phase-one three-price payload. The three original prices keep
+// their explicit-null meaning; only the dimensions that phase one cannot name
+// fall back to the stored profile, and an absent tiers array keeps the ladder
+// while an explicit empty array clears it.
+func mergeOptionalBilling(current Billing, incoming Billing) Billing {
+	pick := func(next, cur *float64) *float64 {
+		if next != nil {
+			return next
+		}
+		return cur
+	}
+	out := incoming
+	out.CacheWrite = pick(incoming.CacheWrite, current.CacheWrite)
+	out.AudioIn = pick(incoming.AudioIn, current.AudioIn)
+	out.AudioOut = pick(incoming.AudioOut, current.AudioOut)
+	out.Reasoning = pick(incoming.Reasoning, current.Reasoning)
+	if out.Tiers == nil {
+		out.Tiers = current.Tiers
+	}
+	return out
+}
 func boolean(p *bool) bool { return p != nil && *p }
 
 // saveModel runs inside SaveModel's audit transaction. A create appends the
@@ -247,6 +287,9 @@ where mp.model_id=$1 and mp.upstream_id=$2 for update of mp`, modelID, upstreamI
 		found := err == nil
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
+		}
+		if found {
+			b = mergeOptionalBilling(current.Billing, b)
 		}
 
 		changed := !found || !sameBilling(current.Billing, b) || current.Locked != locked

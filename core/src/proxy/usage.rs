@@ -13,6 +13,11 @@ pub struct UsageEvent {
     pub core_instance: String,
     pub downstream_key_id: String,
     pub upstream_id: Option<String>,
+    /// 终态尝试的出口；`attempt_count == 0` 的本地错误两者都省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress_proxy_id: Option<String>,
     pub endpoint: String,
     pub requested_model: String,
     pub resolved_model: Option<String>,
@@ -43,6 +48,17 @@ pub struct UsageEvent {
 
 pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
     let tokens = f.usage.unwrap_or_default();
+    // 只记录产生终态那次尝试的出口；`attempt_count == 0` 的本地错误两者都省略。
+    let egress = (f.attempts > 0).then(|| {
+        (
+            if f.egress_proxy_id.is_some() {
+                "proxy"
+            } else {
+                "direct"
+            },
+            f.egress_proxy_id.clone(),
+        )
+    });
     UsageEvent {
         event_id: Uuid::now_v7().to_string(),
         request_id: f.request_id.clone(),
@@ -51,6 +67,8 @@ pub fn assemble(f: &ForwardingFacts, instance: &str) -> UsageEvent {
         core_instance: instance.into(),
         downstream_key_id: f.downstream_key_id.clone(),
         upstream_id: f.upstream_id.clone(),
+        egress_mode: egress.as_ref().map(|(mode, _)| (*mode).to_owned()),
+        egress_proxy_id: egress.and_then(|(_, id)| id),
         endpoint: f.endpoint.clone(),
         requested_model: f.requested_model.clone(),
         resolved_model: f.resolved_model.clone(),

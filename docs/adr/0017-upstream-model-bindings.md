@@ -15,7 +15,7 @@ Status: accepted
 
 ## Consequences
 
-- `server/migrations/00012_upstream_model_bindings.sql` 回填 `coalesce(upstream_model_name, model_id)`，撞名时回退“模型 ID + 上游 ID 前缀”，随后删列并加组合唯一约束。
+- `server/migrations/00014_upstream_model_bindings.sql` 回填 `coalesce(upstream_model_name, model_id)`，撞名时回退“模型 ID + 上游 ID 前缀”，随后删列并加组合唯一约束。
 - 核心配置的 `upstream_models[]` 变为 `{upstream_id, upstream_model_id, model_id, enabled}`；核心发往上游的名字恒为绑定的 `upstream_model_id`。`default_upstream_model` 已由 ADR 0018 整体删除，不再是第二层映射。
 - 候选不再有加权随机，多个候选按稳定顺序逐个尝试；单候选停用改为关开关或禁用上游。
 - 绑定引用成为删除系统模型的阻塞原因；`409` 会列出阻塞的上游模型 ID，方便定位。

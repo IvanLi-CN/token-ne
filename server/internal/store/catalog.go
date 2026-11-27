@@ -215,10 +215,35 @@ func (s *Store) StartCatalogSyncBatch(ctx context.Context) ([]CatalogSyncBatchIt
 			reason := "upstream_deleted"
 			out = append(out, CatalogSyncBatchItem{UpstreamID: id, State: "skipped", Reason: &reason})
 		default:
+			// The claims already committed must not outlive this failed call with a
+			// live lease and no worker. Fail them before propagating the error.
+			for i := range out {
+				if out[i].RunID != nil {
+					_, _ = s.FailCatalogSync(ctx, out[i].UpstreamID, *out[i].RunID, "batch claim aborted before execution")
+				}
+			}
 			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// TouchCatalogSync extends a running run's lease before its fetch starts. The
+// batch endpoint claims every upstream up front but fetches sequentially, so a
+// fixed lease from claim time would expire before later fetches begin.
+func (s *Store) TouchCatalogSync(ctx context.Context, upstreamID, runID string) error {
+	tag, err := s.Pool.Exec(ctx, `
+update upstream_model_sync_runs r
+set lease_until = now() + (greatest(900000, u.connect_timeout_ms + u.first_byte_timeout_ms + 120000)) * interval '1 millisecond'
+from upstreams u
+where r.upstream_id = u.id and r.upstream_id = $1 and r.id = $2 and r.state = 'running'`, upstreamID, runID)
+	if err != nil {
+		return normalize(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCatalogSyncExpired
+	}
+	return nil
 }
 
 // CompleteCatalogSync applies the snapshot and the terminal state in one
@@ -547,8 +572,17 @@ func (s *Store) SaveUpstreamPhaseTwo(ctx context.Context, u Upstream, expected i
 			// so the API can report the field instead of a bare 409.
 			return ErrUpstreamNameTaken
 		}
-		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,capabilities_revision=capabilities_revision+1,updated_at=now() where id=$1"
-		if _, err := tx.Exec(ctx, q, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce); err != nil {
+		if u.EgressProxyID != nil {
+			var bound bool
+			if err := tx.QueryRow(ctx, "select exists(select 1 from egress_proxies where id=$1)", *u.EgressProxyID).Scan(&bound); err != nil {
+				return normalize(err)
+			}
+			if !bound {
+				return &FieldError{Path: "egress_proxy_id", Reason: "referenced egress proxy does not exist", Kind: ErrReference}
+			}
+		}
+		q := "update upstreams set name=$2,kind=$3,base_url=$4,auth_style=$5,api_key_hint=$6,enabled=$7,connect_timeout_ms=$8,first_byte_timeout_ms=$9,idle_timeout_ms=$10,api_key_ciphertext=$11,api_key_nonce=$12,egress_proxy_id=$13,capabilities_revision=capabilities_revision+1,updated_at=now() where id=$1"
+		if _, err := tx.Exec(ctx, q, u.ID, u.Name, u.Kind, u.BaseURL, u.AuthStyle, u.Hint, u.Enabled, u.Connect, u.FirstByte, u.Idle, u.Ciphertext, u.Nonce, u.EgressProxyID); err != nil {
 			return normalize(err)
 		}
 		var err error

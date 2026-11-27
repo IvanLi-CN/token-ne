@@ -626,7 +626,12 @@ export function ModelRouteScopePanel({
     }
   }
   const availableModels = models ?? [];
-  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+  const [rulesVersion, setRulesVersion] = useState(0);
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: queryKeys.modelRoutes });
+    // A saved or deleted rule invalidates any preview derived from the old set.
+    setRulesVersion((version) => version + 1);
+  };
 
   return (
     <>
@@ -828,6 +833,7 @@ export function ModelRouteScopePanel({
       </section>
       {showPreview && (
         <RoutePreviewPanel
+          key={rulesVersion}
           upstreams={upstreams ?? []}
           routes={routes.data ?? []}
           scopeUpstreamId={scopeUpstreamId}

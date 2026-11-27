@@ -5,7 +5,7 @@
 ## Current Status
 
 - Implementation: 第一期全局模型、上游模型绑定和全局计费，以及第二期目录同步、显式导入/绑定、承接策略、名称路由、价格修订、报价审核与三张管理界面均已实现。
-- Binding shape: 绑定是 `(upstream_id, upstream_model_id, model_id, enabled)`；`upstream_model_id` 原样发往上游，`upstream_model_name`/`priority`/`weight` 已从表、配置快照与核心契约中移除（`server/migrations/00012_upstream_model_bindings.sql`）；路由规则的 `priority` 也已换成作用域内 `position`（`server/migrations/00013_scoped_route_positions.sql`）。上游界面为每项同时提供上游模型与系统模型两个可搜索格，保存时才创建尚不存在的系统模型。
+- Binding shape: 绑定是 `(upstream_id, upstream_model_id, model_id, enabled)`；`upstream_model_id` 原样发往上游，`upstream_model_name`/`priority`/`weight` 已从表、配置快照与核心契约中移除（`server/migrations/00014_upstream_model_bindings.sql`）；路由规则的 `priority` 也已换成作用域内 `position`（`server/migrations/00015_scoped_route_positions.sql`）。上游界面为每项同时提供上游模型与系统模型两个可搜索格，保存时才创建尚不存在的系统模型。
 - Lifecycle: active
 - Feature switch: 第二期能力由单一部署开关 `features.second_phase_model_management` 控制（环境变量 `SECOND_PHASE_MODEL_MANAGEMENT`），默认 `false`，由 `GET /api/version` 公开。
 - Catalog note: 开关不隐藏二期端点本身；它决定 `PUT /api/upstreams/{upstream_id}` 是否强制 `capabilities_revision`、上游响应是否带 `capabilities_revision`、模型响应是否带 `billing_state`，以及 Web 是否渲染二期区域。关闭时保留一期载荷与响应形状。

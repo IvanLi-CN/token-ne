@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/IvanLi-CN/token-ne/server/internal/metrics"
 	"github.com/IvanLi-CN/token-ne/server/internal/store"
 	"github.com/IvanLi-CN/token-ne/server/internal/version"
+	"github.com/IvanLi-CN/token-ne/server/internal/xray"
 )
 
 func main() {
@@ -123,11 +125,20 @@ func main() {
 		StateHostDir: os.Getenv("CORE_STATE_HOST_DIR"), CoreURL: controlURL, CoreImage: coreImage, Token: controlToken,
 		SigningKey: snapshots.SigningKey, SignatureMode: snapshots.SignatureMode, CacheKey: os.Getenv("CORE_CACHE_KEY"),
 		AllowPrivateUpstreams: os.Getenv("CORE_ALLOW_PRIVATE_UPSTREAMS"), CurrentVersion: version.Version, CurrentCommit: version.Commit}
+	// Xray is a Compose service the control plane only talks to. The dial is lazy
+	// so a deployment without the egress overlay still starts, and a missing Xray
+	// stays a retried reconcile failure instead of a startup blocker.
+	runtime.Egress = lazyEgress(context.Background(), cfg.XrayAPIURL)
+	runtime.EgressInterval = time.Duration(cfg.XrayReconcileIntervalSeconds) * time.Second
+	runtime.Master = cfg.MasterKey
 	coreHTTP := &cores.HTTP{Runtime: runtime, Token: controlToken, PublicMeta: cores.BrokerMeta()}
 	serviceCtx, stopService := context.WithCancel(context.Background())
 	defer stopService()
 	go runtime.Run(serviceCtx)
 
+	// NewRouterWithUsage registers the management API, the usage ingestion routes
+	// and the egress proxy routes (newRouter always mounts them), so the egress
+	// endpoints stay reachable; the usage variant is the one this binary needs.
 	api := &http.Server{
 		Addr:              cfg.HTTPListen,
 		Handler:           httpapi.NewRouterWithUsage(cfg, repo, registry, cores.Registrar(coreHTTP)),
@@ -166,6 +177,44 @@ func main() {
 	defer cancel()
 	_ = api.Shutdown(shutdownCtx)
 	_ = metrics.Shutdown(shutdownCtx)
+}
+
+// lazyEgress dials the Xray gRPC API on the first reconcile pass. A deployment
+// without the egress overlay has no Xray: startup must not block on it, and the
+// loop's retry is what turns a late Xray into a working one.
+func lazyEgress(ctx context.Context, address string) cores.EgressReconciler {
+	return &lazyEngine{address: address, ctx: ctx}
+}
+
+// lazyEngine dials once and keeps the client. Every failure path returns an
+// empty summary with Unreachable set, so the caller alerts once and retries on
+// the next tick without touching the Xray container.
+type lazyEngine struct {
+	address string
+	ctx     context.Context
+	mu      sync.Mutex
+	engine  *xray.Engine
+	client  *xray.Client
+}
+
+func (l *lazyEngine) StartupReconcile(ctx context.Context, targets []xray.Target) xray.Summary {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.engine == nil {
+		client, err := xray.Dial(l.ctx, l.address, xray.DialOptions{})
+		if err != nil {
+			return xray.Summary{Unreachable: true, Error: err.Error()}
+		}
+		l.client, l.engine = client, xray.NewEngine(client)
+	}
+	summary := l.engine.StartupReconcile(ctx, targets)
+	// A client that lost its connection is rebuilt on the next pass: the engine
+	// is stateless, only the gRPC channel has to be replaced.
+	if summary.Unreachable {
+		_ = l.client.Close()
+		l.client, l.engine = nil, nil
+	}
+	return summary
 }
 
 func splitNetworks(value string) []string {

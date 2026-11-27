@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,7 @@ var features = []string{"chat_completions", "responses", "embeddings", "stream_u
 const (
 	FeatureModelNameRouting    = "model_name_routing"
 	FeatureUpstreamModelPolicy = "upstream_model_policy"
+	FeatureEgressProxy         = "egress_proxy"
 )
 
 func UUID(id string, v7 bool) bool {
@@ -102,6 +104,10 @@ func SnapshotFeatures(body []byte) ([]string, error) {
 	var probe struct {
 		ModelRoutes      []json.RawMessage `json:"model_routes"`
 		UpstreamPolicies []json.RawMessage `json:"upstream_policies"`
+		EgressProxies    []json.RawMessage `json:"egress_proxies"`
+		Upstreams        []struct {
+			EgressProxyID json.RawMessage `json:"egress_proxy_id"`
+		} `json:"upstreams"`
 	}
 	if err := json.Unmarshal(body, &probe); err != nil {
 		return nil, fmt.Errorf("%w: invalid snapshot body", ErrInvalid)
@@ -113,7 +119,24 @@ func SnapshotFeatures(body []byte) ([]string, error) {
 	if len(probe.UpstreamPolicies) > 0 {
 		required = append(required, FeatureUpstreamModelPolicy)
 	}
+	// A bound upstream needs the capability even when egress_proxies is empty:
+	// a core that ignored the binding would route direct.
+	bound := len(probe.EgressProxies) > 0
+	for _, u := range probe.Upstreams {
+		if nonNullJSON(u.EgressProxyID) {
+			bound = true
+		}
+	}
+	if bound {
+		required = append(required, FeatureEgressProxy)
+	}
 	return required, nil
+}
+
+// nonNullJSON reports whether a raw field is present and not JSON null.
+func nonNullJSON(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null"
 }
 
 // RequireSnapshotFeatures verifies that a target instance's declared
@@ -233,6 +256,10 @@ type Snapshot struct {
 	Hash      string
 	Signature string
 	Body      []byte
+	// ProxyBound reports whether the deployment held a proxy-bound upstream when
+	// this snapshot was built. A core that cannot enforce the binding must not
+	// keep a positive weight in that case.
+	ProxyBound bool
 }
 
 func (s Snapshot) Matches(status Status) bool {

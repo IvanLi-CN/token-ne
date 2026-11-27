@@ -328,14 +328,29 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         .get("x-token-ne-config-signature")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    if req
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .is_some_and(|length| length > MAX_CONFIG_BODY as u64)
+    {
+        return control_json_error(
+            &request_id,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+            "configuration body exceeds 8 MiB",
+            Vec::new(),
+        );
+    }
     let body = match axum::body::to_bytes(req.into_body(), MAX_CONFIG_BODY).await {
         Ok(body) => body,
         Err(_) => {
             return control_json_error(
                 &request_id,
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "payload_too_large",
-                "configuration body exceeds 8 MiB",
+                StatusCode::BAD_REQUEST,
+                "malformed_request",
+                "configuration body could not be read",
                 Vec::new(),
             );
         }
@@ -363,13 +378,24 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
             Vec::new(),
         );
     };
-    if header_instance.as_deref() != Some(body_instance) || header_revision != Some(body_revision) {
+    if header_instance.as_deref() != Some(body_instance) {
         return control_json_error(
             &request_id,
             StatusCode::BAD_REQUEST,
             "malformed_request",
             "configuration envelope headers do not match the body",
             vec![json!({"path":"instance_id","reason":"header and body must match"})],
+        );
+    }
+    if header_revision != Some(body_revision) {
+        return control_json_error(
+            &request_id,
+            StatusCode::BAD_REQUEST,
+            "malformed_request",
+            "configuration envelope headers do not match the body",
+            vec![
+                json!({"path":"x-token-ne-config-revision","reason":"header and body must match"}),
+            ],
         );
     }
     if value.get("protocol_version").and_then(Value::as_u64) != Some(1)
@@ -388,12 +414,9 @@ async fn apply_config(State(state): State<ServerState>, req: Request) -> Respons
         .apply(&body, ConfigSource::ControlPlane, signature.as_deref())
     {
         Ok(applied) => {
-            // 幂等重推返回的是首次应用时的快照；ack 仍要反映本次校验结果。
-            let signature_state = state
-                .core
-                .check_signature(&body, ConfigSource::ControlPlane, signature.as_deref())
-                .unwrap_or(applied.signature_state);
-            let signature_state = match signature_state {
+            // apply() verifies this body before the idempotent-return branch, so
+            // the stored state already describes the bytes in this ack.
+            let signature_state = match applied.signature_state {
                 SignatureState::Valid => "valid",
                 SignatureState::Invalid => "invalid",
                 SignatureState::Missing => "missing",

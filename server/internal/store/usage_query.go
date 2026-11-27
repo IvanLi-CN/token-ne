@@ -52,12 +52,16 @@ type RequestSummary struct {
 	PriceRevisionID *string   `json:"price_revision_id"`
 	UpstreamModel   *string   `json:"upstream_model"`
 	UpstreamID      *string   `json:"upstream_id"`
-	Stream          bool      `json:"stream"`
-	HTTPStatus      *int      `json:"http_status"`
-	Outcome         string    `json:"outcome"`
-	AttemptCount    int       `json:"attempt_count"`
-	TTFT            *int      `json:"ttft_ms"`
-	Duration        *int      `json:"duration_ms,omitempty"`
+	// EgressMode and EgressProxyID are the terminal attempt's egress; both are
+	// absent for a phase-one event or an event with no upstream attempt.
+	EgressMode    *string `json:"egress_mode"`
+	EgressProxyID *string `json:"egress_proxy_id"`
+	Stream        bool    `json:"stream"`
+	HTTPStatus    *int    `json:"http_status"`
+	Outcome       string  `json:"outcome"`
+	AttemptCount  int     `json:"attempt_count"`
+	TTFT          *int    `json:"ttft_ms"`
+	Duration      *int    `json:"duration_ms,omitempty"`
 }
 
 type RequestDetail struct {
@@ -67,6 +71,9 @@ type RequestDetail struct {
 	ErrorMessage        *string  `json:"error_message"`
 	InputTokens         *int64   `json:"input_tokens"`
 	CachedInputTokens   *int64   `json:"cached_input_tokens"`
+	CacheWriteTokens    *int64   `json:"cache_write_tokens"`
+	AudioInputTokens    *int64   `json:"audio_input_tokens"`
+	AudioOutputTokens   *int64   `json:"audio_output_tokens"`
 	OutputTokens        *int64   `json:"output_tokens"`
 	ReasoningTokens     *int64   `json:"reasoning_tokens"`
 	TotalTokens         *int64   `json:"total_tokens"`
@@ -144,11 +151,11 @@ func (s *Store) UsageBreakdown(ctx context.Context, r UsageRange, group string) 
 }
 
 const requestColumns = `u.event_id::text,u.request_id,u.occurred_at,u.endpoint,u.requested_model,u.resolved_model,
- u.price_revision_id,u.upstream_model,u.upstream_id::text,u.stream,u.http_status,u.outcome,u.attempt_count,u.ttft_ms,u.duration_ms`
+u.price_revision_id,u.upstream_model,u.upstream_id::text,u.egress_mode,u.egress_proxy_id::text,u.stream,u.http_status,u.outcome,u.attempt_count,u.ttft_ms,u.duration_ms`
 
 func (v *RequestSummary) fields() []any {
 	return []any{&v.EventID, &v.RequestID, &v.OccurredAt, &v.Endpoint, &v.RequestedModel, &v.ResolvedModel,
-		&v.PriceRevisionID, &v.UpstreamModel, &v.UpstreamID, &v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
+		&v.PriceRevisionID, &v.UpstreamModel, &v.UpstreamID, &v.EgressMode, &v.EgressProxyID, &v.Stream, &v.HTTPStatus, &v.Outcome, &v.AttemptCount, &v.TTFT, &v.Duration}
 }
 
 func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSummary, error) {
@@ -178,10 +185,11 @@ func (s *Store) UsageRequests(ctx context.Context, f RequestFilter) ([]RequestSu
 func (s *Store) UsageRequest(ctx context.Context, id string) (RequestDetail, error) {
 	var v RequestDetail
 	err := s.Pool.QueryRow(ctx, `select `+requestColumns+`,pr.source,pr.source_id,error_class,error_code,error_message,input_tokens,cached_input_tokens,
+ cache_write_tokens,audio_input_tokens,audio_output_tokens,
  output_tokens,reasoning_tokens,total_tokens,cost_usd::float8,upstream_ttfb_ms,upstream_duration_ms,
  request_bytes,response_bytes,status_rewritten_from from usage_events u left join price_revisions pr on pr.id=u.price_revision_id where request_id=$1
  order by occurred_at desc,event_id desc limit 1`, id).Scan(append(v.fields(), &v.PriceSource, &v.PriceSourceID, &v.ErrorClass, &v.ErrorCode, &v.ErrorMessage, &v.InputTokens, &v.CachedInputTokens,
-		&v.OutputTokens, &v.ReasoningTokens, &v.TotalTokens, &v.CostUSD, &v.UpstreamTTFB, &v.UpstreamDuration,
+		&v.CacheWriteTokens, &v.AudioInputTokens, &v.AudioOutputTokens, &v.OutputTokens, &v.ReasoningTokens, &v.TotalTokens, &v.CostUSD, &v.UpstreamTTFB, &v.UpstreamDuration,
 		&v.RequestBytes, &v.ResponseBytes, &v.StatusRewrittenFrom)...)
 	v.OccurredAt = v.OccurredAt.UTC()
 	return v, normalize(err)

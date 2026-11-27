@@ -1,3 +1,4 @@
+use super::egress;
 use crate::config::{
     Config, DownstreamKey, MatchType, Model, PolicyAction, Upstream, UpstreamModel,
 };
@@ -32,7 +33,7 @@ pub struct Resolution<'a> {
 pub fn resolve<'a>(config: &'a Config, requested: &str) -> Option<Resolution<'a>> {
     // 请求名与配置 schema、预览接口一致按 256 标量封顶；超长名字若被 Glob
     // 路由接受，用量事件会被 ingest 以 422 拒绝并丢弃，等于无声漏计费。
-    if requested.chars().count() > glob::MAX_CHARS {
+    if requested.trim().is_empty() || requested.chars().count() > glob::MAX_CHARS {
         return None;
     }
     // 校验保证 feature 为 false 时路由为空；这里仍显式短路，避免手工构造的配置绕过语义。
@@ -121,7 +122,7 @@ pub fn candidates<'a>(
             config
                 .upstreams
                 .iter()
-                .find(|u| u.id == r.upstream_id && u.enabled)
+                .find(|u| u.id == r.upstream_id && u.enabled && egress::routable(config, u))
                 .map(|u| Candidate {
                     upstream: u,
                     capability: r,
@@ -148,10 +149,9 @@ pub fn visible_models<'a>(config: &'a Config, key: &DownstreamKey) -> Vec<&'a Mo
                     r.model_id == m.model_id
                         && r.enabled
                         && policy_allows(config, &r.upstream_id, &m.model_id)
-                        && config
-                            .upstreams
-                            .iter()
-                            .any(|u| u.id == r.upstream_id && u.enabled)
+                        && config.upstreams.iter().any(|u| {
+                            u.id == r.upstream_id && u.enabled && egress::routable(config, u)
+                        })
                 })
         })
         .collect()

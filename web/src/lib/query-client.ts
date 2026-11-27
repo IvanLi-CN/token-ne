@@ -11,6 +11,7 @@ export const queryKeys = {
   request: (id: string) => ["requests", "detail", id] as const,
   models: ["models"] as const,
   upstreams: ["upstreams"] as const,
+  egressProxies: ["egress-proxies"] as const,
   modelRoutes: ["model-routes"] as const,
   catalog: (upstreamId: string) => ["upstreams", upstreamId, "catalog"] as const,
   upstreamPolicy: (upstreamId: string) => ["upstreams", upstreamId, "policy"] as const,

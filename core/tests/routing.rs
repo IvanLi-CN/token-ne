@@ -265,6 +265,9 @@ fn resolve_follows_scope_then_position_then_model_id() {
     assert!(routing::resolve(&config, "gpt-4o-mini-retired").is_none());
     assert!(routing::resolve(&config, "Chat-fast").is_none());
     assert!(routing::resolve(&config, "missing").is_none());
+    // 空/纯空白请求名不能被 catch-all Glob 接管，必须与预览一致返回 404。
+    assert!(routing::resolve(&config, "").is_none());
+    assert!(routing::resolve(&config, "   ").is_none());
     // 上游作用域先于全局作用域，并把候选锁定到该上游。
     let scoped = routing::resolve(&config, "restricted").unwrap();
     assert_eq!(scoped.model.model_id, "gpt-4o-mini");
@@ -573,7 +576,8 @@ fn telemetry_declares_phase_two_features() {
             "stream_usage_injection",
             "status_rewrite",
             "model_name_routing",
-            "upstream_model_policy"
+            "upstream_model_policy",
+            "egress_proxy"
         ]
     );
 }

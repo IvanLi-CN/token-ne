@@ -56,10 +56,6 @@ func drainDecision(i instanceRow, now time.Time, timeout time.Duration) string {
 	}
 	return "stop"
 }
-func canPrune(i instanceRow) bool {
-	return i.State == "stopped" && i.Weight == 0 && i.Spool != nil && *i.Spool == 0 && i.Observed != nil
-}
-
 func (r *Runtime) observeDrains(ctx context.Context) error {
 	r.deployMu.Lock()
 	defer r.deployMu.Unlock()
@@ -88,7 +84,14 @@ func (r *Runtime) observeDrains(ctx context.Context) error {
 			i.ZeroSamples = 0
 		}
 		raw, _ := json.Marshal(status)
-		if _, e = r.database().Exec(ctx, `update core_instances set inflight=$2,spool_unacked=$3,zero_samples=$4,observed_at=now(),control_status=$5 where id=$1 and state='draining'`, i.ID, i.Inflight, *i.Spool, i.ZeroSamples, raw); e != nil {
+		// This observation is taken while the instance drains, so a zero spool and
+		// zero inflight here is a valid zero proof; a nonzero one invalidates an
+		// earlier proof and a zero lifts a cleanup block.
+		zeroAt := spoolProof(i.DrainStarted, status, now)
+		if _, e = r.database().Exec(ctx, `update core_instances set inflight=$2,spool_unacked=$3,zero_samples=$4,observed_at=now(),control_status=$5,
+ spool_zero_at=case when $3>0 then null when $6::timestamptz is not null then $6 else spool_zero_at end,
+ cleanup_blocked_at=case when $6::timestamptz is not null then null else cleanup_blocked_at end
+ where id=$1 and state='draining'`, i.ID, i.Inflight, *i.Spool, i.ZeroSamples, raw, zeroAt); e != nil {
 			return e
 		}
 		if drainDecision(i, now, 30*time.Minute) == "stop" {
