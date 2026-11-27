@@ -32,7 +32,7 @@ token-ne 增加一个纯前端 demo 能力，但**不**把它做成生产 bundle
 - **用 Storybook 承担页面演示**：Storybook 没有正式路由、认证引导、真实 transport 和响应式整页布局，只能证明组件状态。
 - **用 MSW service worker 作为首版实现**：需要新增依赖、service worker 生命周期与额外的构建配置；仓库已有可复用的 `window.fetch` 拦截先例（`web/src/features/*/*.visual-fixture.tsx`），首版用薄层更小、更可控。
 - **把 demo 打进 API 镜像并由 Go 提供 demo 回退**：会让演示产物进入发布镜像，违反「demo 不改变生产交付」的前提。
-- **把 demo 挂在生产域名的 `/demo/` 前缀下**：`base=/demo/` 与 router `basename` 会变成两处需要同步的字面量，且 demo 的资源路径与生产 SPA 的路径空间相邻；独立站点用 `base=/` 与派生 basename 消除这类耦合。
+- **把 demo 挂在生产域名的 `/demo/` 前缀下**：demo 会与生产 SPA 共用同一 origin 的路径空间，`/assets/` 与 `/api/` 落在同一命名空间；独立站点把演示流量与生产交付分到不同 origin，前缀也只剩 Vite 的 `base` 一个来源。
 
 ## Related
 

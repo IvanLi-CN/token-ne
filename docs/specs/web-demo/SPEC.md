@@ -56,7 +56,7 @@
 - The demo MUST build as a site of its own: `base=/`, entry document `index.html`, router `basename` derived from the build's `BASE_URL`, and it MUST NOT be embedded into the release image.
 - Inputs: `bun run build:demo` inside `web/`.
 - Outputs: `web/dist-demo` containing a self-contained static bundle whose asset URLs resolve from the site root. `web/demo.html` is the build input; the build MUST emit it as `index.html`, and a single `BASE_URL`-derived basename MUST drive both the router and asset URLs so no second hard-coded prefix can drift. Production `bun run build` continues to emit `web/dist`, which is the only front-end artifact copied into the API image.
-- Compatibility: because the asset URLs are site-absolute, the demo MUST NOT be mounted under a path prefix of the production SPA's origin; sharing that origin would need a second build with a different base, which this requirement rejects.
+- Compatibility: because the asset URLs are site-absolute, mounting the demo under a path prefix of the production SPA's origin is out of scope; the demo is served from its own site root. A differently-rooted deployment stays possible because the router basename follows the build's `BASE_URL`, which remains the only prefix source.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-006
@@ -115,15 +115,15 @@
 
 ### VER-DEMO-004
 
-- Method: demo scene writes exercised through the production mutation surfaces plus the Inspector panel state.
+- Method: `web/src/demo/mock/transport.test.ts` asserts the `MutationRecord` a simulated write appends to `state.mutations`; the Inspector entry list rendering that array is inspected manually on the demo page.
 - covers: `REQ-DEMO-004`
-- Pass condition: the change is visible in the real UI, appears in the `simulated` mutation list, and no request leaves the mock transport.
+- Pass condition: the write appends an identified `simulated` record, no request leaves the mock transport, and the demo page shows the record alongside the change in the real UI. No automated test renders the Inspector mutation list.
 
 ### VER-DEMO-005
 
 - Method: `bun run build:demo` plus `web/src/demo/session.test.tsx` basename assertions.
 - covers: `REQ-DEMO-005`
-- Pass condition: `web/dist-demo` contains `index.html` and no `demo.html`, asset URLs resolve from `/`, the router basename equals the stripped `BASE_URL`, and `bun run build` still emits only `web/dist`.
+- Pass condition: `web/dist-demo` contains `index.html` and no `demo.html`, the build fails instead of emitting a directory without an entry document, asset URLs resolve from `/`, the router basename equals the stripped `BASE_URL`, and `bun run build` still emits only `web/dist`.
 
 ### VER-DEMO-006
 
@@ -133,9 +133,9 @@
 
 ### VER-DEMO-007
 
-- Method: Inspector layout tests at wide, ordinary desktop and narrow viewports.
+- Method: `web/src/demo/inspector/layout.test.ts` for the layout selection and persistence rules; the collapse-to-bubble control is exercised manually.
 - covers: `REQ-DEMO-007`
-- Pass condition: pinned rail collapses to a bubble, ordinary desktop floats, narrow viewports open a drawer, and the choice persists in `localStorage` without entering the URL.
+- Pass condition: wide viewports select the rail, ordinary desktop floats, narrow viewports select the drawer, a stored rail degrades when the viewport cannot hold it, and the choice persists in `localStorage` without entering the URL. The collapse interaction itself has no automated test.
 
 ### VER-DEMO-008
 

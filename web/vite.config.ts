@@ -71,7 +71,11 @@ export default defineConfig(({ mode }) => {
         closeBundle() {
           if (!demo || !demoOutDir) return;
           const emitted = resolve(demoOutDir, "demo.html");
-          if (existsSync(emitted)) renameSync(emitted, resolve(demoOutDir, "index.html"));
+          if (!existsSync(emitted))
+            this.error(
+              `demo build emitted no demo.html in ${demoOutDir}; dist-demo would have no entry document.`,
+            );
+          renameSync(emitted, resolve(demoOutDir, "index.html"));
         },
       },
     ],

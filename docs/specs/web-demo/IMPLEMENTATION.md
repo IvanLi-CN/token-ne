@@ -14,7 +14,7 @@
 - `web/src/demo/mock/auth.ts` 覆盖 `GET /api/auth/me`、`GET /api/auth/config`、`POST /api/auth/login`；`session-expired` 场景在演示登录前返回 401，刷新后重新布防，登录后回到管理面。OIDC 启动端点保持不可用。
 - `web/src/demo/base-path.ts` 从 `import.meta.env.BASE_URL` 派生 `demoBasename`（当前构建为 `/`），并提供 `demoRoutePath()` 剥离 basename；`web/src/demo/entry.tsx` 以该 basename 启动正式 `App`，并在每次 location 变化后把 `demo` 与 `d_*` 合并写回 search，保留其他 query 与 hash。
 - Inspector 的面板形态只存 `localStorage`；写操作标注 `simulated` 并记录在近期变更列表。
-- `web/vite.config.ts` 的 demo 模式使用 `base=/`、`outDir=dist-demo`，`closeBundle` 把 `demo.html` 改名为 `index.html`，并以 `generateBundle` 守卫拒绝生产构建中出现 `src/demo/` 模块。
+- `web/vite.config.ts` 的 demo 模式使用 `base=/`、`outDir=dist-demo`；`closeBundle` 要求产物里存在 `demo.html` 并把它改名为 `index.html`，缺失时 `this.error` 让构建失败而不是产出没有入口文档的目录。`generateBundle` 守卫拒绝生产构建中出现 `src/demo/` 模块。
 
 ## 实现覆盖
 

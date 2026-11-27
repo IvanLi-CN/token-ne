@@ -24,9 +24,11 @@ token-ne 的 Web 管理面只能对着真实控制面运行：`sessionLoader` �
 
 ## 从 `/demo/` 子路径改为独立站点根
 
-初版把 demo 挂在生产域名的 `/demo/` 前缀下：`base=/demo/` 加上 router `basename` 字面量。这使同一个前缀出现在构建配置、路由启动和路径比较三处，任何一处的修改都会静默漂移，而且演示产物与生产 SPA 共享路径空间，和「demo 不占用生产交付」的初衷不一致。
+初版把 demo 挂在生产域名的 `/demo/` 前缀下，外围约束见 [ADR 0016](../../adr/0016-web-demo-runtime.md) 的 rejected alternatives。
 
-现在 demo 是由自己静态站点根路径提供的独立站点：`base=/`，构建输出 `index.html`，router `basename` 由 `import.meta.env.BASE_URL` 派生。前缀只剩一个来源（Vite 的 `base`），路径比较统一走 `demoRoutePath()`。代价是 demo 不能再挂在 API 域名的子路径下试看；要那么做必须另起一个不同 `base` 的构建，而 spec 明确不接受这种双产物。
+现在 demo 是由自己静态站点根路径提供的独立站点：`base=/`，构建输出 `index.html`，router `basename` 由 `import.meta.env.BASE_URL` 派生。这一变更**不向后兼容**：已按 `/demo/` 分享的演示链接失效，且不再支持把 demo 挂在 API 域名的子路径下试看。
+
+`demoRoutePath()` 是场景识别与登录守卫剥离 basename 的唯一入口；`entry.tsx` 里不再有拿原始 `router.state.location.pathname` 直接和场景路径比较的地方。不同 `base` 的构建在代码层面保留了前缀能力，但当前没有任何自动化测试或部署验证覆盖它（Vitest 的 `BASE_URL` 恒为 `/`，不受 `vite.config` 的 `base` 影响），因此该能力属于未验证状态。
 
 同一轮变更更新了 `docs/prd.md` FR-26、`docs/adr/0016-web-demo-runtime.md`、`docs/architecture.md`、`DESIGN.md`、`GLOSSARY.md` 与两处索引。
 

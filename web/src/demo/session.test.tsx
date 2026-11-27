@@ -13,8 +13,12 @@ import { mergeUrlState, mirrorUrlState, readUrlState, seedForeignParams } from "
 let runtime: DemoRuntime | undefined;
 let restore: (() => void) | undefined;
 
+/** The address bar carries the router basename; production routes do not. */
+const addressBar = (route: string) =>
+  demoBasename === "/" ? route : `${demoBasename}${route === "/" ? "" : route}`;
+
 function bootDemo(scene: "overview" | "session-expired", search = "") {
-  window.history.replaceState(null, "", `/${search}`);
+  window.history.replaceState(null, "", `${addressBar("/")}${search}`);
   runtime = createDemoRuntime(scene);
   restore = installMockTransport(runtime.state);
   const router = createBrowserRouter(routes, { basename: demoBasename });
@@ -41,7 +45,11 @@ describe("demo session boundary", () => {
     const router = bootDemo("session-expired");
     // Boot: /api/auth/me answers 401, so the production sessionLoader redirects.
     await screen.findByRole("heading", { name: "管理员登录" }, { timeout: 5000 });
+    // Production route after stripping the build basename; the address bar and
+    // `loginPath`'s `returnTo` must both stay inside it.
     expect(demoRoutePath(router.state.location.pathname)).toBe("/login");
+    expect(window.location.pathname).toBe(addressBar("/login"));
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/");
     expect(runtime?.state.authenticated).toBe(false);
 
     fireEvent.change(await screen.findByLabelText("用户名"), {
@@ -54,6 +62,7 @@ describe("demo session boundary", () => {
 
     await screen.findByRole("heading", { name: "活动概览" }, { timeout: 5000 });
     expect(demoRoutePath(router.state.location.pathname)).toBe("/");
+    expect(window.location.pathname).toBe(addressBar("/"));
     expect(runtime?.state.authenticated).toBe(true);
     expect(document.body.textContent).not.toContain("not-a-real-password");
   });
@@ -113,6 +122,7 @@ describe("demo share state", () => {
       share: { persona: "reviewer", network: "instant", data: "full" },
     });
     const params = new URLSearchParams(window.location.search);
+    expect(window.location.pathname).toBe("/system/cores");
     expect(params.get("keep")).toBe("abc");
     expect(params.get("demo")).toBe("cores");
     expect(params.get("d_persona")).toBe("reviewer");
@@ -126,6 +136,7 @@ describe("demo share state", () => {
       share: { persona: "operator", network: "slow", data: "sparse" },
     });
     const params = new URLSearchParams(window.location.search);
+    expect(window.location.pathname).toBe("/upstreams");
     expect(params.get("keep")).toBe("1");
     expect(params.get("demo")).toBe("upstreams");
     expect(params.get("d_network")).toBe("slow");
