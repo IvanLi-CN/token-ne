@@ -906,7 +906,11 @@ func TestMixedFleetGetsTheShapeEachCoreDeclares(t *testing.T) {
 		v1Version, "v1-"+suffix, v2Version, "v2-"+suffix); err != nil {
 		t.Fatal(err)
 	}
-	declared := `{"features":["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite"]}`
+	// Declare every capability the snapshot may carry. The shared test database can
+	// hold route rules written by other tests, and admission rejects a body whose
+	// content the instance did not claim — so a short feature list here would make
+	// this test fail depending on what ran before it.
+	declared := `{"features":["chat_completions","responses","embeddings","stream_usage_injection","status_rewrite","model_name_routing","upstream_model_policy","egress_proxy"]}`
 	if _, err = s.Pool.Exec(ctx, `insert into core_instances(id,version_id,container_id,container_name,address,state,control_status) values
  ($1,$2,$3,$4,$5,'running',$7::jsonb),($6,$8,$9,$10,$11,'running',$7::jsonb)`,
 		v1Instance, v1Version, "c1-"+suffix, "core1-"+suffix, "core1-"+suffix+":8080",

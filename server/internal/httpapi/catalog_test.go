@@ -378,7 +378,9 @@ func TestUpstreamCatalogImportHTTP(t *testing.T) {
 	env.models = append(env.models, routePattern)
 	// The global scope already holds rules from earlier in this test; take the next
 	// free slot instead of assuming position 0.
-	if _, err := env.store.Pool.Exec(env.ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,(select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null))", uuid.NewString(), routePattern, occupier); err != nil {
+	if _, err := env.store.Pool.Exec(env.ctx, `with locked as (select pg_advisory_xact_lock(hashtextextended(coalesce(null::uuid,'00000000-0000-0000-0000-000000000000'::uuid)::text,0)))
+insert into model_route_rules(id,pattern,match_type,target_model_id,position)
+(select $1,$2,'exact',$3,coalesce((select max(position)+1 from model_route_rules where upstream_id is null),0) from locked)`, uuid.NewString(), routePattern, occupier); err != nil {
 		t.Fatal(err)
 	}
 	w = request(env.router, env.cfg, env.cookie, "POST", "/api/upstreams/"+upstreamID+"/models/import",

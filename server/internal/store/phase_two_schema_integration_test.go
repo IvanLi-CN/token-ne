@@ -329,18 +329,33 @@ from pg_constraint c where c.contype='f' and c.connamespace='public'::regnamespa
 	t.Run("route rule positions are unique inside a scope", func(t *testing.T) {
 		pattern := "exact-" + suffix
 		insertRule := "insert into model_route_rules(id,pattern,match_type,target_model_id,position,enabled) values($1,$2,$3,$4,$5,$6)"
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "exact", modelA, 0, true); e != nil {
-			t.Fatalf("insert exact rule: %v", e)
+		// The shared test database can already hold global rules, so start past them
+		// instead of assuming positions 0..2 are free.
+		var base int
+		if e = s.Pool.QueryRow(ctx, "select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null").Scan(&base); e != nil {
+			t.Fatalf("read next position: %v", e)
 		}
-		// Duplicate patterns are allowed: order decides which one wins.
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "exact", modelA, 1, true); e != nil {
-			t.Fatalf("insert duplicate pattern: %v", e)
+		var ids []string
+		for i := 0; i < 3; i++ {
+			id := uuid.NewString()
+			ids = append(ids, id)
+			match := "exact"
+			if i == 2 {
+				match = "glob"
+			}
+			if _, e = s.Pool.Exec(ctx, insertRule, id, pattern, match, modelA, base+i, true); e != nil {
+				t.Fatalf("insert rule %d: %v", i, e)
+			}
 		}
-		if _, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern, "glob", modelA, 2, true); e != nil {
-			t.Fatalf("insert glob rule sharing pattern: %v", e)
-		}
+		t.Cleanup(func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cleanupCancel()
+			for _, id := range ids {
+				_, _ = s.Pool.Exec(cleanupCtx, "delete from model_route_rules where id=$1", id)
+			}
+		})
 		// The same position inside one scope is the only machine-side conflict.
-		_, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern+"-dup", "exact", modelA, 0, true)
+		_, e = s.Pool.Exec(ctx, insertRule, uuid.NewString(), pattern+"-dup", "exact", modelA, base, true)
 		requirePgError(t, e, "23505", "model_route_rules_scope_position")
 	})
 }

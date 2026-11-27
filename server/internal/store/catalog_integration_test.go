@@ -79,7 +79,9 @@ func TestCatalogSyncSnapshotIntegration(t *testing.T) {
 	routePattern := "p4-route-" + suffix
 	catalogCleanup(t, ctx, s, []string{upstreamID}, []string{modelID}, []string{routePattern})
 	testModel(t, ctx, s, modelID, Billing{})
-	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,(select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null))", uuid.NewString(), routePattern, modelID); err != nil {
+	if _, err := s.Pool.Exec(ctx, `with locked as (select pg_advisory_xact_lock(hashtextextended(coalesce(null::uuid,'00000000-0000-0000-0000-000000000000'::uuid)::text,0)))
+insert into model_route_rules(id,pattern,match_type,target_model_id,position)
+(select $1,$2,'exact',$3,coalesce((select max(position)+1 from model_route_rules where upstream_id is null),0) from locked)`, uuid.NewString(), routePattern, modelID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Pool.Exec(ctx, "insert into upstream_models(upstream_id,upstream_model_id,model_id,enabled) values($1,'provider-b',$2,true)", upstreamID, modelID); err != nil {
@@ -469,7 +471,9 @@ func TestCatalogImportIgnoresRoutePatternIntegration(t *testing.T) {
 	catalogCleanup(t, ctx, s, []string{upstreamID}, []string{target, holder}, []string{target})
 	catalogDiscover(t, ctx, s, upstreamID, catalogModel("provider-name"))
 	testModel(t, ctx, s, holder, Billing{})
-	if _, err := s.Pool.Exec(ctx, "insert into model_route_rules(id,pattern,match_type,target_model_id,position) values($1,$2,'exact',$3,(select coalesce(max(position)+1,0) from model_route_rules where upstream_id is null))", uuid.NewString(), target, holder); err != nil {
+	if _, err := s.Pool.Exec(ctx, `with locked as (select pg_advisory_xact_lock(hashtextextended(coalesce(null::uuid,'00000000-0000-0000-0000-000000000000'::uuid)::text,0)))
+insert into model_route_rules(id,pattern,match_type,target_model_id,position)
+(select $1,$2,'exact',$3,coalesce((select max(position)+1 from model_route_rules where upstream_id is null),0) from locked)`, uuid.NewString(), target, holder); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ImportCatalogModel(ctx, upstreamID, CatalogImport{

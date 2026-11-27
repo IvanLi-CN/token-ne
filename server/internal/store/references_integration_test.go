@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"github.com/IvanLi-CN/token-ne/server/internal/auth"
 	"os"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 			"delete from model_prices where model_id='" + modelID + "'",
 			"delete from upstream_models where model_id='" + modelID + "'",
 			"delete from models where model_id='" + modelID + "'",
+			"delete from price_revisions where model_id='" + modelID + "'",
 			"delete from upstreams where id in ('" + upstreamA + "','" + upstreamB + "')",
 		} {
 			_, _ = s.Pool.Exec(ctx, statement)
@@ -45,7 +47,13 @@ func TestDeleteReportsReferencesIntegration(t *testing.T) {
 	t.Cleanup(cleanup)
 	cleanup()
 	for _, id := range []string{upstreamA, upstreamB} {
-		if _, e = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", id, "ref-upstream-"+id[:8], []byte("cipher"), make([]byte, 12)); e != nil {
+		// A well-formed AES-GCM ciphertext: this row can outlive a failed run, and any
+		// later snapshot build decrypts every upstream in the database.
+		sealed, sealedNonce, sealErr := auth.Encrypt(make([]byte, 32), "sk-ref")
+		if sealErr != nil {
+			t.Fatal(sealErr)
+		}
+		if _, e = s.Pool.Exec(ctx, "insert into upstreams(id,name,base_url,api_key_ciphertext,api_key_nonce,api_key_hint) values($1,$2,'https://example.test',$3,$4,'hint')", id, "ref-upstream-"+id[:8], sealed, sealedNonce); e != nil {
 			t.Fatalf("insert upstream: %v", e)
 		}
 	}
@@ -127,8 +135,18 @@ func TestModelCreateIgnoresRoutePatternsIntegration(t *testing.T) {
 	target := "create-target-" + suffix
 	audit := Audit{Actor: "tester", Action: "test", Payload: []byte(`{}`)}
 	t.Cleanup(func() {
-		_, _ = s.Pool.Exec(ctx, "delete from model_route_rules where id=$1", routeID)
-		_, _ = s.Pool.Exec(ctx, "delete from models where model_id=$1", target)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		// models.billing_revision_id references price_revisions, so the model has to
+		// go before the revision it was billed against; leaving the revision behind
+		// also leaks a row into every later run on a shared test database.
+		for _, step := range []string{
+			"delete from model_route_rules where id='" + routeID + "'",
+			"delete from models where model_id in ('" + target + "','" + alias + "')",
+			"delete from price_revisions where model_id in ('" + target + "','" + alias + "')",
+		} {
+			_, _ = s.Pool.Exec(cleanupCtx, step)
+		}
 	})
 	if _, e = s.Pool.Exec(ctx, `with r as (insert into price_revisions(id,model_id,scope,source,locked) values(gen_random_uuid(),$1,'global','manual',false) returning id)
 insert into models(model_id,enabled,billing_revision_id) select $1,true,id from r`, target); e != nil {
