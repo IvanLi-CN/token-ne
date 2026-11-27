@@ -665,3 +665,71 @@ func TestReplayAfterForcedPruneDoesNotUseTheStaleContainerID(t *testing.T) {
 		t.Fatalf("replay did not return the instance to draining: %v", writes)
 	}
 }
+
+// A row can outlive its container: an operator who removes a stopped core by
+// hand leaves a recorded id that no longer resolves. Restarting it fails with
+// 404, and because the failure keeps the instance stopped, every reconcile pass
+// retries forever — the production symptom is a warning every five seconds and
+// a log that never drains.
+func TestReplayWithAVanishedContainerStopsRetrying(t *testing.T) {
+	now := time.Now().UTC()
+	c := stoppedCandidate(now)
+	c.ContainerID = ptr(uuid.NewString()) // recorded, but the container is gone
+	c.ZeroAt = nil
+	c.Spool = ptr(int64(5))
+	db := pruneDB(c)
+	docker := &fakeDocker{inspectErr: errors.New("No such container")}
+	// The state directory is gone too, so there is nothing left to replay.
+	docker.dirExists = false
+	if e := pruneRuntime(db, docker).replayRetired(context.Background(), c); e != nil {
+		t.Fatalf("replay with a vanished container failed: %v", e)
+	}
+	if docker.starts != 0 {
+		t.Fatalf("starts = %d; a missing container must not be started", docker.starts)
+	}
+	if len(docker.created) != 0 {
+		t.Fatalf("created %d containers; nothing should be rebuilt without a state dir", len(docker.created))
+	}
+	writes := pruneWrites(db)
+	// The row becomes terminal, so the next pass does not pick it up again.
+	if !strings.Contains(writes, "state='pruned'") || !strings.Contains(writes, "pruned_at=now()") {
+		t.Fatalf("a vanished instance was not retired: %v", writes)
+	}
+	// pruneWrites records statement text, not bound arguments, so the reason is
+	// asserted where it lands: the lifecycle_error parameter of that statement.
+	if !strings.Contains(writes, "prune_next_attempt_at=null") {
+		t.Fatalf("the terminal write did not clear the retry schedule: %v", writes)
+	}
+}
+
+// The other half: a vanished container with its state directory still present is
+// recoverable, so the replacement is built from the directory instead of being
+// declared lost.
+func TestReplayRebuildsWhenOnlyTheContainerIsGone(t *testing.T) {
+	now := time.Now().UTC()
+	c := stoppedCandidate(now)
+	c.ContainerID = ptr(uuid.NewString())
+	c.ZeroAt = nil
+	c.Spool = ptr(int64(5))
+	db := pruneDB(c)
+	db.row = func(q string, _ []any) fakeRow {
+		if strings.Contains(q, "select image_ref,image_digest") {
+			return fakeRow{values: []any{"ghcr.io/x/core:0.2.0", nil}}
+		}
+		return fakeRow{values: instanceValues(instanceRow{ID: c.ID, Version: c.Version, VersionID: uuid.NewString(),
+			Name: c.ContainerName, State: "stopped", Deployment: c.Deployment})}
+	}
+	docker := &fakeDocker{inspectErr: errors.New("No such container"), dirExists: true}
+	if e := pruneRuntime(db, docker).replayRetired(context.Background(), c); e != nil {
+		t.Fatalf("rebuild after container loss failed: %v", e)
+	}
+	if len(docker.created) != 1 {
+		t.Fatalf("created = %d, want the replacement built from the state dir", len(docker.created))
+	}
+	if docker.starts != 1 {
+		t.Fatalf("starts = %d, want exactly the one inside restoreContainer", docker.starts)
+	}
+	if strings.Contains(pruneWrites(db), "state='pruned'") {
+		t.Fatal("a recoverable instance was retired")
+	}
+}
