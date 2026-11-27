@@ -821,7 +821,7 @@ server/
 | GET/PUT/DELETE | `/api/models/{model_id}` | 模型详情、编辑（含全局默认价格）及删除 |
 | GET/POST | `/api/upstreams` | 上游列表/新增 |
 | GET/PUT/DELETE | `/api/upstreams/{id}` | 上游详情/编辑/删除；`PUT` 原子替换 `models` 绑定集合 |
-| POST | `/api/upstreams/models/fetch` | 按给定地址与凭据读取上游 `GET /v1/models`，不写库 |
+| POST | `/api/upstreams/models/fetch` | 按给定地址与凭据读取上游 `GET /v1/models`，不写库；编辑态以 `upstream_id` 复用已保存密钥 |
 | GET | `/api/upstreams/{id}/models/catalog` | 查看上游模型目录和 stale 状态 |
 | POST | `/api/upstreams/{id}/models/sync` | 同步单个上游模型目录 |
 | GET | `/api/upstreams/{id}/model-sync-runs/{run_id}` | 查看单个上游模型同步终态 |

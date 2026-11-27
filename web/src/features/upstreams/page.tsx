@@ -98,6 +98,8 @@ function UpstreamEditor({
         base_url: base,
         auth_style: data.get("auth_style") === "api_key" ? "api_key" : "bearer",
         api_key: String(data.get("api_key") ?? "") || null,
+        // 密钥只写不读，编辑态的输入框恒为空；带上 upstream_id 让服务端复用已保存的密钥。
+        ...(upstream ? { upstream_id: upstream.id } : {}),
       });
       setUpstreamModels(result.data);
       if (result.data.length === 0) setFetchError("上游没有返回任何模型。");

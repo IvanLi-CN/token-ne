@@ -896,9 +896,9 @@ paths:
   /api/upstreams/models/fetch:
     post:
       tags: [upstreams]
-      summary: 按未保存的表单读取上游模型列表
+      summary: 按编辑中的表单读取上游模型列表
       operationId: fetchUpstreamModelsFromInput
-      description: 供尚未保存的上游在保存前拿到候选。不写库：`api_key` 只用于本次请求，不存储、不回显。校验规则与保存上游时相同（含私网地址限制）。
+      description: 供尚未保存或编辑中的上游在保存前拿到候选。不写库：`api_key` 只用于本次请求，不存储、不回显。`api_key` 为空或省略时，若给出 `upstream_id`，则复用该上游已保存的密钥、超时与出站代理绑定；提供了 `api_key` 时以它为准。校验规则与保存上游时相同（含私网地址限制）。
       security:
         - cookieAuth: []
       requestBody:
@@ -3399,13 +3399,17 @@ components:
         base_url:
           type: string
           maxLength: 2048
-          description: 与保存上游时相同的限制：不带凭据、查询串或片段；非开发模式下必须是 HTTPS 且不能指向私网或 loopback。
+          description: 与保存上游时相同的限制：不带凭据、查询串或片段；非开发模式下必须是 HTTPS 且不能指向私网或 loopback。编辑态允许与已保存的地址不同（草稿未保存）。
         auth_style:
           type: string
           enum: [bearer, api_key]
         api_key:
           type: [string, "null"]
-          description: 只用于本次请求；即使上游返回失败也不会被存储或回显。缺省表示上游无需凭据。
+          description: 只用于本次请求；即使上游返回失败也不会被存储或回显。非空时覆盖已保存的密钥；空或省略时若给出 `upstream_id` 则复用已保存的密钥，否则表示上游无需凭据。
+        upstream_id:
+          type: [string, "null"]
+          format: uuid
+          description: 正在编辑的上游；仅用于复用已保存的密钥、超时与出站代理绑定。未知 ID 返回 404，格式错误返回 422。
     UpstreamModelImportInput:
       type: object
       required: [upstream_model_id, mode, model_id]

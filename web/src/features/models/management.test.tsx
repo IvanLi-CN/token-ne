@@ -536,6 +536,39 @@ describe("upstreams management", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存上游" }));
     await waitFor(() => expect(created).toHaveLength(0));
   });
+  it("reuses the saved key when fetching the model list while editing", async () => {
+    const { fetch } = stub();
+    fetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (url === "/api/upstreams/models/fetch" && init.method === "POST")
+        return response({ data: ["reported-model"] });
+      return response({
+        data: url === "/api/models" ? [model] : url === "/api/upstreams" ? [upstream] : [],
+      });
+    });
+    mount(UpstreamsPage);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    await screen.findByRole("heading", { name: "上游模型绑定" });
+    // The key field stays blank: it is write-only, so the request must name the row instead.
+    expect((screen.getByLabelText("替换 API Key") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+    await waitFor(() =>
+      expect(fetch.mock.calls.find(([url]) => url === "/api/upstreams/models/fetch")).toBeTruthy(),
+    );
+    const call = fetch.mock.calls.find(([url]) => url === "/api/upstreams/models/fetch");
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      base_url: "https://example.test/v1",
+      upstream_id: "upstream-1",
+      api_key: null,
+    });
+    // The fetched names join the autocomplete, so the fetched result is usable.
+    const region = screen.getByRole("region", { name: "上游模型绑定" });
+    fireEvent.focus(within(region).getByRole("combobox", { name: "上游模型 ID" }));
+    expect(
+      (await within(region).findAllByRole("option")).some((option) =>
+        option.textContent?.includes("reported-model"),
+      ),
+    ).toBe(true);
+  });
   it("fetches the current binding set before disabling and confirms deletion effects", async () => {
     const current = {
       ...upstream,
