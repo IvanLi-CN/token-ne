@@ -63,6 +63,16 @@ pub struct CoreState {
     keys: Mutex<HashMap<String, u64>>,
     pub signature_invalid_total: AtomicU64,
     pub requests_total: AtomicU64,
+    /// Requests whose name matched neither a route rule nor a system model.
+    /// Distinct from `model_not_allowed`, which means the name resolved but the
+    /// key may not use it.
+    pub model_not_found_total: AtomicU64,
+    /// 404s where routing is engaged in the snapshot but this reader was handed
+    /// none of the rules. During a rolling upgrade the control plane renders the
+    /// older shape for cores that predate position, so this counter is the only
+    /// signal that a request failed because the instance is behind, not because
+    /// the operator typed a wrong name.
+    pub route_table_absent_total: AtomicU64,
     spool: Mutex<Option<Arc<Spool>>>,
     pub started_at: DateTime<Utc>,
 }
@@ -77,6 +87,8 @@ impl CoreState {
             keys: Mutex::new(HashMap::new()),
             signature_invalid_total: AtomicU64::new(0),
             requests_total: AtomicU64::new(0),
+            model_not_found_total: AtomicU64::new(0),
+            route_table_absent_total: AtomicU64::new(0),
             spool: Mutex::new(None),
             started_at: Utc::now(),
         })

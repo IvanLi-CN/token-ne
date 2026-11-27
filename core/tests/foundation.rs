@@ -688,3 +688,89 @@ fn identical_revision_keeps_snapshot_identity() {
         .unwrap();
     assert!(Arc::ptr_eq(&first, &second));
 }
+
+// During a rolling upgrade the control plane hands a core that predates
+// `position` a snapshot with the routing capability switched off and no rule
+// list. Requests that depend on a rule then 404, and without a separate counter
+// that is indistinguishable from a caller misspelling a model name. The two
+// counters are the only way an operator can tell a mid-rollout fleet from a
+// genuine client error, so they must be exported and must move independently.
+#[test]
+fn model_not_found_and_route_table_absent_are_separate_signals() {
+    let s = state();
+    let before = token_ne_core::telemetry::metrics(&s);
+    assert!(before.contains("token_ne_core_model_not_found_total 0"));
+    assert!(before.contains("token_ne_core_route_table_absent_total 0"));
+
+    s.model_not_found_total.fetch_add(1, Ordering::Relaxed);
+    let middle = token_ne_core::telemetry::metrics(&s);
+    assert!(middle.contains("token_ne_core_model_not_found_total 1"));
+    // A misspelled name must not look like a routeless instance.
+    assert!(middle.contains("token_ne_core_route_table_absent_total 0"));
+
+    s.route_table_absent_total.fetch_add(1, Ordering::Relaxed);
+    let after = token_ne_core::telemetry::metrics(&s);
+    assert!(after.contains("token_ne_core_model_not_found_total 1"));
+    assert!(after.contains("token_ne_core_route_table_absent_total 1"));
+}
+
+// The counter test above proves the series is exported; this one proves the 404
+// path actually moves it. Both halves matter: a counter wired to nothing looks
+// healthy on a dashboard while the fleet is mid-rollout.
+#[tokio::test]
+async fn an_unknown_model_name_moves_the_not_found_counter() {
+    let s = configured();
+    let app = router(ServerState::new(s.clone(), "control".into()));
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 0);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", "Bearer test-key")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"model":"no-such-model","messages":[]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 1);
+    // The fixture does not enable model_name_routing, which is exactly the shape
+    // a core gets mid-rollout: the 404 lands in both buckets so an operator can
+    // see "this instance cannot resolve names at all" separate from a mistyped
+    // model.
+    assert_eq!(s.route_table_absent_total.load(Ordering::Relaxed), 1);
+}
+
+// The other half: with routing enabled a miss must not be blamed on the rollout.
+#[tokio::test]
+async fn a_miss_under_routing_is_not_counted_as_a_routeless_instance() {
+    let s = configured();
+    let mut f = fixture();
+    f["features"]["model_name_routing"] = true.into();
+    // `configured()` swapped the key hash; a fresh fixture resets it to the
+    // placeholder, so re-apply the digest or the request stops at 401.
+    f["downstream_keys"][0]["sha256"] = hex::encode(Sha256::digest(b"test-key")).into();
+    let next = s.snapshot().unwrap().config.revision + 1;
+    f["revision"] = next.into();
+    s.apply(&bytes(&f), ConfigSource::ControlPlane, None)
+        .unwrap();
+    let app = router(ServerState::new(s.clone(), "control".into()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("authorization", "Bearer test-key")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"model":"no-such-model","messages":[]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(s.model_not_found_total.load(Ordering::Relaxed), 1);
+    assert_eq!(s.route_table_absent_total.load(Ordering::Relaxed), 0);
+}

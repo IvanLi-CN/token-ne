@@ -502,6 +502,21 @@ async fn inference(State(state): State<ServerState>, req: Request) -> Response {
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "upstream_unavailable"),
     };
     let Some(resolution) = routing::resolve(config, &body.model) else {
+        // A 404 has two very different causes and they need separating. When the
+        // config carries no routing capability this reader cannot resolve names
+        // at all — during a rolling upgrade the control plane renders that shape
+        // for cores predating `position`, so a burst here means the fleet is
+        // mid-rollout, not that callers are misspelling model names.
+        state
+            .core
+            .model_not_found_total
+            .fetch_add(1, Ordering::Relaxed);
+        if !config.features.model_name_routing {
+            state
+                .core
+                .route_table_absent_total
+                .fetch_add(1, Ordering::Relaxed);
+        }
         return api_error(StatusCode::NOT_FOUND, "model_not_found");
     };
     // 权限检查使用解析后的全局 Model ID，别名不能绕过 Key 的模型白名单。

@@ -220,6 +220,7 @@ core/src/
 核心在 `CORE_METRICS_LISTEN`（默认 `0.0.0.0:9091`）暴露 Prometheus 文本，只在内网可达：
 
 - 运行态：`token_ne_core_up`、`token_ne_core_inflight_requests`、`token_ne_core_requests_total`、`token_ne_core_config_*`、`token_ne_core_config_signature_invalid_total`。
+- 解析失败：`token_ne_core_model_not_found_total` 统计解析为 `None` 的请求（未知请求名、目标未启用、请求名超长）。`token_ne_core_route_table_absent_total` 是它的子集，只在该实例的能力快照里 `model_name_routing` 关闭时累加。滚动升级期间控制面对 schema `1` 的实例不发送 `model_routes[]`，因此这个子集的突增代表「实例尚未升级」，而不是「调用方拼错了模型名」——两者在父计数器上无法区分。
 - spool：`token_ne_core_spool_*`、`token_ne_core_usage_send_total`、`token_ne_core_usage_replayed_total`。
 - 核心不导出 token、成本或延迟直方图；这些只由 Go 从 usage 事件生成。
 
