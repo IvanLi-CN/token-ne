@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -606,22 +607,38 @@ func renderSchemaOne(c *configBody) error {
 	}
 	c.Models = models
 
-	caps, err := renameJSONFields(c.Capabilities, map[string]string{
-		"upstream_model_id": "upstream_model_name",
-	}, func(m map[string]json.RawMessage) {
+	var items []map[string]json.RawMessage
+	if len(c.Capabilities) > 0 {
+		if err := json.Unmarshal(c.Capabilities, &items); err != nil {
+			return err
+		}
+	}
+	// The candidates arrive ordered by (upstream_id, upstream_model_id), which is
+	// exactly the order v2 tries them and is unique per model. v1 instead sorts by
+	// `priority` and breaks ties by weight — a random draw. Writing the position in
+	// that ordered list as the priority makes the older reader walk the same
+	// sequence: priority is strictly increasing, so no two candidates ever share a
+	// tier and the tie-break never runs. A constant priority would collapse the
+	// ordering into a uniform random choice across upstreams and move live traffic.
+	tier := map[string]int{}
+	for _, m := range items {
+		var modelID string
+		if raw, ok := m["model_id"]; ok {
+			_ = json.Unmarshal(raw, &modelID)
+		}
+		m["priority"] = json.RawMessage(strconv.Itoa(tier[modelID]))
+		tier[modelID]++
+		// Weight only breaks ties inside a tier. One candidate per tier means any
+		// positive value is equivalent, and it keeps v1's `weight > 0` filter happy.
+		m["weight"] = json.RawMessage("100")
 		// The binding's upstream ID becomes the v1 name override; the system model
-		// keeps its own field. v1 wants a priority and a weight for every relation.
+		// keeps its own field.
 		if raw, ok := m["upstream_model_id"]; ok {
 			m["upstream_model_name"] = raw
+			delete(m, "upstream_model_id")
 		}
-		delete(m, "upstream_model_id")
-		if _, ok := m["priority"]; !ok {
-			m["priority"] = json.RawMessage("100")
-		}
-		if _, ok := m["weight"]; !ok {
-			m["weight"] = json.RawMessage("100")
-		}
-	})
+	}
+	caps, err := json.Marshal(items)
 	if err != nil {
 		return err
 	}

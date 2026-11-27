@@ -220,3 +220,73 @@ func TestSchemaOneRenderingKeepsPoliciesAndDropsRoutes(t *testing.T) {
 		t.Fatal("upstream_model_name missing from the schema 1 rendering")
 	}
 }
+
+// v1 orders candidates by `priority` and breaks ties with a weighted random
+// draw, while v2 walks a stable (upstream_id, upstream_model_id) order. The
+// older rendering has to reproduce that walk, not flatten it: a constant
+// priority turns a tiered choice into a uniform one and silently redistributes
+// live traffic across upstreams.
+func TestSchemaOneRenderingReproducesTheV2CandidateOrder(t *testing.T) {
+	body := configBody{
+		Protocol: 1,
+		Schema:   SchemaFloor,
+		Features: map[string]bool{"chat_completions": true},
+		// Already in the SQL's order: upstream_id, then upstream_model_id.
+		Capabilities: json.RawMessage(`[
+			{"upstream_id":"aaa","upstream_model_id":"m-a","model_id":"gpt-5","enabled":true},
+			{"upstream_id":"aaa","upstream_model_id":"m-b","model_id":"gpt-5","enabled":true},
+			{"upstream_id":"bbb","upstream_model_id":"m-c","model_id":"gpt-5","enabled":true},
+			{"upstream_id":"aaa","upstream_model_id":"m-a","model_id":"gpt-4o","enabled":false}
+		]`),
+	}
+	if err := renderSchemaOne(&body); err != nil {
+		t.Fatal(err)
+	}
+	var caps []struct {
+		UpstreamID string `json:"upstream_id"`
+		Name       string `json:"upstream_model_name"`
+		ModelID    string `json:"model_id"`
+		Priority   int    `json:"priority"`
+		Weight     int    `json:"weight"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(body.Capabilities, &caps); err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		upstream, name string
+		priority       int
+		enabled        bool
+	}{
+		{"aaa", "m-a", 0, true},
+		{"aaa", "m-b", 1, true},
+		{"bbb", "m-c", 2, true},
+		// A different model starts its own ranking at 0.
+		{"aaa", "m-a", 0, false},
+	}
+	if len(caps) != len(want) {
+		t.Fatalf("got %d bindings, want %d", len(caps), len(want))
+	}
+	for i, w := range want {
+		c := caps[i]
+		if c.UpstreamID != w.upstream || c.Name != w.name || c.Priority != w.priority || c.Enabled != w.enabled {
+			t.Fatalf("binding %d = %+v, want upstream=%s name=%s priority=%d enabled=%v",
+				i, c, w.upstream, w.name, w.priority, w.enabled)
+		}
+		if c.Weight <= 0 {
+			t.Fatalf("binding %d has weight %d; v1 filters on weight > 0", i, c.Weight)
+		}
+	}
+	// Distinct tiers are what makes the order deterministic: equal priorities
+	// inside one model would hand the choice back to the weighted draw.
+	seen := map[string]map[int]bool{}
+	for _, c := range caps {
+		if seen[c.ModelID] == nil {
+			seen[c.ModelID] = map[int]bool{}
+		}
+		if seen[c.ModelID][c.Priority] {
+			t.Fatalf("model %s reuses priority %d, so the order is no longer fixed", c.ModelID, c.Priority)
+		}
+		seen[c.ModelID][c.Priority] = true
+	}
+}

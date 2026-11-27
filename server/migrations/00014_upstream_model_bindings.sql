@@ -6,8 +6,18 @@
 -- the binding keeps no routing knobs.
 alter table upstream_models add column upstream_model_id text;
 
+-- The v1 reader resolved the outgoing name through three levels:
+--   upstream_model_name -> Model.default_upstream_model -> Model.model_id
+-- The binding must reproduce exactly what v1 was already sending, or an
+-- in-flight request would start reaching a different upstream model the moment
+-- this control plane is deployed. So the middle level is folded in here rather
+-- than silently dropped with the column.
 update upstream_models
-set upstream_model_id = coalesce(nullif(upstream_model_name, ''), model_id);
+set upstream_model_id = coalesce(
+    nullif(upstream_model_name, ''),
+    (select nullif(m.default_upstream_model, '') from models m where m.model_id = upstream_models.model_id),
+    model_id
+);
 
 -- Two real names can collide with a fallback; the upstream ID prefix keeps the
 -- pair unique without inventing a different binding.
@@ -20,6 +30,12 @@ where um.upstream_model_id = um.model_id
       and other.model_id <> um.model_id
       and other.upstream_model_id = um.model_id
   );
+
+-- v1 gated candidates on `enabled AND weight > 0`, so weight 0 was a second,
+-- independent off switch. The binding only keeps `enabled`; folding weight here
+-- prevents a binding an operator had disabled from silently starting to receive
+-- traffic on the first snapshot this control plane renders.
+update upstream_models set enabled = false where weight = 0;
 
 alter table upstream_models
   alter column upstream_model_id set not null,
