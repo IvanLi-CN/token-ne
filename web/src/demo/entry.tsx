@@ -8,6 +8,7 @@ import { loginPath } from "../lib/guards";
 import { queryClient } from "../lib/query-client";
 import "../index.css";
 import "./inspector/demo.css";
+import { demoBasename, demoRoutePath } from "./base-path";
 import { InspectorPanel } from "./inspector/panel";
 import { installMockTransport } from "./mock/transport";
 import { createDemoRuntime, type DemoRuntime } from "./runtime";
@@ -28,11 +29,15 @@ export function mountDemo(rootElement: HTMLElement): DemoRuntime {
   installMockTransport(runtime.state, () => runtime.notify());
   queryClient.clear();
 
-  // Production `routes` on a real browser router: `basename=/demo` keeps the
-  // address bar, so refresh, Back/Forward and copied links keep working.
-  const router = createBrowserRouter(routes, { basename: "/demo" });
+  // Production `routes` on a real browser router seeded from the build's base
+  // keeps the address bar, so refresh, Back/Forward and copied links work.
+  const router = createBrowserRouter(routes, { basename: demoBasename });
   const landing = scenes[runtime.state.scene].path;
-  if (bootState.scene !== "session-expired" && router.state.location.pathname !== landing)
+  // Router pathnames carry the basename; scene paths are production routes.
+  if (
+    bootState.scene !== "session-expired" &&
+    demoRoutePath(router.state.location.pathname) !== landing
+  )
     void router.navigate(landing, { replace: true });
 
   // Production Links carry only `to`; rewrite `demo`/`d_*` after every
@@ -51,7 +56,7 @@ export function mountDemo(rootElement: HTMLElement): DemoRuntime {
       lastScene = scene;
       mirrorUrlState({ scene, share });
       const path = scenes[scene].path;
-      if (router.state.location.pathname !== path) void router.navigate(path);
+      if (demoRoutePath(router.state.location.pathname) !== path) void router.navigate(path);
     } else {
       mirrorUrlState({ scene, share });
     }
@@ -61,8 +66,11 @@ export function mountDemo(rootElement: HTMLElement): DemoRuntime {
   onUnauthorized(() => {
     queryClient.clear();
     const { pathname, search, hash } = router.state.location;
-    if (pathname !== "/login")
-      void router.navigate(loginPath(`${pathname}${search}${hash}`), { replace: true });
+    // `loginPath` only accepts production routes, so the basename comes off
+    // before it reaches `returnTo`.
+    const route = demoRoutePath(pathname);
+    if (route !== "/login")
+      void router.navigate(loginPath(`${route}${search}${hash}`), { replace: true });
   });
 
   window.history.replaceState(

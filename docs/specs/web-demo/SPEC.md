@@ -11,14 +11,15 @@
 ## Terms and Interfaces
 
 - `Demo runtime`：在 React 首次渲染之前安装 mock transport、提供演示身份（`session-expired` 场景在演示登录前返回未认证），并以正式 `routes` 启动的运行时。
-- `Demo build`：`web` 的独立 Vite 构建目标，`base=/demo/`，产物 `web/dist-demo`，不进入 API 镜像。
+- `Demo build`：`web` 的独立 Vite 构建目标，`base=/`，产物 `web/dist-demo` 且入口文档为 `index.html`，不进入 API 镜像。
+- `Demo site`：以自己静态站点根路径提供的 demo 部署；资源 URL 为站点绝对路径，因此不占用生产域名的路径空间。
 - `Scene`：一组可复现的演示数据与初始状态（`overview`、`requests`、`models`、`upstreams`、`keys`、`cores`、`settings`，以及用于登录跳转演练的 `session-expired`）。
 - `Persona`：演示用的管理员身份；只影响 UI 可见文案与权限提示，不产生真实会话。
 - `Share state`：写入 URL query 的可分享状态（persona、network、data 开关），前缀 `d_`；scene 单独使用 `demo=<scene-id>`，不进入 `d_` 组。
 - `Panel layout`：Inspector 的展示形态（pinned rail / floating / drawer / collapsed bubble），**只**存 `localStorage`（沿用 `token-ne.` 前缀，例如 `token-ne.demo.panel`），不进入分享 URL。
 - `Simulated mutation`：只修改内存模型的写操作，必须在 Inspector 中标注并保留近期记录。
-- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、静态托管路径 `/demo` 与 `/demo/**`。
-- `Demo router`：以 `basename=/demo` 启动的正式 `routes`，读写 `window.location` 与 history；不能用只存在于内存的 router，否则 `demo`/`d_*` 无法跨刷新保持。
+- Interfaces: 正式 `web/src/lib/api.ts` 的 `apiRequest`（唯一 fetch 边界）、正式 `web/src/app/router.tsx` 的 `routes`、demo 入口 `web/src/demo/`、`web/src/demo/base-path.ts` 的 basename 派生、demo 站点根路径 `/` 与任意子路径。
+- `Demo router`：以构建的 `BASE_URL` 派生出的 basename 启动的正式 `routes`，读写 `window.location` 与 history；不能用只存在于内存的 router，否则 `demo`/`d_*` 无法跨刷新保持。
 
 ## Requirements
 
@@ -52,9 +53,10 @@
 
 ### REQ-DEMO-005
 
-- The demo MUST build as a separate target with `base=/demo/` and MUST NOT be embedded into the release image.
+- The demo MUST build as a site of its own: `base=/`, entry document `index.html`, router `basename` derived from the build's `BASE_URL`, and it MUST NOT be embedded into the release image.
 - Inputs: `bun run build:demo` inside `web/`.
-- Outputs: `web/dist-demo` containing a self-contained static bundle whose asset URLs resolve under `/demo/`. Production `bun run build` continues to emit `web/dist`, which is the only front-end artifact copied into the API image.
+- Outputs: `web/dist-demo` containing a self-contained static bundle whose asset URLs resolve from the site root. `web/demo.html` is the build input; the build MUST emit it as `index.html`, and a single `BASE_URL`-derived basename MUST drive both the router and asset URLs so no second hard-coded prefix can drift. Production `bun run build` continues to emit `web/dist`, which is the only front-end artifact copied into the API image.
+- Compatibility: because the asset URLs are site-absolute, mounting the demo under a path prefix of the production SPA's origin is out of scope; the demo is served from its own site root. A differently-rooted deployment stays possible because the router basename follows the build's `BASE_URL`, which remains the only prefix source.
 - covers: `../../prd.md#fr-26-纯前端-web-demo`
 
 ### REQ-DEMO-006
@@ -73,10 +75,10 @@
 
 ### REQ-DEMO-008
 
-- Static hosting of `/demo/**` MUST provide deep-link recovery for unknown sub-paths.
-- Inputs: a request for `/demo` or `/demo/` (no sub-path) and for `/demo/<any-known-route>`, including after reload.
-- Outputs: the demo entry document `demo.html` with a `200`, not the host's 404 page. The Vite multi-page build emits `demo.html` under `base=/demo/`, so the host must rewrite (not redirect: a redirect to `/demo/demo.html` would change the pathname and break `basename=/demo`) to that document for `/demo`, `/demo/`, and every `/demo/*` path outside `/demo/assets/`; any request under `/demo/assets/` that does not match an emitted asset MUST return `404`. Renaming it to `index.html` is an alternative only if the build actually emits that name. This is a hosting obligation of the demo host: the API image contains no demo entry document and no demo assets.
-- Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file, including `/demo/**`. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
+- The demo site MUST provide deep-link recovery for every route of the production router.
+- Inputs: a request for `/` and for `/<any-known-route>`, including after reload.
+- Outputs: the demo entry document `index.html` with a `200`, not the host's 404 page. Because the build emits `index.html` at the site root, the host needs no `/`-specific rule: the ordinary SPA contract applies, rewriting (not redirecting: a redirect to `/index.html` would change the pathname and break the root basename) every non-asset path to `index.html`; any request under the asset directory that does not match an emitted asset MUST return `404`. This is a hosting obligation of the demo site: the API image contains no demo entry document and no demo assets.
+- Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
 
 ### REQ-DEMO-009
 
@@ -91,20 +93,67 @@
 - Inputs: scene definitions.
 - Outputs: fixtures MUST NOT contain real credentials, real upstream hostnames, real proxy endpoints, real admin identities, or production usage data.
 
-## Coverage
+## Verification
 
-| Requirement | Surfaces |
-| --- | --- |
-| REQ-DEMO-001 | `web/src/demo/entry.tsx`, `web/src/App.tsx`, `web/src/app/router.tsx` |
-| REQ-DEMO-002 | `web/src/demo/mock/transport.ts` |
-| REQ-DEMO-003 | `web/src/demo/mock/auth.ts`, `web/src/demo/scenes/`（`session-expired`）, `web/src/lib/api.ts`, `web/src/pages/login/index.tsx`, `web/src/app/router.tsx` |
-| REQ-DEMO-004 | `web/src/demo/mock/state.ts`, `web/src/demo/inspector/` |
-| REQ-DEMO-005 | `web/package.json`, `web/vite.config.ts`, `web/demo.html` |
-| REQ-DEMO-006 | `web/src/demo/scenes/`, `web/src/demo/share-state.ts` |
-| REQ-DEMO-007 | `web/src/demo/inspector/panel.tsx` |
-| REQ-DEMO-008 | 托管配置（仓库外或 Pages workflow） |
-| REQ-DEMO-009 | `web/src/main.tsx`, `web/vite.config.ts` |
-| REQ-DEMO-010 | `web/src/demo/scenes/` |
+### VER-DEMO-001
+
+- Method: `web/src/demo/mount.test.tsx` boots the real demo entry and asserts the production shell renders from production `routes`.
+- covers: `REQ-DEMO-001`
+- Pass condition: the entry mounts `App` with `web/src/app/router.tsx` routes and no demo-only route exists in the tree.
+
+### VER-DEMO-002
+
+- Method: `web/src/demo/mock/transport.test.ts`.
+- covers: `REQ-DEMO-002`
+- Pass condition: an unmapped `/api/*` returns a structured error and never reaches the real `fetch`; non-`/api` requests fall through.
+
+### VER-DEMO-003
+
+- Method: `web/src/demo/session.test.tsx` with the `session-expired` scene.
+- covers: `REQ-DEMO-003`
+- Pass condition: boot answers 401 and redirects to the login route; a demo login returns to the shell; a reload re-arms the 401; the typed password never appears in the document.
+
+### VER-DEMO-004
+
+- Method: `web/src/demo/mock/transport.test.ts` asserts the `MutationRecord` a simulated write appends to `state.mutations`; the Inspector entry list rendering that array is inspected manually on the demo page.
+- covers: `REQ-DEMO-004`
+- Pass condition: the write appends an identified `simulated` record, no request leaves the mock transport, and the demo page shows the record alongside the change in the real UI. No automated test renders the Inspector mutation list.
+
+### VER-DEMO-005
+
+- Method: `bun run build:demo` plus `web/src/demo/session.test.tsx` basename assertions.
+- covers: `REQ-DEMO-005`
+- Pass condition: `web/dist-demo` contains `index.html` and no `demo.html`, the build fails instead of emitting a directory without an entry document, asset URLs resolve from `/`, the router basename equals the stripped `BASE_URL`, and `bun run build` still emits only `web/dist`.
+
+### VER-DEMO-006
+
+- Method: `web/src/demo/session.test.tsx` boot, mirror and navigation cases.
+- covers: `REQ-DEMO-006`
+- Pass condition: `demo` and every `d_*` key survive client-side navigation, reload and copied links; foreign query keys and the hash are preserved; no full document reload occurs.
+
+### VER-DEMO-007
+
+- Method: `web/src/demo/inspector/layout.test.ts` for the layout selection and persistence rules; the collapse-to-bubble control is exercised manually.
+- covers: `REQ-DEMO-007`
+- Pass condition: wide viewports select the rail, ordinary desktop floats, narrow viewports select the drawer, a stored rail degrades when the viewport cannot hold it, and the choice persists in `localStorage` without entering the URL. The collapse interaction itself has no automated test.
+
+### VER-DEMO-008
+
+- Method: request `/`, `/` plus a known route, an unknown sub-path and a missing asset against the demo static host.
+- covers: `REQ-DEMO-008`
+- Pass condition: the first three answer `200` with the demo entry document and the pathname is unchanged; a missing asset answers `404`; no demo route or asset is served by the API image.
+
+### VER-DEMO-009
+
+- Method: production `bun run build` with any `web/src/demo/` module reachable from `web/src/main.tsx`.
+- covers: `REQ-DEMO-009`
+- Pass condition: the build fails on the reachable module, `grep -r "demo-scene-" web/dist` returns nothing, and `web/index.html` references no demo entry.
+
+### VER-DEMO-010
+
+- Method: inspection of every scene fixture and mock response.
+- covers: `REQ-DEMO-010`
+- Pass condition: no real credential, upstream hostname, proxy endpoint, admin identity or production usage value is present; identifiers carry the `demo-scene-` prefix.
 
 ## Related ADRs
 

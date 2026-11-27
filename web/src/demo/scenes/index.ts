@@ -1,3 +1,5 @@
+import { demoRoutePath } from "../base-path";
+
 /**
  * Scene registry for the mock-only runtime. Scene ids are the unprefixed
  * `?demo=` values; every fixture identifier built from `fixtureId()` carries the
@@ -49,6 +51,6 @@ export function isSceneId(value: string | null | undefined): value is SceneId {
  * the page it names instead of snapping back to the default scene.
  */
 export function sceneForPath(pathname: string): SceneId | undefined {
-  const relative = pathname.replace(/^\/demo/, "").replace(/\/+$/, "") || "/";
+  const relative = demoRoutePath(pathname).replace(/\/+$/, "") || "/";
   return sceneIds.find((id) => scenes[id].path === relative);
 }

@@ -22,8 +22,18 @@ token-ne 的 Web 管理面只能对着真实控制面运行：`sessionLoader` �
 - `docs/prd.md` FR-26 记录 demo 的产品要求与验收。
 - `docs/README.md` 与 `docs/specs/README.md` 索引本 spec。
 
+## 从 `/demo/` 子路径改为独立站点根
+
+初版把 demo 挂在生产域名的 `/demo/` 前缀下，外围约束见 [ADR 0016](../../adr/0016-web-demo-runtime.md) 的 rejected alternatives。
+
+现在 demo 是由自己静态站点根路径提供的独立站点：`base=/`，构建输出 `index.html`，router `basename` 由 `import.meta.env.BASE_URL` 派生。这一变更**不向后兼容**：已按 `/demo/` 分享的演示链接失效，且不再支持把 demo 挂在 API 域名的子路径下试看。
+
+`demoRoutePath()` 是场景识别与登录守卫剥离 basename 的唯一入口；`entry.tsx` 里不再有拿原始 `router.state.location.pathname` 直接和场景路径比较的地方。不同 `base` 的构建在代码层面保留了前缀能力，但当前没有任何自动化测试或部署验证覆盖它（Vitest 的 `BASE_URL` 恒为 `/`，不受 `vite.config` 的 `base` 影响），因此该能力属于未验证状态。
+
+同一轮变更更新了 `docs/prd.md` FR-26、`docs/adr/0016-web-demo-runtime.md`、`docs/architecture.md`、`DESIGN.md`、`GLOSSARY.md` 与两处索引。
+
 ## 未采纳
 
 - 生产 bundle 的 `?demo=1` 开关；理由见 ADR 0016。
 - MSW service worker 首版实现；`observability.visual-fixture.tsx` 已证明薄 fetch 层足够，且不引入依赖与 SW 生命周期。
-- 把 demo 放进 API 镜像由 Go 提供 `/demo` 回退；会让演示产物进入发布链路。
+- 把 demo 放进 API 镜像由 Go 提供 demo 回退；会让演示产物进入发布链路。

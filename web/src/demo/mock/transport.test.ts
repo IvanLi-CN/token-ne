@@ -44,10 +44,10 @@ describe("demo mock transport", () => {
       return Promise.resolve(new Response("asset", { status: 200 }));
     }) as typeof fetch;
     const { restore } = install();
-    const response = await fetch("/demo/assets/index.js");
+    const response = await fetch("/assets/index.js");
     globalThis.fetch = realFetch;
     restore();
-    expect(seen).toEqual(["/demo/assets/index.js"]);
+    expect(seen).toEqual(["/assets/index.js"]);
     expect(await response.text()).toBe("asset");
   });
 

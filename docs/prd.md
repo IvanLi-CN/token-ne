@@ -72,7 +72,7 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - Web 管理界面：扩展 Models、Upstreams，新增 Prices 页面和目录、策略、路由、报价预览、出站代理区域。
 - 上游出站代理：单个 Xray 实例把常见代理协议转换为项目内部 SOCKS5 端点；上游可绑定出站代理档案，控制面通过 Xray API 管理运行态并自动对账。
 - 出站代理档案管理：新增、编辑、启用、停用、测试和删除代理档案；凭据加密保存，绑定上游的请求、目录同步和测试都使用同一代理。
-- 纯前端 Web demo：独立 `/demo` 构建，复用正式 App、路由与组件，用 mock 运行时提供页面级证据；不进入生产产物。
+- 纯前端 Web demo：独立站点构建，复用正式 App、路由与组件，用 mock 运行时提供页面级证据；不进入生产产物，也不占用生产域名的路径空间。
 
 ### 不包含
 
@@ -522,9 +522,9 @@ token-ne 是一套自部署的 OpenAI 兼容网关与运营工作台，面向需
 - demo 复用正式 `App` 树、正式 `routes`、正式组件与正式 `apiRequest` 调用面；不复制页面、不新增 demo 专用路由、不在正式路由里加 demo 分支。
 - mock 在首次渲染前安装，覆盖全部 `/api/*`；未覆盖的接口返回结构化错误，禁止回退到真实后端。正式会话引导由 mock 的 `GET /api/auth/me` 满足；正式登录页需要的 `GET /api/auth/config`（`local_login_enabled: true`，OIDC 不可用）与 `POST /api/auth/login`（返回同一演示身份）也必须 mock，否则 `session-expired` 场景无法从登录页回到管理面。OIDC 启动端点必须保持不可用，避免产生 `window.fetch` 无法拦截的文档跳转。
 - demo 写操作只修改内存模型并立即在正式 UI 回显；Inspector 标注 `simulated` 并保留近期变更记录；表单中输入的密钥不回显。
-- demo 是独立构建目标：`base=/demo/`，产物 `web/dist-demo`；不进入 API 镜像，不改变生产 `web/dist` 与 `server/Dockerfile` 的嵌入关系。
+- demo 是独立构建目标：`base=/`，产物 `web/dist-demo`，入口文档为 `index.html`；不进入 API 镜像，不改变生产 `web/dist` 与 `server/Dockerfile` 的嵌入关系。因为资源 URL 都是站点绝对路径，demo 必须由自己的静态站点根提供，不能与生产 SPA 共用域名路径空间。
 - 场景与可分享状态写入 URL（`demo=<scene>` 与 `d_*`），切换场景走客户端导航，不整页刷新。正式导航链接只携带路由，因此 demo runtime 必须在每次 location 变化后把 `demo` 与全部 `d_*` 重新写回 URL，保证在任何页面刷新或复制链接都保留场景与分享状态；Inspector 的面板布局只存本地，不进入分享链接。
-- `/demo/**` 由独立静态托管提供深链恢复；Go 的 SPA 回退不为 demo 增加分支，API 域名下 `/demo/**` 继续返回生产 SPA 文档，demo 资源不进入 API 镜像。
+- demo 站点的 `/` 与全部未知子路径由静态托管回退到 `index.html` 完成深链恢复，不使用重定向；Go 的 SPA 回退不为 demo 增加分支，demo 资源不进入 API 镜像。
 - demo 数据全部为合成数据；不得出现真实凭据、真实上游或代理地址、真实管理员身份或生产用量。
 
 **验收**：不启动任何后端，打开 demo 即可看到总览、请求、Models、Upstreams、Downstream Keys 与系统页的真实布局；登录页可用演示身份完成本地登录并进入管理面；在 demo 中修改模型或上游会立即在 UI 回显并标记为模拟；`devtools` 网络面板里没有指向真实后端的 `/api/*` 请求；刷新带 `demo=` 与 `d_*` 的 URL 后场景与分享状态保持；生产构建在 `web/src/demo/` 任一模块被 `web/src/main.tsx` 可达时失败，且 `web/dist` 中不存在 `demo-scene-` 前缀的标识；`server/Dockerfile` 不复制 `web/dist-demo`，嵌入目录只有 `dist`，API 镜像中不存在 demo 入口文档或 demo 资源。
