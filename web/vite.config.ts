@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -16,8 +16,9 @@ const demoLeak = (ids: string[]) =>
 export default defineConfig(({ mode }) => {
   const demo = mode === "demo";
   let versionOutDir = "";
+  let demoOutDir = "";
   return {
-    base: demo ? "/demo/" : "/",
+    base: "/",
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
@@ -57,6 +58,20 @@ export default defineConfig(({ mode }) => {
               : [],
           );
           if (leaked.length > 0) this.error(demoLeak(leaked));
+        },
+      },
+      {
+        // The demo is a site of its own: emit `index.html` so any static host
+        // serves `/` without a rule, leaving only the ordinary SPA rewrite.
+        name: "token-ne-demo-index",
+        apply: "build",
+        configResolved(config) {
+          demoOutDir = resolve(config.root, config.build.outDir);
+        },
+        closeBundle() {
+          if (!demo || !demoOutDir) return;
+          const emitted = resolve(demoOutDir, "demo.html");
+          if (existsSync(emitted)) renameSync(emitted, resolve(demoOutDir, "index.html"));
         },
       },
     ],

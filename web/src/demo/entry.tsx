@@ -8,6 +8,7 @@ import { loginPath } from "../lib/guards";
 import { queryClient } from "../lib/query-client";
 import "../index.css";
 import "./inspector/demo.css";
+import { demoBasename } from "./base-path";
 import { InspectorPanel } from "./inspector/panel";
 import { installMockTransport } from "./mock/transport";
 import { createDemoRuntime, type DemoRuntime } from "./runtime";
@@ -28,9 +29,9 @@ export function mountDemo(rootElement: HTMLElement): DemoRuntime {
   installMockTransport(runtime.state, () => runtime.notify());
   queryClient.clear();
 
-  // Production `routes` on a real browser router: `basename=/demo` keeps the
-  // address bar, so refresh, Back/Forward and copied links keep working.
-  const router = createBrowserRouter(routes, { basename: "/demo" });
+  // Production `routes` on a real browser router seeded from the build's base
+  // keeps the address bar, so refresh, Back/Forward and copied links work.
+  const router = createBrowserRouter(routes, { basename: demoBasename });
   const landing = scenes[runtime.state.scene].path;
   if (bootState.scene !== "session-expired" && router.state.location.pathname !== landing)
     void router.navigate(landing, { replace: true });

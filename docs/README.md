@@ -17,7 +17,7 @@
 - [产品版本发布 Spec](./specs/product-version-release/SPEC.md)：target-only 手动发布、统一版本、不可变身份、latest 部署通道、同版本 core 自动部署和恢复边界。
 - [管理员 OIDC 登录 Spec](./specs/oidc-admin-login/SPEC.md)：Authelia 管理登录、身份绑定、本地登录 break-glass、配置优先级和会话 TTL。
 - [模型与上游管理 Spec](./specs/model-upstream-management/SPEC.md)：上游模型目录、目录绑定、上游承接策略、模型名称路由、价格档案和第三方价格同步边界。
-- [Web Demo Spec](./specs/web-demo/SPEC.md)：正式 App 与路由的 mock-only 运行时、独立 `/demo/` 构建、场景与分享状态、Inspector 和静态深链恢复。
+- [Web Demo Spec](./specs/web-demo/SPEC.md)：正式 App 与路由的 mock-only 运行时、独立站点构建、场景与分享状态、Inspector 和静态深链恢复。
 - [产品版本发布 Runbook](./runbooks/release.md)：手动 target、精确镜像与 latest 验证、失败恢复和禁止事项。
 - [管理员 OIDC 登录 Runbook](./runbooks/admin-oidc.md)：Authelia client、首次绑定、私有 CA、强制下线和 break-glass。
 - [核心升级与回滚 Runbook](./runbooks/upgrade.md)：多版本切换、状态码策略和配置紧急恢复的操作步骤。

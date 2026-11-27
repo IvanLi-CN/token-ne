@@ -33,5 +33,5 @@
 |product-version-release|active|已实现并发布 0.0.3；latest 通道已纳入|`product-version-release/SPEC.md`|-|target-only 手动发布、统一版本、不可变身份与可变部署通道|
 |oidc-admin-login|active|已实现，待实机 Authelia 验证；视觉证据已落盘|`oidc-admin-login/SPEC.md`|-|Authelia 管理面 OIDC、本地登录 break-glass、30 天会话|
 |model-upstream-management|active|两期均已实现；第二期由 `SECOND_PHASE_MODEL_MANAGEMENT` 开启|`model-upstream-management/SPEC.md`|-|上游模型发现、显式绑定、Glob 路由、白名单/黑名单和价格同步|
-|web-demo|active|已实现 mock 运行时、独立构建与 Inspector；静态托管与 Playwright 配置仍缺|`web-demo/SPEC.md`|-|正式 App/路由的 mock-only 运行时、独立 `/demo/` 构建与 Inspector|
+|web-demo|active|已实现 mock 运行时、独立站点构建与 Inspector；静态托管与 Playwright 配置仍缺|`web-demo/SPEC.md`|-|正式 App/路由的 mock-only 运行时、独立站点构建与 Inspector|
 |egress-proxy|active|已实现控制面、core、Xray 对账与用量归属；Compose 通道待 Docker 宿主验证|`egress-proxy/SPEC.md`|-|Xray 单例出站转换、档案对账与核心能力门禁|

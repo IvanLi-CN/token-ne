@@ -19,12 +19,12 @@ describe("demo entry boot", () => {
   it("mirrors the scene into the URL and keeps the login returnTo off the shell", async () => {
     localStorage.clear();
     document.body.innerHTML = '<div id="root"></div>';
-    window.history.replaceState(null, "", "/demo/?demo=session-expired");
+    window.history.replaceState(null, "", "/?demo=session-expired");
     runtime = (await import("./entry")).demoRuntime;
     await screen.findByRole("heading", { name: "管理员登录" }, { timeout: 5000 });
     const login = new URLSearchParams(window.location.search);
     expect(login.get("demo")).toBe("session-expired");
-    expect(window.location.pathname).toBe("/demo/login");
+    expect(window.location.pathname).toBe("/login");
 
     fireEvent.change(await screen.findByLabelText("用户名"), {
       target: { value: "demo-scene-operator" },
@@ -34,7 +34,7 @@ describe("demo entry boot", () => {
 
     await screen.findByRole("heading", { name: "活动概览" }, { timeout: 5000 });
     const shell = new URLSearchParams(window.location.search);
-    expect(window.location.pathname).toBe("/demo");
+    expect(window.location.pathname).toBe("/");
     expect(shell.get("demo")).toBe("session-expired");
     expect(shell.get("d_persona")).toBe("operator");
     expect(shell.get("returnTo")).toBeNull();

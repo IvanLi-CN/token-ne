@@ -90,11 +90,6 @@ export function seedForeignParams(href: string): void {
   seededForeign = foreignParams(href);
 }
 
-/** Router paths carry the `/demo` basename; compare them without it. */
-export function demoRelativePath(pathname: string): string {
-  return pathname.replace(/^\/demo(?=\/|$)/, "") || "/";
-}
-
 /** Non-demo query keys carried by an address bar, in order. */
 function foreignParams(href: string): Array<[string, string]> {
   const url = new URL(href, "https://demo.invalid");

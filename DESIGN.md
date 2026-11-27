@@ -182,7 +182,7 @@
 ## Demo 面
 
 - 与正式管理面共用同一份页面、路由与组件；demo 只替换运行时，不新增演示专用页面。
-- 入口为独立构建产物（`/demo` 与 `/demo/`），生产 `web/dist` 与生产镜像不受影响。
+- 入口为独立站点的构建产物（站点根 `/` 与任意子路径），`base=/`，生产 `web/dist` 与生产镜像不受影响。
 - 首屏即为真实布局；演示身份由 mock 会话满足正式登录引导，不出现伪造的「演示模式」横幅遮住页面。
 - Inspector 覆盖 scene、persona、network、data、simulated actions、share 六组控制：
   - 宽视口在不挤压正式最大版心时可固定为全高左 rail，且必须能收起为 bubble 以回看正常布局；
@@ -199,5 +199,5 @@
 - UI 变更在进入 PR 前按 `ui-visual-evidence` 产出快照，并展示实际页面状态。
 - Vitest 覆盖面板展开/关闭、命令面板、pin 持久化与 reduced-motion 分支；不测试伪造的“行为学习”。
 - 不使用 Storybook 作为第一期交付门槛；组件审查需要时再补故事。
-- 页面级 demo 证据由 `/demo/` 产出；Storybook 若补齐，只承担组件状态 QA，不替代整页验收。
+- 页面级 demo 证据由独立 demo 站点产出；Storybook 若补齐，只承担组件状态 QA，不替代整页验收。
 - demo 交互回归至少覆盖：mock 启动先于渲染、未覆盖接口 fail-closed、模拟写入回显、URL 状态保真、面板三种形态与收起恢复、切换场景不整页刷新。

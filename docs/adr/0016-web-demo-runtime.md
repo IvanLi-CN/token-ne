@@ -11,7 +11,8 @@ token-ne 增加一个纯前端 demo 能力，但**不**把它做成生产 bundle
 具体约束：
 
 - demo 复用正式 `App` 树、正式 `routes`、正式组件与正式 `apiRequest` 调用面；页面代码与生产完全同一份。
-- demo 是独立构建目标：`vite build --mode demo`，`base=/demo/`，产物目录 `web/dist-demo`，与生产 `web/dist` 互不相交。生产镜像继续只嵌入 `dist`。
+- demo 是独立构建目标：`vite build --mode demo`，`base=/`，产物目录 `web/dist-demo`，入口文档为 `index.html`，与生产 `web/dist` 互不相交。生产镜像继续只嵌入 `dist`。
+- demo 是独立站点：资源 URL 为站点绝对路径，因此由自己的静态站点根路径提供，不占用生产域名的路径前缀。路由 `basename` 由构建的 `BASE_URL` 派生，而不是另写一个字面量。
 - mock 采用仓库内薄 fetch 层，在 React 首次渲染之前安装；`/api/*` 未覆盖的请求一律返回失败，**禁止**回退到真实网络。认证边界靠 mock `/api/auth/me` 满足正式 `sessionLoader`，登录页所需的 `GET /api/auth/config` 与 `POST /api/auth/login` 同样由 mock 提供，因此不需要在路由里加 demo 分支。
 - 写操作只修改内存模型并立即在正式 UI 回显，Inspector 标注 `simulated`；不触达真实控制面、PostgreSQL、Docker 或 Xray。
 - 页面级证据由 demo 产出；Storybook 只承担组件级 QA，不替代完整页面验收。
@@ -30,7 +31,8 @@ token-ne 增加一个纯前端 demo 能力，但**不**把它做成生产 bundle
 - **单独复制一套演示页面**：演示与产品行为必然分叉，改完正式页面后 demo 会展示旧行为，页面级证据失去意义。
 - **用 Storybook 承担页面演示**：Storybook 没有正式路由、认证引导、真实 transport 和响应式整页布局，只能证明组件状态。
 - **用 MSW service worker 作为首版实现**：需要新增依赖、service worker 生命周期与额外的构建配置；仓库已有可复用的 `window.fetch` 拦截先例（`web/src/features/*/*.visual-fixture.tsx`），首版用薄层更小、更可控。
-- **把 demo 打进 API 镜像并由 Go 提供 `/demo` 回退**：会让演示产物进入发布镜像，违反「demo 不改变生产交付」的前提。
+- **把 demo 打进 API 镜像并由 Go 提供 demo 回退**：会让演示产物进入发布镜像，违反「demo 不改变生产交付」的前提。
+- **把 demo 挂在生产域名的 `/demo/` 前缀下**：`base=/demo/` 与 router `basename` 会变成两处需要同步的字面量，且 demo 的资源路径与生产 SPA 的路径空间相邻；独立站点用 `base=/` 与派生 basename 消除这类耦合。
 
 ## Related
 

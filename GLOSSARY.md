@@ -185,7 +185,7 @@ _Avoid_: Demo page, mock site, static preview
 _Avoid_: Demo mode flag, mock backend service
 
 **Demo build**:
-`web` 的独立构建目标，输出 `web/dist-demo` 并托管在 `/demo/`；不进入 API 镜像，也不进入生产 `web/dist`。
+`web` 的独立构建目标，输出 `web/dist-demo` 并由自己的静态站点根路径托管；不进入 API 镜像，也不进入生产 `web/dist`。
 _Avoid_: Production demo switch, embedded demo bundle
 
 **Simulated mutation**:
