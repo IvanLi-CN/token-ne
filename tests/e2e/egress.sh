@@ -363,7 +363,7 @@ expect_code "$(call POST /api/auth/login "{\"username\":\"$ADMIN_USER\",\"passwo
 echo "egress: registering the core version and the egress instance"
 CORE_VERSION="$(cd "$ROOT/core" && cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
 [[ -n "$CORE_VERSION" && "$CORE_VERSION" != "null" ]] || fail "cannot read core version"
-expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":1,\"config_schema_max\":1}" "$RESP/version.json")" 201 "register core version" "$RESP/version.json"
+expect_code "$(call POST /api/cores/versions "{\"version\":\"$CORE_VERSION\",\"protocol_version\":1,\"config_schema_min\":2,\"config_schema_max\":2}" "$RESP/version.json")" 201 "register core version" "$RESP/version.json"
 VERSION_ID="$(jq -r '.id' "$RESP/version.json")"
 
 # The egress core is a host process, so its row carries weight 0 and no deployment:
