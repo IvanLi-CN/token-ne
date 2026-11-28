@@ -1,0 +1,132 @@
+name: deploy-demo
+
+# The demo site follows a release but never blocks it: the images, the `latest`
+# channel and the GitHub Release are complete before this workflow starts, and a
+# failure here only leaves the previous demo deployment in place.
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Released tag to publish, for example v0.1.0"
+        required: true
+        type: string
+      base:
+        description: "Site path prefix; use / once a custom domain serves the root"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Resolve release identity
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if [ "${EVENT}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
+            tagname=$(git rev-parse --verify "refs/tags/${tag}^{commit}" 2>/dev/null) || {
+              echo "tag ${tag} does not exist" >&2
+              exit 1
+            }
+            source="${tagname}"
+          else
+            tags=$(git tag --points-at "${RUN_SHA}" --list 'v*')
+            test "$(grep -cE '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"${tags}" || true)" = "1" || {
+              echo "release commit ${RUN_SHA} carries no single final tag: ${tags}" >&2
+              exit 1
+            }
+            tag=$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"${tags}")
+            source="${RUN_SHA}"
+          fi
+          test "$(git rev-list -n 1 "${tag}")" = "${source}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "source=${source}" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Build demo site
+        env:
+          BASE: ${{ inputs.base || '/token-ne/' }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE: ${{ steps.release.outputs.source }}
+          BUILT_AT: ${{ steps.release.outputs.built_at }}
+        run: |
+          set -euo pipefail
+          case "${BASE}" in
+            /*/) ;;
+            *) echo "base must start and end with /: ${BASE}" >&2; exit 1 ;;
+          esac
+          cd web
+          bun install --frozen-lockfile
+          bun run build:demo -- --base="${BASE}"
+          jq -e --arg version "${VERSION}" --arg commit "${SOURCE}" \
+            '.version == $version and .commit == $commit' dist-demo/version.json >/dev/null
+          test -f dist-demo/index.html
+          test -f dist-demo/404.html
+          # Every route the router answers must own a document; the emitted
+          # copies are byte-identical to the entry document.
+          for p in requests models upstreams prices price-sync keys login system \
+                   system/models system/prices system/cores system/settings; do
+            cmp -s dist-demo/index.html "dist-demo/${p}/index.html" || {
+              echo "missing or diverging route document: ${p}" >&2
+              exit 1
+            }
+          done
+          grep -q "src=\"${BASE}assets/" dist-demo/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist-demo
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      - name: Verify the served site
+        env:
+          PAGE_URL: ${{ steps.deploy.outputs.page_url }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "${PAGE_URL}"
+          curl -fsS --retry 5 --retry-delay 3 "${PAGE_URL}version.json" \
+            | jq -e --arg version "${VERSION}" '.version == $version' >/dev/null
+          for p in requests system/models system/cores; do
+            code=$(curl -sSL -o /dev/null -w '%{http_code}' "${PAGE_URL}${p}/")
+            test "${code}" = "200" || { echo "${p}: ${code}" >&2; exit 1; }
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${PAGE_URL}assets/not-emitted.js")
+          test "${code}" = "404" || { echo "missing asset: ${code}" >&2; exit 1; }

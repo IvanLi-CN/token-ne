@@ -78,6 +78,52 @@ curl -fsS https://$PUBLIC_DOMAIN/api/version
 - GitHub Release 只在两个镜像都成功后创建；已存在时跳过重复创建。
 - 不删除 tag、不移动 tag、不重新计算 successor、不生成下一个版本。
 
+## Web demo 站点
+
+demo 站点由 `deploy-demo.yml` 在 release 成功后自动发布，也可以手动重发。它不阻塞发布：镜像、`latest` 与 GitHub Release 都已完成后该 workflow 才开始，失败只会留下上一次的站点。
+
+### 首次启用（一次性人工步骤）
+
+1. 仓库 Settings → Pages → **Build and deployment** → Source 选 **GitHub Actions**。不要选择分支。
+2. 确认 Actions 允许该 workflow 使用 `pages: write` 与 `id-token: write`（job 级已声明）。
+3. 启用之前 `deploy-demo.yml` 会失败，属预期；启用后重跑即可。
+
+### 发布与回滚
+
+```bash
+# 正常：release 成功后自动触发，无需操作
+gh run list --workflow deploy-demo.yml --limit 1
+
+# 重发某个已发布版本（换域名、修站点、回滚）
+gh workflow run deploy-demo.yml -f tag=v0.1.0
+
+# 绑定自定义域名后，让站点以根路径发布
+gh workflow run deploy-demo.yml -f tag=v0.1.0 -f base=/
+```
+
+`base` 默认 `/token-ne/`（项目站点路径）；一旦由自定义域名提供根路径，就显式传 `base=/`，仓库不改。
+
+站点不含历史快照：每次部署整站替换，旧版本只能按 tag 重发。
+
+### 核验
+
+```bash
+BASE=https://ivanli-cn.github.io/token-ne
+curl -fsS "$BASE/version.json" | jq -r .version
+for p in requests system/models system/cores system/settings; do
+  printf '%-18s %s\n' "$p" "$(curl -sSL -o /dev/null -w '%{http_code}' "$BASE/$p/")"
+done
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/assets/not-emitted.js"   # 期望 404
+```
+
+workflow 的 `Verify the served site` 步骤会做同样的检查，失败即报错。
+
+### 禁止事项
+
+- 不要让 demo 部署成为镜像发布的前置条件；两者互不阻塞。
+- 不要手工往 Pages 站点或任何分支提交构建产物；站点只来自 `deploy-demo.yml` 的 artifact。
+- 不要把 `base` 写进源码来适配某个域名。
+
 ## 禁止事项
 
 - 不把 `latest` 当作 release identity、回滚目标或审计事实；`latest` 只是部署通道。

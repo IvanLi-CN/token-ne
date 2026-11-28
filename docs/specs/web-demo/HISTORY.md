@@ -37,3 +37,10 @@ token-ne 的 Web 管理面只能对着真实控制面运行：`sessionLoader` �
 - 生产 bundle 的 `?demo=1` 开关；理由见 ADR 0016。
 - MSW service worker 首版实现；`observability.visual-fixture.tsx` 已证明薄 fetch 层足够，且不引入依赖与 SW 生命周期。
 - 把 demo 放进 API 镜像由 Go 提供 demo 回退；会让演示产物进入发布链路。
+
+## 深链由构建自带的逐路由文档承担
+
+Pages 这类没有重写规则的静态宿主只能按路径找文件，找不到就走站点根 `404.html`。为满足 `REQ-DEMO-008` 的 200，`web/build/demo-route-documents.ts` 在 demo 构建时为 `web/src/app/route-paths.ts` 的每条路由生成与入口文档字节相同的 `index.html`，并额外产出 `404.html`。路由清单不是新事实源：`router.test.tsx` 断言它与 `router.tsx` 一致，漂移会让测试失败。
+
+Pages 对无尾斜杠的目录路径会 301 到带尾斜杠形式，因此 `safeReturnPath` 会归一化结尾斜杠，避免登录后被丢回首页。`deploy-demo.yml` 在部署前逐条 `cmp` 目录文档，并在站点上线后复验路由与缺失资源的状态码。
+

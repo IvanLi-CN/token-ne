@@ -27,7 +27,7 @@
 | `REQ-DEMO-005` | `web/package.json`（`build:demo`）、`web/vite.config.ts`（`token-ne-entry-swap`）、`web/index.html`、`web/src/demo/base-path.ts` | `bun run build:demo` → `dist-demo/index.html` 只挂 demo 入口；`session.test.tsx` 只覆盖默认构建的 basename（`BASE_URL` 恒为 `/`） |
 | `REQ-DEMO-006` | `web/src/demo/share-state.ts`、`web/src/demo/runtime.ts`、`web/src/demo/base-path.ts` | 刷新与客户端导航后保留 `demo`/`d_*` |
 | `REQ-DEMO-007` | `web/src/demo/inspector/` | 面板形态持久化在 `localStorage` |
-| `REQ-DEMO-008` | 托管配置（仓库外） | 未实现，见缺口 |
+| `REQ-DEMO-008` | `web/build/demo-route-documents.ts`、`web/src/app/route-paths.ts`、`web/src/lib/guards.ts` | `router.test.tsx` 断言路由清单与路由表一致、尾斜杠保留返回目标；`.github/workflows/deploy-demo.yml` 在部署前逐条 `cmp` 目录文档 |
 | `REQ-DEMO-009` | `web/vite.config.ts`（`generateBundle` 守卫）、`web/index.html` | `grep -r demo-scene- web/dist` 无输出 |
 | `REQ-DEMO-010` | `web/src/demo/scenes/` | 场景只含合成数据 |
 
@@ -40,15 +40,15 @@
 ## 剩余缺口
 
 - 无 `playwright.config.ts` 与 `web/e2e/`；页面级 demo 证据目前靠一次性浏览器脚本与手工快照。
-- 无 Pages/静态托管：`REQ-DEMO-008` 未满足，demo 站点深链恢复尚无部署实现。本地已验证：以 `dist-demo/index.html` 为回退的根路径静态服务下 `/`、已知路由均返回 200，`/assets/` 下未命中资源返回 404。
+- GitHub Pages 已由 `deploy-demo.yml` 覆盖；首次启用是一次人工步骤（见 `docs/runbooks/release.md`），在此之前该 workflow 会因没有 Pages 站点而失败。本地已验证：以 `dist-demo/404.html` 兜底、目录命中返回 `index.html`、无尾斜杠先 301 的等效静态服务下，13 条已知路由与带尾斜杠形式均 200，未知路径 404，`/assets/` 未命中资源 404。
 - 未做：demo 产物大小预算、CI 中的 `build:demo` 冒烟、Inspector 的 reduced-motion 分支测试。
 
 ## 本地运行
 
 - 生产入口：`cd web && bun run dev`，打开 `http://127.0.0.1:60080/`，`/api`、`/v1` 代理到 `TOKEN_NE_API`（缺省 `http://127.0.0.1:8080`）。
 - demo 入口：`bun run dev:demo`，打开 `http://127.0.0.1:60081/`，带热更新；mock 在渲染前接管 `/api`，不需要控制面。dev server 下 `BASE_URL` 为 `/`，走不到前缀分支。
-- 产物核对：`bun run build:demo` 产出 `web/dist-demo`，需用静态服务器起根部 404 回退（裸 `python3 -m http.server` 不回退）才能走深链；带前缀则 `bun run build:demo -- --base=/token-ne/` 并挂在对应前缀下。
-- 前缀由部署者自行传入；仓库尚无 Pages workflow，托管本身仍属「剩余缺口」里的 `REQ-DEMO-008`。
+- 产物核对：`bun run build:demo` 产出 `web/dist-demo`，其中每条已知路由各有一份与根文档字节相同的 `index.html`，另有 `404.html`；带前缀则 `bun run build:demo -- --base=/token-ne/`，两份文件都从该前缀解析资源。
+- 部署：向 `deploy-demo.yml` 传 tag 即可重发或换前缀，例如 `gh workflow run deploy-demo.yml -f tag=v0.1.0 -f base=/`。
 
 ## 不做什么
 

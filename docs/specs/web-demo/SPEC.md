@@ -79,8 +79,9 @@
 
 - The demo site MUST provide deep-link recovery for every route of the production router.
 - Inputs: a request for `/` and for `/<any-known-route>`, including after reload.
-- Outputs: the demo entry document `index.html` with a `200`, not the host's 404 page. Because the build emits `index.html` at the site root, the host needs no `/`-specific rule: the ordinary SPA contract applies, rewriting (not redirecting: a redirect to `/index.html` would change the pathname and break the root basename) every non-asset path to `index.html`; any request under the asset directory that does not match an emitted asset MUST return `404`. This is a hosting obligation of the demo site: the API image contains no demo entry document and no demo assets.
+- Outputs: the demo entry document, byte-identical at every known route, served with a `200`. The demo build MUST emit one document per route the production router answers, generated from `web/src/app/route-paths.ts`, plus `404.html` for everything else; the route list is asserted against the router by `web/src/app/router.test.tsx`, so it cannot drift into a second source of truth. Rewriting is not required from the host and MUST NOT be assumed: a host that can rewrite may serve the same documents. Any request under the asset directory that does not match an emitted asset MUST return `404`.
 - Compatibility: `server/internal/web/static.go` falls back to the production `index.html` for every path that is not an embedded file. That fallback MUST NOT be treated as demo hosting, and the demo requirement MUST NOT add a demo branch to it; the demo is reached only through its own static host.
+- Compatibility: `safeReturnPath` normalizes a trailing slash, because a host without rewrite rules may answer a directory path by redirecting to the slash form; losing the destination there would break post-login return.
 
 ### REQ-DEMO-009
 
@@ -141,9 +142,9 @@
 
 ### VER-DEMO-008
 
-- Method: request `/`, `/` plus a known route, an unknown sub-path and a missing asset against the demo static host.
+- Method: request `/`, every route in `web/src/app/route-paths.ts` with and without a trailing slash, an unknown sub-path and a missing asset against the demo static host; `web/src/app/router.test.tsx` asserts the route list matches the router and that a trailing slash keeps its return destination.
 - covers: `REQ-DEMO-008`
-- Pass condition: the first three answer `200` with the demo entry document and the pathname is unchanged; a missing asset answers `404`; no demo route or asset is served by the API image.
+- Pass condition: every known route answers `200` with a document byte-identical to the entry document, directly or after the host's trailing-slash redirect, and the pathname stays on that route; an unknown sub-path answer stays out of the spec, and a missing asset answers `404`; no demo route or asset is served by the API image.
 
 ### VER-DEMO-009
 

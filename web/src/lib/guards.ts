@@ -1,17 +1,8 @@
-const routePaths: Record<string, true> = {
-  "/": true,
-  "/requests": true,
-  "/models": true,
-  "/upstreams": true,
-  "/prices": true,
-  "/price-sync": true,
-  "/keys": true,
-  "/system": true,
-  "/system/models": true,
-  "/system/prices": true,
-  "/system/cores": true,
-  "/system/settings": true,
-};
+import { returnPaths } from "../app/route-paths";
+
+const routePaths: Record<string, true> = Object.fromEntries(
+  returnPaths.map((path) => [path, true as const]),
+);
 
 /** Only local, known application routes can be used as a post-login destination. */
 export function safeReturnPath(value: string | null | undefined): string {
@@ -22,8 +13,12 @@ export function safeReturnPath(value: string | null | undefined): string {
   )
     return "/";
   const url = new URL(value, "https://token-ne.invalid");
-  return url.origin === "https://token-ne.invalid" && routePaths[url.pathname]
-    ? `${url.pathname}${url.search}${url.hash}`
+  // GitHub Pages answers a directory route by redirecting to the slash form.
+  // The redirect must not cost the post-login destination, so `/system/models/`
+  // and `/system/models` resolve alike.
+  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
+  return url.origin === "https://token-ne.invalid" && routePaths[pathname]
+    ? `${pathname}${url.search}${url.hash}`
     : "/";
 }
 

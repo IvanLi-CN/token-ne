@@ -9,6 +9,7 @@ import { apiRequest, onUnauthorized } from "../lib/api";
 import { safeReturnPath } from "../lib/guards";
 import { createQueryClient } from "../lib/query-client";
 import { AppProviders } from "./providers";
+import { deployedRoutePaths } from "./route-paths";
 import { routes } from "./router";
 
 const admin = { id: "9b39c7da-619b-4108-b7fa-8f9c5fc1b9e8", username: "operator" };
@@ -298,6 +299,14 @@ describe("shared boundaries", () => {
       return [...self, ...collectRoutePaths(route.children ?? [], absolute)];
     });
   }
+  it("keeps the deployed path list aligned with the route table", () => {
+    expect([...deployedRoutePaths].sort()).toEqual(collectRoutePaths(routes).sort());
+  });
+  it("normalizes a trailing slash before accepting a return destination", () => {
+    expect(safeReturnPath("/system/models/")).toBe("/system/models");
+    expect(safeReturnPath("/requests/?model=abc")).toBe("/requests?model=abc");
+    expect(safeReturnPath("/system/cores/deployments/")).toBe("/");
+  });
   it("keeps return destinations aligned with the route table", () => {
     for (const path of collectRoutePaths(routes)) {
       if (path === "/login") continue;
