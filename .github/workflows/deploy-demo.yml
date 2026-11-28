@@ -12,7 +12,11 @@ on:
     inputs:
       tag:
         description: "Released tag to publish, for example v0.1.0"
-        required: true
+        required: false
+        type: string
+      ref:
+        description: "Ref to build instead of a tag (branch, tag or SHA); for verifying a change before it is released"
+        required: false
         type: string
       base:
         description: "Site path prefix; use / once a custom domain serves the root"
@@ -40,18 +44,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
+          ref: ${{ inputs.ref || (github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha) }}
           fetch-depth: 0
       - name: Resolve release identity
         id: release
         env:
           EVENT: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_REF: ${{ inputs.ref }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           git fetch --force --tags origin
-          if [ "${EVENT}" = "workflow_dispatch" ]; then
+          if [ -n "${INPUT_REF}" ]; then
+            # A ref build is not a release: its identity is the commit it points
+            # at, and the version comes from the newest final tag reachable from
+            # it. Deploying one overwrites the release site, so it is a
+            # deliberate verification step, never a release side effect.
+            source=$(git rev-parse --verify "${INPUT_REF}^{commit}")
+            tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "${source}")
+            # Never dress unreleased code as a release version: the site says
+            # `verify.<sha>` and `version.json` carries the same string.
+            version="verify.${source:0:12}"
+            echo "deploying ${source} for verification" >&2
+          elif [ "${EVENT}" = "workflow_dispatch" ]; then
+            test -n "${INPUT_TAG}" || { echo "pass either tag or ref" >&2; exit 1; }
             tag="${INPUT_TAG}"
             tagname=$(git rev-parse --verify "refs/tags/${tag}^{commit}" 2>/dev/null) || {
               echo "tag ${tag} does not exist" >&2
@@ -67,9 +84,13 @@ jobs:
             tag=$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"${tags}")
             source="${RUN_SHA}"
           fi
-          test "$(git rev-list -n 1 "${tag}")" = "${source}"
+          # A release build must land the exact tag; a verification build only
+          # borrows the nearest tag for its version string.
+          if [ -z "${INPUT_REF}" ]; then
+            test "$(git rev-list -n 1 "${tag}")" = "${source}"
+          fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=${version:-${tag#v}}" >> "$GITHUB_OUTPUT"
           echo "source=${source}" >> "$GITHUB_OUTPUT"
           echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
@@ -105,6 +126,7 @@ jobs:
                    system/models system/prices system/cores system/settings; do
             cmp -s dist-demo/index.html "dist-demo/${p}/index.html" || {
               echo "missing or diverging route document: ${p}" >&2
+              echo "this ref predates the routed-document build; deploy a ref that contains it" >&2
               exit 1
             }
           done
