@@ -333,12 +333,17 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 		Name: "fetch", Kind: "api_key", BaseURL: body.BaseURL, AuthStyle: body.AuthStyle,
 		Connect: 10000, FirstByte: 90000, Idle: 300000,
 	}
-	stored := body.UpstreamID != nil && strings.TrimSpace(*body.UpstreamID) != ""
 	key := ""
 	if body.APIKey != nil {
 		key = strings.TrimSpace(*body.APIKey)
 	}
-	if stored {
+	// A blank key means "use whatever this upstream already saved". A client that
+	// names the row gives it directly; one that does not (an older page still open
+	// in a tab) is matched by origin, which is exactly the condition that makes the
+	// saved credential the right one. Without that fallback the button sent an empty
+	// credential and every auth-requiring provider answered 401.
+	var saved *store.Upstream
+	if body.UpstreamID != nil && strings.TrimSpace(*body.UpstreamID) != "" {
 		id := strings.TrimSpace(*body.UpstreamID)
 		if _, e := uuid.Parse(id); e != nil {
 			fail(w, r, 422, "validation_failed", "invalid upstream reference", detail("upstream_id", "must be a UUID"))
@@ -349,20 +354,32 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 			storageError(w, r, e, "")
 			return
 		}
+		saved = &old
+	} else if key == "" {
+		old, e, ok := a.upstreamByOrigin(r.Context(), u.BaseURL)
+		if e != nil {
+			storageError(w, r, e, "")
+			return
+		}
+		if ok {
+			saved = &old
+		}
+	}
+	if saved != nil {
 		// A saved key belongs to the provider it was saved for. A draft may hold a
 		// different address that is not saved yet, and mailing one provider's secret
 		// to another origin is a leak the admin never agreed to.
-		if key == "" && !sameUpstreamOrigin(u.BaseURL, old.BaseURL) {
+		if key == "" && !sameUpstreamOrigin(u.BaseURL, saved.BaseURL) {
 			fail(w, r, 422, "validation_failed", "the saved API key belongs to another address", detail("api_key", "re-enter the key to read the model list of a different address"))
 			return
 		}
 		// The address stays the form's: it is the one the admin is asking about.
 		// Timeouts, egress binding and credential are the saved row's.
-		u.Connect, u.FirstByte, u.Idle = old.Connect, old.FirstByte, old.Idle
-		u.EgressProxyID = old.EgressProxyID
-		u.Ciphertext, u.Nonce = old.Ciphertext, old.Nonce
+		u.Connect, u.FirstByte, u.Idle = saved.Connect, saved.FirstByte, saved.Idle
+		u.EgressProxyID = saved.EgressProxyID
+		u.Ciphertext, u.Nonce = saved.Ciphertext, saved.Nonce
 	}
-	if key != "" || !stored {
+	if key != "" || saved == nil {
 		ciphertext, nonce, e := auth.Encrypt(a.cfg.MasterKey, key)
 		if e != nil {
 			fail(w, r, 500, "internal_error", "could not prepare the upstream request", nil)
@@ -391,6 +408,24 @@ func (a *API) fetchModelsFromInput(w http.ResponseWriter, r *http.Request) {
 		names = append(names, m.ID)
 	}
 	writeJSON(w, 200, map[string]any{"data": names})
+}
+
+// upstreamByOrigin finds the saved upstream a blank-credential probe is asking
+// about when the client did not name one. Only an exact scheme/host/port match
+// qualifies, so a draft pointed at some other host never receives a saved key.
+// Several rows may share an origin; the first wins so the answer is stable
+// rather than dependent on scan order.
+func (a *API) upstreamByOrigin(ctx context.Context, baseURL string) (store.Upstream, error, bool) {
+	rows, e := a.repo.Upstreams(ctx)
+	if e != nil {
+		return store.Upstream{}, e, false
+	}
+	for _, u := range rows {
+		if sameUpstreamOrigin(baseURL, u.BaseURL) {
+			return u, nil, true
+		}
+	}
+	return store.Upstream{}, nil, false
 }
 
 // fetchUpstreamModels reads <base_url>/v1/models from the upstream. It never
