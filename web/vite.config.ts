@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { demoRouteDocuments } from "./build/demo-route-documents";
 
 const appVersion = process.env.VITE_APP_VERSION || "0.0.0-dev";
 const gitCommit = process.env.VITE_GIT_COMMIT || "unknown";
@@ -58,6 +59,9 @@ export default defineConfig(({ mode }) => {
         demo ? "token-ne demo" : "token-ne",
         demo ? "noindex" : "index, follow",
       ),
+      // The demo is the only build that gets routed documents: production is
+      // embedded in the control plane, which serves its own SPA fallback.
+      ...(demo ? [demoRouteDocuments()] : []),
       {
         name: "token-ne-version-artifact",
         configResolved(config) {

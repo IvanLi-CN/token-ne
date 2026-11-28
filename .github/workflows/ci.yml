@@ -140,6 +140,10 @@ jobs:
         working-directory: web
       - run: bun run build
         working-directory: web
+      # The demo is a separate build target; nothing else builds it, so a break
+      # here would otherwise only surface on release day.
+      - run: bun run build:demo
+        working-directory: web
 
   contracts:
     runs-on: ubuntu-latest
@@ -150,7 +154,7 @@ jobs:
           bun-version: 1.4.5
       - run: bunx --bun @redocly/cli@latest lint openapi.yaml
       - run: python3 -m pip install --user pyyaml
-      - run: python3 -c 'import yaml; yaml.safe_load(open("ops/compose.yaml")); yaml.safe_load(open("ops/prometheus/prometheus.yml")); yaml.safe_load(open("config/status-rewrite.yaml")); yaml.safe_load(open("tests/e2e/compose.override.yaml")); yaml.safe_load(open(".github/workflows/release.yml"))'
+      - run: python3 -c 'import yaml; yaml.safe_load(open("ops/compose.yaml")); yaml.safe_load(open("ops/prometheus/prometheus.yml")); yaml.safe_load(open("config/status-rewrite.yaml")); yaml.safe_load(open("tests/e2e/compose.override.yaml")); yaml.safe_load(open(".github/workflows/release.yml")); yaml.safe_load(open(".github/workflows/deploy-demo.yml"))'
 
   release-policy:
     runs-on: ubuntu-latest
