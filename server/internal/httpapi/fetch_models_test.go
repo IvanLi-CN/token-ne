@@ -115,6 +115,59 @@ func TestFetchUpstreamModelsReusesTheSavedKey(t *testing.T) {
 	}
 }
 
+// A page built before the editor named its upstream still sends only the
+// address. The saved key for that exact origin must still be used, otherwise
+// every tab that was already open keeps answering 401 until it is reloaded.
+func TestFetchUpstreamModelsFallsBackToTheSameOriginRow(t *testing.T) {
+	var gotKey string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("x-api-key")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"legacy-model"}]}`))
+	}))
+	defer provider.Close()
+
+	h, repo, cfg, cookie := testAPI(t)
+	stored := savedUpstream(t, cfg, "api_key", "sk-stored-secret")
+	stored.BaseURL = provider.URL
+	repo.upstreams[stored.ID] = stored
+
+	// Exactly the body an old bundle posts: no upstream_id at all.
+	body := `{"base_url":"` + provider.URL + `","auth_style":"api_key","api_key":null}`
+	w := request(h, cfg, cookie, "POST", "/api/upstreams/models/fetch", body)
+	if w.Code != 200 {
+		t.Fatalf("legacy body: %d %s", w.Code, w.Body.String())
+	}
+	if gotKey != "sk-stored-secret" {
+		t.Fatalf("provider auth = %q, want the saved key", gotKey)
+	}
+	if strings.Contains(w.Body.String(), "sk-stored-secret") {
+		t.Fatal("response echoed the stored credential")
+	}
+	if len(repo.upstreams) != 1 || len(repo.audits) != 0 {
+		t.Fatalf("fetch wrote state: upstreams=%d audits=%d", len(repo.upstreams), len(repo.audits))
+	}
+}
+
+// The origin fallback must not hand a key to an address no saved row holds.
+// Such a probe stays the stateless read the contract promises.
+func TestFetchUpstreamModelsOriginFallbackIgnoresOtherHosts(t *testing.T) {
+	h, repo, cfg, cookie := testAPI(t)
+	stored := savedUpstream(t, cfg, "api_key", "sk-stored-secret")
+	stored.BaseURL = "https://api.example.com"
+	repo.upstreams[stored.ID] = stored
+
+	body := `{"base_url":"https://other.example.org","auth_style":"api_key","api_key":null}`
+	w := request(h, cfg, cookie, "POST", "/api/upstreams/models/fetch", body)
+	// The probe is unauthenticated and the host is unreachable, so it fails as a
+	// provider failure rather than succeeding with somebody else's credential.
+	if w.Code != 502 {
+		t.Fatalf("status %d, want 502: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "sk-stored-secret") {
+		t.Fatal("response echoed the stored credential")
+	}
+}
+
 // A typed key is the one the admin is trying out; it must beat the saved key.
 func TestFetchUpstreamModelsPrefersTheTypedKey(t *testing.T) {
 	var gotKey string
