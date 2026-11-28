@@ -107,6 +107,12 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           SOURCE: ${{ steps.release.outputs.source }}
           BUILT_AT: ${{ steps.release.outputs.built_at }}
+          # `vite.config.ts` reads the version triple under `VITE_` names and
+          # defaults to `0.0.0-dev` / `unknown` without them; the assertion below
+          # compares against the same values, so a missing name fails loudly.
+          VITE_APP_VERSION: ${{ steps.release.outputs.version }}
+          VITE_GIT_COMMIT: ${{ steps.release.outputs.source }}
+          VITE_BUILD_TIMESTAMP: ${{ steps.release.outputs.built_at }}
         run: |
           set -euo pipefail
           case "${BASE}" in
